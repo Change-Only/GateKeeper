@@ -16,7 +16,7 @@
       </el-card></el-col>
       <el-col :span="6"><el-card class="kpi-card" shadow="never">
         <div class="kpi-ico red">⚠️</div>
-        <div class="kpi-main"><div class="kpi-label">安全事件</div><div class="kpi-val" style="color:#c03337">{{ securityEventTotal || 0 }}<span class="unit">起</span></div></div>
+        <div class="kpi-main"><div class="kpi-label">安全事件</div><div class="kpi-val" style="color:#c03337">{{ overview.securityEventCount || 0 }}<span class="unit">起</span></div></div>
       </el-card></el-col>
     </el-row>
 
@@ -80,12 +80,11 @@
  *   - /dashboard/screen/overview|trend|app-rank|interface-rank   既有 screen 端点（未改动）
  *   - /dashboard/todo    待办清单（固定顺序 4 类待处理事项）      ← T06-B 新增消费
  *   - /dashboard/risk    风险看板（按 alert.level 分级，仅未处理）← T06-B 新增消费
- *   - /security/event/list  安全事件 KPI：读取 PageResult 的 total 真实计数
- *                           （overview.securityEventCount 后端并不存在，故不再使用）
+ *   - /dashboard/screen/overview 的 securityEventCount  安全事件 KPI（当日口径，服务端已提供）
  *
  * 任一聚合接口异常时以 0 / 空兜底，不阻塞整体渲染；每 30 秒自动刷新。
  */
-import { getScreenOverview, getScreenTrend, getAppRank, getInterfaceRank, getDashboardTodo, getDashboardRisk, getEventList } from '@/api/modules'
+import { getScreenOverview, getScreenTrend, getAppRank, getInterfaceRank, getDashboardTodo, getDashboardRisk } from '@/api/modules'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
@@ -109,8 +108,6 @@ export default {
       todos: [],
       // 风险看板：由 /dashboard/risk 提供（{high,mid,low}，按告警级别）
       risk: { high: 0, mid: 0, low: 0 },
-      // 安全事件 KPI：由 /security/event/list 的 PageResult.total 提供（真实计数）
-      securityEventTotal: 0,
       loading: false,
       timer: null
     }
@@ -136,8 +133,7 @@ export default {
           this.loadAppRank(),
           this.loadIfaceRank(),
           this.loadTodo(),
-          this.loadRisk(),
-          this.loadSecurityEventCount()
+          this.loadRisk()
         ])
       } finally { this.loading = false }
     },
@@ -158,14 +154,6 @@ export default {
         const d = (res && res.data) || {}
         this.risk = { high: d.high || 0, mid: d.mid || 0, low: d.low || 0 }
       } catch (e) { this.risk = { high: 0, mid: 0, low: 0 } }
-    },
-    // 安全事件 KPI：读 /security/event/list 的 PageResult.total（只取 1 条，拿总数）
-    async loadSecurityEventCount() {
-      try {
-        const res = await getEventList({ current: 1, size: 1 })
-        const page = (res && res.data) || {}
-        this.securityEventTotal = page.total || 0
-      } catch (e) { this.securityEventTotal = 0 }
     },
     async loadTrend() {
       const res = await getScreenTrend()
