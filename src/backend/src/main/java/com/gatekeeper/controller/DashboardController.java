@@ -5,6 +5,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.entity.SecurityEvent;
 import com.gatekeeper.service.DashboardService;
+import com.gatekeeper.vo.RiskVo;
+import com.gatekeeper.vo.TodoItemVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,16 +20,22 @@ import java.util.Map;
  * 数据大屏 + 统计仪表盘 Controller
  *
  * <p>为管理端数据大屏与统计仪表盘提供聚合统计数据，业务模块包括：总体概览、
- * 调用趋势、应用/接口调用排行，以及最近安全事件。
+ * 调用趋势、应用/接口调用排行，以及最近安全事件；T06-A 新增概览页所需的
+ * 待办事项与风险分级两个聚合接口。</p>
  *
- * <p>主要接口路径前缀：{@code /dashboard/screen}
+ * <p>主要接口路径前缀：{@code /dashboard}
  * <ul>
  *   <li>GET /dashboard/screen/overview       总览统计</li>
  *   <li>GET /dashboard/screen/trend          调用趋势</li>
  *   <li>GET /dashboard/screen/app-rank       应用调用排行</li>
  *   <li>GET /dashboard/screen/interface-rank 接口调用排行</li>
  *   <li>GET /dashboard/screen/recent-events  最近安全事件</li>
+ *   <li>GET /dashboard/todo                   概览页待办事项（T06-A）</li>
+ *   <li>GET /dashboard/risk                   概览页风险分级（T06-A）</li>
  * </ul>
+ *
+ * <p>说明：本 Controller 全部端点均<strong>不加</strong> {@code @RequirePerm}，
+ * 与既有 5 个 {@code screen/*} 保持一致（避免「加了注解却不播种权限点 → 恒定 403」）。</p>
  */
 @Slf4j
 @RestController
@@ -91,5 +99,30 @@ public class DashboardController {
     @GetMapping("/screen/recent-events")
     public Result<List<SecurityEvent>> recentEvents() {
         return Result.success(dashboardService.recentEvents());
+    }
+
+    /**
+     * 获取概览页待办事项（T06-A）。
+     *
+     * <p>固定 4 项、顺序固定：待审核接口 / 待审批授权 / 密钥即将过期 / 未处理告警；
+     * 各项 count 由 SQL 预聚合。</p>
+     *
+     * @return 待办事项列表（4 项）
+     */
+    @Operation(summary = "查询概览待办事项")
+    @GetMapping("/todo")
+    public Result<List<TodoItemVo>> todo() {
+        return Result.success(dashboardService.todo());
+    }
+
+    /**
+     * 获取概览页风险三档分级（T06-A）。
+     *
+     * @return 风险分级结果 {high, mid, low}（按 alert.level 统计未处理告警）
+     */
+    @Operation(summary = "查询概览风险分级")
+    @GetMapping("/risk")
+    public Result<RiskVo> risk() {
+        return Result.success(dashboardService.risk());
     }
 }

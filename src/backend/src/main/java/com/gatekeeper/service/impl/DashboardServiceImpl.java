@@ -1,12 +1,22 @@
 package com.gatekeeper.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.gatekeeper.entity.Alert;
 import com.gatekeeper.entity.ApiCallLog;
+import com.gatekeeper.entity.ApiInterface;
+import com.gatekeeper.entity.AppApiGrant;
+import com.gatekeeper.entity.AppCredential;
 import com.gatekeeper.entity.SecurityEvent;
+import com.gatekeeper.mapper.AlertMapper;
+import com.gatekeeper.mapper.ApiInterfaceMapper;
+import com.gatekeeper.mapper.AppApiGrantMapper;
+import com.gatekeeper.mapper.AppCredentialMapper;
 import com.gatekeeper.security.banner.IpBanService;
 import com.gatekeeper.service.CallLogService;
 import com.gatekeeper.service.DashboardService;
 import com.gatekeeper.service.SecurityEventService;
+import com.gatekeeper.vo.RiskVo;
+import com.gatekeeper.vo.TodoItemVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,9 +38,27 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class DashboardServiceImpl implements DashboardService {
 
+    /** 待办口径：密钥到期预警窗口（天） */
+    private static final int CRED_EXPIRE_WARN_DAYS = 30;
+
+    /** 密钥启用中状态 */
+    private static final int CRED_STATUS_ENABLED = 1;
+
+    /** 告警未读状态（计入未处理） */
+    private static final int ALERT_STATUS_UNREAD = 0;
+
+    /** 告警已读未处理状态（计入未处理） */
+    private static final int ALERT_STATUS_READ = 1;
+
     private final CallLogService callLogService;
     private final IpBanService ipBanService;
     private final SecurityEventService securityEventService;
+
+    // ===== T06-A：概览页聚合计数所需 Mapper（SQL 预聚合，避免全表查询） =====
+    private final ApiInterfaceMapper apiInterfaceMapper;
+    private final AppApiGrantMapper appApiGrantMapper;
+    private final AppCredentialMapper appCredentialMapper;
+    private final AlertMapper alertMapper;
 
     /**
      * 统计当日核心指标概览（调用量、成功率、限流/拦截/安全事件/封禁数量）
@@ -180,5 +208,89 @@ public class DashboardServiceImpl implements DashboardService {
         return securityEventService.list(
                 new QueryWrapper<SecurityEvent>()
                         .orderByDesc("occurred_at").last("LIMIT 10"));
+    }
+
+    // =====================================================================
+    // T06-A：概览页待办 / 风险聚合（PRD P0 新增，SQL 预聚合计数）
+    // =====================================================================
+
+    /**
+     * 概览页待办事项 —— 固定 4 项、顺序固定，各 count 均下推到 SQL 聚合。
+     *
+     * <p>计数口径：
+     * <ul>
+     *   <li>{@code api}   api_interface.publish_status = 1（待审核）</li>
+     *   <li>{@code grant} app_api_grant.status = 0（待审批）</li>
+     *   <li>{@code cred}  app_credential.status = 1 且 expire_time 非空且落在 (now, now+30d]</li>
+     *   <li>{@code alarm} alert.status IN (0,1)（未读 / 已读未处理）</li>
+     * </ul>
+     * 使用 {@code selectCount} 生成 {@code SELECT COUNT(*)}，禁止将全表查回内存再 size()。</p>
+     *
+     * @return 4 项待办（顺序：api / grant / cred / alarm）
+     */
+    @Override
+    public List<TodoItemVo> todo() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime horizon = now.plusDays(CRED_EXPIRE_WARN_DAYS); // 30 天到期窗口
+
+        // 待审核接口
+        long apiCount = apiInterfaceMapper.selectCount(
+                new QueryWrapper<ApiInterface>().eq("publish_status", 1));
+
+        // 待审批授权
+        long grantCount = appApiGrantMapper.selectCount(
+                new QueryWrapper<AppApiGrant>().eq("status", 0));
+
+        // 密钥即将过期：启用中 + 有过期时间 + 落在 (now, now+30d]（NULL 与已停用/吊销/过期均不计入）
+        long credCount = appCredentialMapper.selectCount(
+                new QueryWrapper<AppCredential>()
+                        .eq("status", CRED_STATUS_ENABLED)
+                        .isNotNull("expire_time")
+                        .gt("expire_time", now)
+                        .le("expire_time", horizon));
+
+        // 未处理告警（未读 / 已读未处理）
+        long alarmCount = alertMapper.selectCount(
+                new QueryWrapper<Alert>().in("status", ALERT_STATUS_UNREAD, ALERT_STATUS_READ));
+
+        List<TodoItemVo> list = new ArrayList<>(4);
+        list.add(new TodoItemVo("api", "待审核接口", apiCount,
+                "待审核状态（publish_status=1）的接口", "/api/api-list"));
+        list.add(new TodoItemVo("grant", "待审批授权", grantCount,
+                "待审批状态（status=0）的接口授权申请", "/perm/perm-matrix"));
+        list.add(new TodoItemVo("cred", "密钥即将过期", credCount,
+                "30 天内到期且处于启用中（status=1）的密钥", "/app"));
+        list.add(new TodoItemVo("alarm", "未处理告警", alarmCount,
+                "未读或已读未处理（status 为 0/1）的告警", "/mon/mon-alarm"));
+
+        log.debug("Dashboard todo: api={}, grant={}, cred={}, alarm={}",
+                apiCount, grantCount, credCount, alarmCount);
+        return list;
+    }
+
+    /**
+     * 概览页风险三档分级 —— 按 alert.level 对「未处理告警」分级计数。
+     *
+     * <p>level 为字符串枚举 INFO/WARNING/CRITICAL（与真实数据、前端枚举一致）。</p>
+     *
+     * @return {high=CRITICAL 数, mid=WARNING 数, low=INFO 数}
+     */
+    @Override
+    public RiskVo risk() {
+        long high = alertMapper.selectCount(
+                new QueryWrapper<Alert>()
+                        .eq("level", "CRITICAL")
+                        .in("status", ALERT_STATUS_UNREAD, ALERT_STATUS_READ));
+        long mid = alertMapper.selectCount(
+                new QueryWrapper<Alert>()
+                        .eq("level", "WARNING")
+                        .in("status", ALERT_STATUS_UNREAD, ALERT_STATUS_READ));
+        long low = alertMapper.selectCount(
+                new QueryWrapper<Alert>()
+                        .eq("level", "INFO")
+                        .in("status", ALERT_STATUS_UNREAD, ALERT_STATUS_READ));
+
+        log.debug("Dashboard risk: high={}, mid={}, low={}", high, mid, low);
+        return new RiskVo(high, mid, low);
     }
 }
