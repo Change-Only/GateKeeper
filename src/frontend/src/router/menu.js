@@ -29,9 +29,9 @@ export const MENU_TREE = [
   {
     title: '系统设置', icon: 'el-icon-setting', path: '/sys',
     children: [
-      { title: '环境与网关', path: '/sys/sys-env', perm: 'sys:env:list' },
+      { title: '环境与网关', path: '/sys/sys-env', perm: 'env:list' },
       { title: '安全策略', path: '/sys/sys-security', perm: 'sys:security:view' },
-      { title: '业务线管理', path: '/sys/sys-bizline', perm: 'sys:bizline:list' },
+      { title: '业务线管理', path: '/sys/sys-bizline', perm: 'biz_line:list' },
       { title: '字典管理', path: '/sys/sys-dict', perm: 'sys:dict:update' },
       { title: '告警规则', path: '/sys/sys-alarm', perm: 'sys:alarm:update' },
       { title: '通知渠道', path: '/sys/sys-notify', perm: 'sys:notify:list' },
