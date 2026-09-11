@@ -55,8 +55,8 @@
       </template>
       <template #actions="{row}">
         <el-button v-if="row.status === 0" type="text" size="mini" @click="onRead(row)">标记已读</el-button>
-        <el-button v-if="row.status === 0 || row.status === 1" type="text" size="mini" @click="onHandle(row, 2)">已处理</el-button>
-        <el-button v-if="row.status === 0 || row.status === 1" type="text" size="mini" @click="onHandle(row, 3)">忽略</el-button>
+        <PermButton v-if="row.status === 0 || row.status === 1" perm="alarm:handle" type="text" size="mini" @click="onHandle(row, 2)">已处理</PermButton>
+        <PermButton v-if="row.status === 0 || row.status === 1" perm="alarm:handle" type="text" size="mini" @click="onHandle(row, 3)">忽略</PermButton>
         <span v-if="row.status === 2 || row.status === 3" class="done-text">已办结</span>
       </template>
     </CrudTable>

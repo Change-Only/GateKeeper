@@ -160,7 +160,8 @@ export default {
     },
     async rotate(row) {
       try {
-        const res = await rotateAppCredential(row.id)
+        // 后端接 @RequestBody CredentialRotateRequest{ appId, envCode }，不是 path 上的 id
+        const res = await rotateAppCredential({ appId: row.appId, envCode: row.envCode })
         const dto = res.data || {}
         this.secretInfo = { envCode: dto.envCode, appKey: dto.appKey, appSecret: dto.appSecret }
         this.secretVisible = true
@@ -171,7 +172,7 @@ export default {
     completeRotate(row) {
       this.$confirm('确认完成轮换？新密钥转正、旧密钥作废。', '完成轮换', { type: 'warning' }).then(async () => {
         try {
-          await completeRotateAppCredential(row.id)
+          await completeRotateAppCredential({ appId: row.appId, envCode: row.envCode })
           this.$message.success('轮换完成')
           this.reload()
         } catch (e) { /* 拦截器已提示 */ }

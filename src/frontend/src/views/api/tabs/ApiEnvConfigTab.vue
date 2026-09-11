@@ -27,8 +27,8 @@
         <StatusTag entity="apiEnvConfig" :value="row.configStatus" />
       </template>
       <template #actions="{ row }">
-        <PermButton perm="" type="text" @click="toggleMock(row)">切换 Mock</PermButton>
-        <PermButton perm="" type="text" @click="openEdit(row)">编辑</PermButton>
+        <PermButton perm="api:env:update" type="text" @click="toggleMock(row)">切换 Mock</PermButton>
+        <PermButton perm="api:env:update" type="text" @click="openEdit(row)">编辑</PermButton>
         <PermButton
           perm="api_env_config:test"
           type="text"

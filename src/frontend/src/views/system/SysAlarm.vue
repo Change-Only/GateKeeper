@@ -31,7 +31,7 @@
       <template #actions="{row}">
         <el-button type="text" size="mini" @click="onEdit(row)">编辑</el-button>
         <el-button type="text" size="mini" @click="onToggle(row)">{{ row.status === 1 ? '停用' : '启用' }}</el-button>
-        <el-button type="text" size="mini" @click="onTest(row)">测试</el-button>
+        <PermButton perm="alarm_rule:test" type="text" size="mini" @click="onTest(row)">测试</PermButton>
       </template>
     </CrudTable>
 
@@ -110,10 +110,10 @@ export default {
     },
     async loadChannels() {
       try {
-        const res = await getNotifyChannelList({ pageNum: 1, pageSize: 100 })
-        const data = (res && res.data) || {}
-        const records = data.records || []
-        this.channelOptions = records.map((c) => ({ value: String(c.id), label: c.channelName || ('渠道#' + c.id) }))
+        // GET /notify-channel/list 返回裸数组（无分页信封），与同页 fetchData 的解析保持一致
+        const res = await getNotifyChannelList()
+        const list = (res && res.data) || []
+        this.channelOptions = list.map((c) => ({ value: String(c.id), label: c.channelName || ('渠道#' + c.id) }))
       } catch (e) {
         this.channelOptions = []
       }

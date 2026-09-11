@@ -488,12 +488,13 @@ export function createAppCredential(data) {
   return request.post('/app-credential/create', data)
 }
 // 发起灰度轮换（生成轮换中新密钥，返回一次明文 appSecret）
-export function rotateAppCredential(id) {
-  return request.post(`/app-credential/${id}/rotate`)
+// 后端接 @RequestBody CredentialRotateRequest{ appId, envCode, ... }，**不是** path 上的 id
+export function rotateAppCredential(data) {
+  return request.post('/app-credential/rotate', data)
 }
-// 完成轮换（新密钥转正，旧密钥作废）
-export function completeRotateAppCredential(id) {
-  return request.post(`/app-credential/${id}/complete-rotate`)
+// 完成轮换（新密钥转正，旧密钥作废），同样接 body
+export function completeRotateAppCredential(data) {
+  return request.post('/app-credential/complete-rotate', data)
 }
 // 吊销凭证（高危）
 export function revokeAppCredential(id) {

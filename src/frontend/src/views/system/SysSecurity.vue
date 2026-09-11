@@ -46,7 +46,7 @@
             <el-tag size="small" :type="eventStatusTag(row.handleStatus)" effect="plain">{{ eventStatusLabel(row.handleStatus) }}</el-tag>
           </template>
           <template #actions="{row}">
-            <el-button v-if="row.handleStatus === 0" type="text" size="mini" @click="onHandleEvent(row)">处理</el-button>
+            <PermButton v-if="row.handleStatus === 0" perm="alarm:handle" type="text" size="mini" @click="onHandleEvent(row)">处理</PermButton>
             <span v-else class="done-text">已办结</span>
           </template>
         </CrudTable>

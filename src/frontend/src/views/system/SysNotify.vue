@@ -31,7 +31,7 @@
     <div class="toolbar">
       <span class="toolbar-tip">共 {{ total }} 条渠道</span>
       <span class="spacer" />
-      <PermButton perm="sys:notify:update" type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建渠道</PermButton>
+      <PermButton perm="notify_channel:create" type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建渠道</PermButton>
     </div>
 
     <CrudTable
@@ -56,9 +56,9 @@
         <span v-else class="muted">未测试</span>
       </template>
       <template #actions="{row}">
-        <PermButton perm="sys:notify:update" type="text" size="mini" @click="onTest(row)">测试</PermButton>
+        <PermButton perm="notify_channel:test" type="text" size="mini" @click="onTest(row)">测试</PermButton>
         <PermButton perm="sys:notify:update" type="text" size="mini" @click="onEdit(row)">编辑</PermButton>
-        <PermButton perm="sys:notify:update" type="text" size="mini" @click="onDelete(row)">删除</PermButton>
+        <PermButton perm="notify_channel:delete" type="text" size="mini" @click="onDelete(row)">删除</PermButton>
       </template>
     </CrudTable>
 
@@ -131,15 +131,14 @@ export default {
     fetchData: function() {
       const self = this
       return async(params) => {
+        // 后端 GET /notify-channel/list 返回 Result<List<NotifyChannel>>：data 是**裸数组**，
+        // 无 {records,total} 分页信封（该端点也不分页）。若按信封解析，data.records 恒 undefined
+        // ⇒ 列表恒空且不报错。此处与 SysAlarm/MonBlock 的既有写法保持一致。
         const { page, size, ...rest } = params
-        const res = await getNotifyChannelList({
-          pageNum: page,
-          pageSize: size,
-          ...rest
-        })
-        const data = (res && res.data) || {}
-        self.total = data.total || 0
-        return { list: data.records || [], total: data.total || 0 }
+        const res = await getNotifyChannelList(rest)
+        const list = (res && res.data) || []
+        self.total = list.length
+        return { list, total: list.length }
       }
     }(),
     reload() {

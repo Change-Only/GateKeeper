@@ -8,7 +8,7 @@
     <div class="toolbar">
       <span class="toolbar-tip">共 {{ total }} 个角色</span>
       <span class="spacer" />
-      <el-button type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建角色</el-button>
+      <PermButton perm="sys:role:create" type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建角色</PermButton>
     </div>
 
     <CrudTable ref="table" :columns="columns" :fetch="fetchData" :show-pagination="false" :actions-width="230">
@@ -16,9 +16,9 @@
         <StatusTag :entity="'role'" :value="row.status" />
       </template>
       <template #actions="{row}">
-        <el-button type="text" size="mini" @click="onEdit(row)">编辑</el-button>
+        <PermButton perm="sys:role:update" type="text" size="mini" @click="onEdit(row)">编辑</PermButton>
         <PermButton perm="sys:role:grant" type="text" size="mini" @click="onGrant(row)">配置权限</PermButton>
-        <el-button type="text" size="mini" class="danger-link" @click="onDelete(row)">删除</el-button>
+        <PermButton perm="sys:role:delete" type="text" size="mini" class="danger-link" @click="onDelete(row)">删除</PermButton>
       </template>
     </CrudTable>
 

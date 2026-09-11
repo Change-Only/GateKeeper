@@ -29,7 +29,7 @@
     <div class="toolbar">
       <span class="toolbar-tip">共 {{ total }} 条调用记录</span>
       <span class="spacer" />
-      <el-button type="primary" size="small" icon="el-icon-download" :loading="exporting" @click="onCreateExport">导出 CSV</el-button>
+      <PermButton perm="audit:export" type="primary" size="small" icon="el-icon-download" :loading="exporting" @click="onCreateExport">导出 CSV</PermButton>
       <el-button size="small" icon="el-icon-tickets" @click="openTasks">导出任务</el-button>
     </div>
 

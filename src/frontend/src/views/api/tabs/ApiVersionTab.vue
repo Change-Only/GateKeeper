@@ -26,9 +26,9 @@
         <span>{{ row.grayRatio != null ? row.grayRatio + '%' : '—' }}</span>
       </template>
       <template #actions="{ row }">
-        <PermButton perm="" type="text" @click="setCurrent(row)">设当前</PermButton>
-        <PermButton perm="" type="text" @click="deprecate(row)">弃用</PermButton>
-        <PermButton perm="" type="text" class="danger-link" @click="offline(row)">下线</PermButton>
+        <PermButton perm="api:publish" type="text" @click="setCurrent(row)">设当前</PermButton>
+        <PermButton perm="api:offline" type="text" @click="deprecate(row)">弃用</PermButton>
+        <PermButton perm="api:offline" type="text" class="danger-link" @click="offline(row)">下线</PermButton>
       </template>
     </CrudTable>
 

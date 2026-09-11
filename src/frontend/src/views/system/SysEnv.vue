@@ -26,7 +26,7 @@
     <div class="toolbar">
       <span class="toolbar-tip">共 {{ total }} 条环境 · 四套环境固定为 dev/test/pre/prod</span>
       <span class="spacer" />
-      <PermButton perm="env:update" type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建环境</PermButton>
+      <PermButton perm="env:create" type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建环境</PermButton>
     </div>
 
     <CrudTable

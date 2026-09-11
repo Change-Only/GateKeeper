@@ -24,7 +24,7 @@
           <el-option :value="2" label="已过期" />
         </el-select>
         <span class="spacer" />
-        <PermButton perm="app:credential:create" type="primary" icon="el-icon-plus" @click="openCreate">新建应用</PermButton>
+        <PermButton perm="app:create" type="primary" icon="el-icon-plus" @click="openCreate">新建应用</PermButton>
       </template>
 
       <template #appKey="{ row }">
@@ -36,7 +36,7 @@
       <template #actions="{ row }">
         <PermButton perm="" type="text" @click="openDetail(row)">详情</PermButton>
         <PermButton perm="app:update" type="text" @click="openEdit(row)">编辑</PermButton>
-        <PermButton :perm="row.status === 1 ? 'app:disable' : ''" type="text" @click="toggleStatus(row)">{{ row.status === 1 ? '停用' : '启用' }}</PermButton>
+        <PermButton perm="app:disable" type="text" @click="toggleStatus(row)">{{ row.status === 1 ? '停用' : '启用' }}</PermButton>
         <PermButton perm="app:delete" type="text" class="danger-link" @click="remove(row)">删除</PermButton>
       </template>
     </CrudTable>

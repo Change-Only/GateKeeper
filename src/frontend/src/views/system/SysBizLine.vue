@@ -26,7 +26,7 @@
     <div class="toolbar">
       <span class="toolbar-tip">共 {{ total }} 条业务线 · 负责人 / 成员数为手填统计</span>
       <span class="spacer" />
-      <PermButton perm="biz_line:update" type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建业务线</PermButton>
+      <PermButton perm="biz_line:create" type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建业务线</PermButton>
     </div>
 
     <CrudTable

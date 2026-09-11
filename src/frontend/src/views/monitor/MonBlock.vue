@@ -42,7 +42,7 @@
         <div class="toolbar">
           <span class="toolbar-tip">共 {{ banTotal }} 条封禁记录</span>
           <span class="spacer" />
-          <el-button type="primary" size="small" icon="el-icon-plus" @click="onCreateBan">新建封禁</el-button>
+          <PermButton perm="block_rule:manual" type="primary" size="small" icon="el-icon-plus" @click="onCreateBan">新建封禁</PermButton>
         </div>
         <CrudTable ref="banTable" :columns="banColumns" :fetch="fetchBans" :page-size="20" :actions-width="100">
           <template #banStatus="{row}">
@@ -52,7 +52,7 @@
             <el-tag size="small" effect="plain" :type="row.banType === 'AUTO' ? 'warning' : 'info'">{{ row.banType === 'AUTO' ? '自动' : '手动' }}</el-tag>
           </template>
           <template #actions="{row}">
-            <el-button v-if="row.banStatus === 1" type="text" size="mini" @click="onUnban(row)">解封</el-button>
+            <PermButton v-if="row.banStatus === 1" perm="block_rule:manual" type="text" size="mini" @click="onUnban(row)">解封</PermButton>
             <span v-else class="done-text">已解封</span>
           </template>
         </CrudTable>

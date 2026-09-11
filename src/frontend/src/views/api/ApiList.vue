@@ -42,7 +42,7 @@
       <template #actions="{ row }">
         <PermButton perm="" type="text" @click="openDetail(row)">详情</PermButton>
         <PermButton perm="api:update" type="text" @click="openEdit(row)">编辑</PermButton>
-        <PermButton :perm="row.status === 1 ? 'api:disable' : ''" type="text" @click="toggleStatus(row)">{{ row.status === 1 ? '停用' : '启用' }}</PermButton>
+        <PermButton perm="api:disable" type="text" @click="toggleStatus(row)">{{ row.status === 1 ? '停用' : '启用' }}</PermButton>
         <PermButton perm="api:publish" type="text" @click="publish(row)">发布</PermButton>
         <PermButton perm="api:delete" type="text" class="danger-link" @click="remove(row)">删除</PermButton>
       </template>

@@ -20,7 +20,7 @@
     <div class="toolbar">
       <span class="toolbar-tip">共 {{ total }} 个账号</span>
       <span class="spacer" />
-      <el-button type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建用户</el-button>
+      <PermButton perm="sys:user:create" type="primary" size="small" icon="el-icon-plus" @click="onCreate">新建用户</PermButton>
     </div>
 
     <CrudTable ref="table" :columns="columns" :fetch="fetchData" :query="query" :actions-width="220">
@@ -28,12 +28,12 @@
         <StatusTag :entity="'user'" :value="row.status" />
       </template>
       <template #actions="{row}">
-        <el-button type="text" size="mini" @click="onEdit(row)">编辑</el-button>
+        <PermButton perm="sys:user:update" type="text" size="mini" @click="onEdit(row)">编辑</PermButton>
         <PermButton perm="sys:user:update" type="text" size="mini" @click="onToggleStatus(row)">
           {{ row.status === 1 ? '停用' : '启用' }}
         </PermButton>
-        <el-button type="text" size="mini" @click="onResetPwd(row)">重置密码</el-button>
-        <el-button type="text" size="mini" class="danger-link" @click="onDelete(row)">删除</el-button>
+        <PermButton perm="sys:user:resetpwd" type="text" size="mini" @click="onResetPwd(row)">重置密码</PermButton>
+        <PermButton perm="sys:user:delete" type="text" size="mini" class="danger-link" @click="onDelete(row)">删除</PermButton>
       </template>
     </CrudTable>
 
