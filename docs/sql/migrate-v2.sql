@@ -218,7 +218,7 @@ INSERT IGNORE INTO sys_dict (id, dict_code, dict_name, built_in, status, remark)
 (3, 'api_status',   '接口状态',   1, 1, NULL),
 (4, 'grant_status', '授权状态',   1, 1, NULL),
 (5, 'cred_status',  '密钥状态',   1, 1, NULL),
-(6, 'alarm_level',  '告警级别',   1, 1, NULL);
+(6, 'alarm_level',  '告警级别',   1, 1, '仅映射 alarm_rule.alarm_level（告警规则配置等级 1提示/2警告/3严重）。注意：alert.level 是字符串枚举 INFO/WARNING/CRITICAL，与本字典无关；alert.alarm_level 为废弃死列，勿用');
 
 INSERT IGNORE INTO sys_dict_item (dict_code, item_value, item_label, sort_order, status) VALUES
 ('app_type',     '1', '内部系统',     1, 1),

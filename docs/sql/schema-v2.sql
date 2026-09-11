@@ -473,7 +473,7 @@ CALL gk_add_column('app', 'contact_info',
 CALL gk_add_column('app', 'approval_required',
     'approval_required TINYINT NOT NULL DEFAULT 0 COMMENT ''1=授权需审批,0=免审批（原型 approvalRequired）''');
 CALL gk_add_column('app', 'audit_status',
-    'audit_status TINYINT NOT NULL DEFAULT 1 COMMENT ''0=待审核,1=已通过（原型 apps.status=0；与存量 status 语义区分）''');
+    'audit_status TINYINT NOT NULL DEFAULT 1 COMMENT ''【T09 核实：预留列】语义 0=待审核,1=已通过；前后端零消费方、未接任何字典/UI；启用前须先补齐字典与前后端链路''');
 CALL gk_add_index('app', 'uk_app_code',
     'UNIQUE KEY uk_app_code (app_code)');
 CALL gk_add_index('app', 'idx_app_line',
@@ -623,7 +623,7 @@ CALL gk_add_column('alert', 'rule_name',
 CALL gk_add_column('alert', 'alarm_type',
     'alarm_type VARCHAR(32) DEFAULT NULL COMMENT ''FAIL_RATE/AUTH_FAIL/QUOTA_USAGE/AVG_LATENCY/KEY_EXPIRE/ZOMBIE_API/QPS_SURGE（推断，冗余自 alarm_rule）''');
 CALL gk_add_column('alert', 'alarm_level',
-    'alarm_level TINYINT DEFAULT NULL COMMENT ''1=提示,2=警告,3=严重（原型 alarmLevel / dict alarm_level）''');
+    'alarm_level TINYINT DEFAULT NULL COMMENT ''【T09 起废弃·死列】无代码写入；实际告警等级用 level VARCHAR（INFO/WARNING/CRITICAL）。勿新增消费方，如需启用须先出评审''');
 CALL gk_add_column('alert', 'scope_desc',
     'scope_desc VARCHAR(255) DEFAULT NULL COMMENT ''告警范围描述（原型 scopeDesc）''');
 CALL gk_add_column('alert', 'trigger_value',
