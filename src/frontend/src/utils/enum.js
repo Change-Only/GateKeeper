@@ -97,6 +97,18 @@ export const STATUS_MAP = {
     0: { label: '未配置', type: 'info' },
     1: { label: '已配置', type: 'warning' },
     2: { label: '已验证', type: 'success' }
+  },
+  // 参数配置启停态
+  sysConfig: {
+    0: { label: '停用', type: 'info' },
+    1: { label: '启用', type: 'success' }
+  },
+  // 数据范围 dataScope（角色级）
+  dataScope: {
+    ALL: { label: '全部', type: 'success' },
+    BIZ_LINE: { label: '仅本业务线', type: 'warning' },
+    CUSTOM: { label: '自定义', type: 'primary' },
+    SELF: { label: '仅本人', type: 'info' }
   }
 }
 

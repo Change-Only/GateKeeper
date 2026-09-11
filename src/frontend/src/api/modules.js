@@ -296,14 +296,46 @@ export function handleAlert(id, status, remark) {
   return request.put(`/alert/${id}/handle`, null, { params: { status, remark } })
 }
 
-// ============ 字典管理（后端 DictController 就绪后启用；当前前端用静态种子兜底） ============
-// 字典列表
-export function getDictList() {
-  return request.get('/sys/dict')
+// ============ 字典管理 sys-dict（T05 Phase 2 · 后端 DictController 已就绪） ============
+// 分页查询字典
+export function getDictList(params) {
+  return request.get('/dict/list', { params })
 }
-// 字典项（按 dictCode）
+// 全量字典（下拉）
+export function getDictAll() {
+  return request.get('/dict/all')
+}
+// 字典详情（含项）
+export function getDictDetail(dictCode) {
+  return request.get(`/dict/${dictCode}`)
+}
+// 字典项列表
 export function getDictItems(dictCode) {
-  return request.get(`/sys/dict-item`, { params: { dictCode } })
+  return request.get(`/dict/${dictCode}/items`)
+}
+// 新建字典
+export function createDict(data) {
+  return request.post('/dict/create', data)
+}
+// 更新字典
+export function updateDict(data) {
+  return request.put('/dict/update', data)
+}
+// 删除字典
+export function deleteDict(id) {
+  return request.delete(`/dict/${id}`)
+}
+// 新增字典项
+export function createDictItem(dictCode, data) {
+  return request.post(`/dict/${dictCode}/items`, data)
+}
+// 更新字典项
+export function updateDictItem(itemId, data) {
+  return request.put(`/dict/items/${itemId}`, data)
+}
+// 删除字典项
+export function deleteDictItem(itemId) {
+  return request.delete(`/dict/items/${itemId}`)
 }
 
 // ============ 接口环境配置（网关路由/版本预览构件数据源） ============
@@ -438,4 +470,70 @@ export function updateAppCredential(id, data) {
 // 发布接口（高危）
 export function publishInterface(id) {
   return request.post(`/interface/${id}/publish`)
+}
+
+// ============ 参数配置 sys-config（T05 Phase 2 · 后端 ConfigController 已就绪） ============
+// 分页查询配置
+export function getConfigList(params) {
+  return request.get('/config/list', { params })
+}
+// 全量配置（下拉，可选 configGroup）
+export function getConfigAll(params) {
+  return request.get('/config/all', { params })
+}
+// 配置详情（sensitive=1 返回脱敏）
+export function getConfigDetail(id) {
+  return request.get(`/config/${id}`)
+}
+// 新建配置（高危）
+export function createConfig(data) {
+  return request.post('/config/create', data)
+}
+// 更新配置（高危）
+export function updateConfig(data) {
+  return request.put('/config/update', data)
+}
+// 删除配置（高危，built_in=1 后端拒绝）
+export function deleteConfig(id) {
+  return request.delete(`/config/${id}`)
+}
+
+// ============ 数据权限 role-data-scope（T05 Phase 2 · 后端 DataScopeController 已就绪） ============
+// 角色选择器
+export function getDataScopeRoles(params) {
+  return request.get('/role-data-scope/roles', { params })
+}
+// 范围值选项（业务线/环境/接口分组）
+export function getDataScopeOptions() {
+  return request.get('/role-data-scope/options')
+}
+// 某角色当前数据范围（空=不限）
+export function getDataScopeByRole(roleId) {
+  return request.get(`/role-data-scope/${roleId}`)
+}
+// 全量覆盖保存（高危 risk=true）
+export function saveDataScope(roleId, data) {
+  return request.put(`/role-data-scope/${roleId}`, data)
+}
+
+// ============ 通知渠道 notify-channel（T05 Phase 2） ============
+// 通知渠道详情
+export function getNotifyChannelDetail(id) {
+  return request.get(`/notify-channel/${id}`)
+}
+// 新建通知渠道
+export function createNotifyChannel(data) {
+  return request.post('/notify-channel/create', data)
+}
+// 更新通知渠道
+export function updateNotifyChannel(id, data) {
+  return request.put(`/notify-channel/${id}/update`, data)
+}
+// 删除通知渠道
+export function deleteNotifyChannel(id) {
+  return request.delete(`/notify-channel/${id}`)
+}
+// 测试通知渠道
+export function testNotifyChannel(id) {
+  return request.post(`/notify-channel/${id}/test`)
 }
