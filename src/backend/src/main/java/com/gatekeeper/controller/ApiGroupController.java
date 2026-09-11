@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.entity.ApiGroup;
 import com.gatekeeper.entity.ApiInterface;
+import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.ApiGroupService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -75,6 +76,7 @@ public class ApiGroupController {
      * @param group 分组实体（含分组名、父分组 ID 等）
      * @return 创建成功后的分组实体
      */
+    @RequirePerm(value = "api_group:create", risk = true)
     @PostMapping
     public Result<ApiGroup> create(@RequestBody ApiGroup group) {
         return Result.success(apiGroupService.createGroup(group));
@@ -88,6 +90,7 @@ public class ApiGroupController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "更新接口分组")
+    @RequirePerm(value = "api_group:update", risk = true)
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id, @RequestBody ApiGroup group) {
         apiGroupService.updateGroup(id, group);
@@ -101,6 +104,7 @@ public class ApiGroupController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "删除接口分组")
+    @RequirePerm(value = "api_group:delete", risk = true)
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         apiGroupService.deleteGroup(id);

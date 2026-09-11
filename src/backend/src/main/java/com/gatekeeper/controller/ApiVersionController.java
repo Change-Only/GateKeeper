@@ -90,6 +90,7 @@ public class ApiVersionController {
     /**
      * 设为当前默认版本（事务）。
      */
+    @RequirePerm(value = "api:publish", risk = true)
     @Operation(summary = "设为当前默认版本")
     @PostMapping("/{id}/set-current")
     public Result<Void> setCurrent(@PathVariable Long id) {
@@ -129,6 +130,7 @@ public class ApiVersionController {
     /**
      * 弃用版本（status=2）。
      */
+    @RequirePerm(value = "api:offline", risk = true)
     @Operation(summary = "弃用接口版本")
     @PostMapping("/{id}/deprecate")
     public Result<Void> deprecate(@PathVariable Long id) {
@@ -139,6 +141,7 @@ public class ApiVersionController {
     /**
      * 下线版本（status=3）。
      */
+    @RequirePerm(value = "api:offline", risk = true)
     @Operation(summary = "下线接口版本")
     @PostMapping("/{id}/offline")
     public Result<Void> offline(@PathVariable Long id) {

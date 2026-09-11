@@ -95,8 +95,13 @@ public class AlarmRuleController {
 
     /**
      * 发送测试告警（通过规则已配置的渠道）。
+     *
+     * <p>存在外发副作用，T07-A 补权限点 {@code alarm_rule:test}（risk=1），
+     * 与 T05 裁定的 {@code api_env_config:test} 属同一类面。
+     * list / detail / update / toggle 按 T07-A 策略**不加**权限点。</p>
      */
-    @Operation(summary = "发送测试告警")
+    @RequirePerm(value = "alarm_rule:test", risk = true)
+    @Operation(summary = "发送测试告警（高危，外发）")
     @PostMapping("/{id}/test")
     public Result<Void> test(@PathVariable Long id) {
         alarmRuleService.test(id);

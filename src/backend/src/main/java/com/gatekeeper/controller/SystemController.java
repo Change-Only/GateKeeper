@@ -78,6 +78,7 @@ public class SystemController {
      * @return 创建成功后的用户实体
      */
     @Operation(summary = "新增用户")
+    @RequirePerm(value = "sys:user:create", risk = true)
     @PostMapping("/user")
     public Result<SysUser> createUser(@RequestBody SysUser user) {
         return Result.success(sysUserService.createUser(user));
@@ -91,6 +92,7 @@ public class SystemController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "更新用户")
+    @RequirePerm(value = "sys:user:update", risk = true)
     @PutMapping("/user/{id}")
     public Result<Void> updateUser(@PathVariable Long id, @RequestBody SysUser user) {
         sysUserService.updateUser(id, user);
@@ -121,6 +123,7 @@ public class SystemController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "删除用户")
+    @RequirePerm(value = "sys:user:delete", risk = true)
     @DeleteMapping("/user/{id}")
     public Result<Void> deleteUser(@PathVariable Long id) {
         sysUserService.deleteUser(id);
@@ -135,6 +138,7 @@ public class SystemController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "重置用户密码")
+    @RequirePerm(value = "sys:user:resetpwd", risk = true)
     @PutMapping("/user/{id}/password")
     public Result<Void> resetPassword(@PathVariable Long id, @RequestBody ResetPasswordRequest request) {
         sysUserService.resetPassword(id, request.getPassword());
@@ -161,6 +165,7 @@ public class SystemController {
      * @return 创建成功后的角色实体
      */
     @Operation(summary = "新增角色")
+    @RequirePerm(value = "sys:role:create", risk = true)
     @PostMapping("/role")
     public Result<SysRole> createRole(@RequestBody SysRole role) {
         return Result.success(sysRoleService.createRole(role));
@@ -174,6 +179,7 @@ public class SystemController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "更新角色")
+    @RequirePerm(value = "sys:role:update", risk = true)
     @PutMapping("/role/{id}")
     public Result<Void> updateRole(@PathVariable Long id, @RequestBody SysRole role) {
         sysRoleService.updateRole(id, role);
@@ -187,6 +193,7 @@ public class SystemController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "删除角色")
+    @RequirePerm(value = "sys:role:delete", risk = true)
     @DeleteMapping("/role/{id}")
     public Result<Void> deleteRole(@PathVariable Long id) {
         sysRoleService.deleteRole(id);

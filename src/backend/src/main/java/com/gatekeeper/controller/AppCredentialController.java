@@ -91,6 +91,7 @@ public class AppCredentialController {
      * 响应是新凭证 DTO + appSecret 明文（仅此一次）。</p>
      */
     @Operation(summary = "灰度轮换（创建新凭证 + 旧凭证 7 天后吊销）")
+    @RequirePerm(value = "app_credential:rotate", risk = true)
     @PostMapping("/rotate")
     public Result<AppCredentialDto> rotate(@Valid @RequestBody CredentialRotateRequest req) {
         return Result.success(appCredentialService.rotate(req));
@@ -103,6 +104,7 @@ public class AppCredentialController {
      * 旧主密钥 status=3（已吊销）。</p>
      */
     @Operation(summary = "完成轮换")
+    @RequirePerm(value = "app_credential:complete", risk = true)
     @PostMapping("/complete-rotate")
     public Result<Integer> completeRotate(@Valid @RequestBody CredentialRotateRequest req) {
         int n = appCredentialService.completeRotate(req.getAppId(), req.getEnvCode());
@@ -126,6 +128,7 @@ public class AppCredentialController {
      * 修改凭证别名 / 过期时间（不影响密钥本身）。
      */
     @Operation(summary = "修改凭证别名/过期时间")
+    @RequirePerm(value = "app_credential:update", risk = true)
     @PutMapping("/{id}/update")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody AppCredentialDto dto) {
         appCredentialService.update(id, dto);

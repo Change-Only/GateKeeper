@@ -80,6 +80,7 @@ public class InterfaceController {
      */
     @ApiChangeLog(value = "新增接口", changeType = "CREATE", fieldName = "interface", fieldLabel = "接口")
     @Operation(summary = "新增接口")
+    @RequirePerm(value = "api:create", risk = true)
     @PostMapping
     public Result<ApiInterface> create(@RequestBody ApiInterface apiInterface) {
         return Result.success(interfaceService.createInterface(apiInterface));
@@ -94,6 +95,7 @@ public class InterfaceController {
      */
     @ApiChangeLog(value = "编辑接口", changeType = "UPDATE", fieldName = "interface", fieldLabel = "接口")
     @Operation(summary = "更新接口")
+    @RequirePerm(value = "api:update", risk = true)
     @PutMapping("/{apiId}")
     public Result<Void> update(@PathVariable Long apiId, @RequestBody ApiInterface apiInterface) {
         interfaceService.updateInterface(apiId, apiInterface);
@@ -108,6 +110,7 @@ public class InterfaceController {
      * @return 操作结果
      */
     @Operation(summary = "更新接口状态")
+    @RequirePerm(value = "api:disable", risk = true)
     @PutMapping("/{apiId}/status/{status}")
     public Result<Void> updateStatus(@PathVariable Long apiId, @PathVariable Integer status) {
         interfaceService.updateStatus(apiId, status);

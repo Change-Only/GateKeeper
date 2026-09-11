@@ -110,6 +110,27 @@ public class NotifyChannelServiceImpl extends ServiceImpl<NotifyChannelMapper, N
     }
 
     @Override
+    public void delete(Long id) {
+        if (id == null) {
+            throw GatewayException.badRequest("渠道ID不能为空");
+        }
+        NotifyChannel existing = baseMapper.selectById(id);
+        if (existing == null) {
+            throw GatewayException.notFound("通知渠道不存在: id=" + id);
+        }
+        // 引用完整性检查（T07-A）：alarm_rule.channel_ids 为逗号分隔字符串且无外键约束，
+        // 被引用时拒绝删除 —— 避免留下悬空渠道 id 导致告警静默失效。
+        // 选择「拒绝式」而非「级联清理」：级联会静默改写其它规则配置，在安全审计产品里不可追溯。
+        long referencingRules = baseMapper.countRulesUsingChannel(id);
+        if (referencingRules > 0) {
+            throw GatewayException.badRequest(
+                    "该通知渠道被 " + referencingRules + " 条告警规则引用，请先解除引用后再删除");
+        }
+        baseMapper.deleteById(id);
+        log.info("NotifyChannel deleted: id={}, name={}", id, existing.getChannelName());
+    }
+
+    @Override
     public void test(Long id) {
         if (id == null) {
             throw GatewayException.badRequest("渠道ID不能为空");

@@ -97,6 +97,7 @@ public class ApiEnvConfigController {
      * 更新接口环境配置（仅可编辑字段）。
      */
     @ApiChangeLog(value = "修改接口环境配置", changeType = "UPDATE", fieldName = "envConfigs", fieldLabel = "环境配置")
+    @RequirePerm(value = "api:env:update", risk = true)
     @Operation(summary = "更新接口环境配置")
     @PutMapping("/{id}/update")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody ApiEnvConfigDto dto) {
@@ -121,6 +122,7 @@ public class ApiEnvConfigController {
     /**
      * 翻转 Mock 开关（0↔1）。
      */
+    @RequirePerm(value = "api:env:update", risk = false)
     @Operation(summary = "翻转 Mock 开关")
     @PostMapping("/{id}/toggle-mock")
     public Result<Void> toggleMock(@PathVariable Long id) {

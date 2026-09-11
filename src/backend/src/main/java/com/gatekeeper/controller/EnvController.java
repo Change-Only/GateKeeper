@@ -86,6 +86,7 @@ public class EnvController {
      * 新建环境。
      */
     @Operation(summary = "新建环境")
+    @RequirePerm(value = "env:create", risk = true)
     @PostMapping("/create")
     public Result<Env> create(@Valid @RequestBody EnvDto dto) {
         return Result.success(envService.createEnv(dto));
@@ -95,6 +96,7 @@ public class EnvController {
      * 更新环境（envCode 不可改，架构 D1）。
      */
     @Operation(summary = "更新环境")
+    @RequirePerm(value = "env:update", risk = true)
     @PutMapping("/update")
     public Result<Void> update(@Valid @RequestBody EnvDto dto) {
         envService.updateEnv(dto.getId(), dto);

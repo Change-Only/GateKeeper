@@ -47,6 +47,16 @@ public interface NotifyChannelService {
     void update(Long id, NotifyChannel channel);
 
     /**
+     * 删除通知渠道（T07-A 新增）。
+     *
+     * <p>物理删除：实体未配置逻辑删除字段，直接 deleteById。渠道不存在时抛 404，
+     * 保证前端「删除后列表刷新」语义与后端一致（静默成功会掩盖越权/误删）。</p>
+     *
+     * @param id 渠道 ID
+     */
+    void delete(Long id);
+
+    /**
      * 发送测试消息并记录测试结果（lastTestTime / lastTestResult）。
      *
      * @param id 渠道 ID

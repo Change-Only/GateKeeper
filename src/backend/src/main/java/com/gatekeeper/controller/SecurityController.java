@@ -64,6 +64,7 @@ public class SecurityController {
      * @param request 封禁请求（含 IP 地址、关联应用、封禁原因、封禁时长等）
      * @return 操作结果（无业务数据返回）
      */
+    @RequirePerm(value = "block_rule:manual", risk = true)
     @Operation(summary = "手动封禁IP")
     @PostMapping("/ip-ban")
     public Result<Void> banIp(@RequestBody BanRequest request) {
@@ -78,6 +79,7 @@ public class SecurityController {
      * @param id 封禁记录 ID
      * @return 操作结果（无业务数据返回）
      */
+    @RequirePerm(value = "block_rule:manual", risk = true)
     @Operation(summary = "解封IP")
     @PutMapping("/ip-ban/{id}/unban")
     public Result<Void> unbanIp(@PathVariable Long id) {
@@ -114,6 +116,7 @@ public class SecurityController {
      * @param remark 处理备注（可选）
      * @return 操作结果（无业务数据返回）
      */
+    @RequirePerm(value = "alarm:handle", risk = false)
     @Operation(summary = "处理安全事件")
     @PutMapping("/event/{id}/handle")
     public Result<Void> handleEvent(@PathVariable Long id, @RequestParam Integer status,

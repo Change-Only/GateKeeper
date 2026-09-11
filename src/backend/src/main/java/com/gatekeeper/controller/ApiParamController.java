@@ -119,6 +119,7 @@ public class ApiParamController {
      */
     @ApiChangeLog(value = "修改接口参数", changeType = "UPDATE", fieldName = "params", fieldLabel = "参数契约")
     @Operation(summary = "更新接口参数")
+    @RequirePerm(value = "api_param:update", risk = true)
     @PutMapping("/{id}/update")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody ApiParamDto dto) {
         apiParamService.update(id, dto);

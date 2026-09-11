@@ -64,14 +64,20 @@ public class AppController {
     }
 
     /**
-     * 注册新应用（高危：会同时生成密钥）
+     * 注册新应用（高危：会同时生成密钥）。
      *
-     * <p>T02 权限点：{@code app:credential:create}（涉及凭证生成）</p>
+     * <p>T08 换码修正：本端点的语义是「新建应用」，原先却用
+     * {@code app:credential:create}（"新建凭证"）来保护，属码的语义错配 ——
+     * 会导致「只授 app:create 的角色建不了应用」与「只授 app:credential:create
+     * 的角色能建应用」两种错误。现改为 {@code app:create}。</p>
+     *
+     * <p>配套：种子 SQL 给 {@code EXTERNAL_PM} 补授 {@code app:create}，
+     * 保证该角色原有能力零回归（它此前靠 {@code app:credential:create} 才能建应用）。</p>
      *
      * @param app 应用实体（含应用名、密钥等注册信息）
      * @return 创建成功后的应用实体（含生成的密钥等信息）
      */
-    @RequirePerm(value = "app:credential:create", risk = true)
+    @RequirePerm(value = "app:create", risk = true)
     @PostMapping
     public Result<App> create(@RequestBody App app) {
         return Result.success(appService.createApp(app));
@@ -85,6 +91,7 @@ public class AppController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "更新应用")
+    @RequirePerm(value = "app:update", risk = true)
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id, @RequestBody App app) {
         appService.updateApp(id, app);
@@ -115,6 +122,7 @@ public class AppController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "删除应用")
+    @RequirePerm(value = "app:delete", risk = true)
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         appService.deleteApp(id);
@@ -141,6 +149,7 @@ public class AppController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "添加IP白名单")
+    @RequirePerm(value = "app:ipwhitelist:add", risk = true)
     @PostMapping("/{id}/ip-whitelist")
     public Result<Void> addIpWhitelist(@PathVariable Long id, @RequestBody AppIpWhitelist whitelist) {
         appService.addIpWhitelist(id, whitelist);
@@ -154,6 +163,7 @@ public class AppController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "删除IP白名单")
+    @RequirePerm(value = "app:ipwhitelist:delete", risk = true)
     @DeleteMapping("/ip-whitelist/{whitelistId}")
     public Result<Void> removeIpWhitelist(@PathVariable Long whitelistId) {
         appService.removeIpWhitelist(whitelistId);
@@ -180,6 +190,7 @@ public class AppController {
      * @return 操作结果（无业务数据返回）
      */
     @Operation(summary = "更新频率限制")
+    @RequirePerm(value = "app:quota:update", risk = true)
     @PutMapping("/{id}/rate-limit")
     public Result<Void> updateRateLimit(@PathVariable Long id, @RequestBody AppRateLimit rateLimit) {
         appService.updateRateLimit(id, rateLimit);

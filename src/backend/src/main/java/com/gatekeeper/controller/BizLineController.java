@@ -93,6 +93,7 @@ public class BizLineController {
      * 新建业务线。
      */
     @Operation(summary = "新建业务线")
+    @RequirePerm(value = "biz_line:create", risk = true)
     @PostMapping("/create")
     public Result<BizLine> create(@Valid @RequestBody BizLineDto dto) {
         return Result.success(bizLineService.createBizLine(dto));
@@ -102,6 +103,7 @@ public class BizLineController {
      * 更新业务线（lineCode 不可改）。
      */
     @Operation(summary = "更新业务线")
+    @RequirePerm(value = "biz_line:update", risk = true)
     @PutMapping("/update")
     public Result<Void> update(@Valid @RequestBody BizLineDto dto) {
         bizLineService.updateBizLine(dto.getId(), dto);

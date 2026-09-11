@@ -7,6 +7,7 @@ import com.gatekeeper.common.Result;
 import com.gatekeeper.dto.LogExportQuery;
 import com.gatekeeper.entity.ApiCallLog;
 import com.gatekeeper.entity.ExportTask;
+import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.CallLogService;
 import com.gatekeeper.service.ExportTaskService;
 import com.gatekeeper.service.impl.CallLogExportExecutor;
@@ -84,6 +85,7 @@ public class CallLogController {
      *
      * @param username 当前登录用户名（由 JWT 拦截器注入请求属性）
      */
+    @RequirePerm(value = "audit:export", risk = true)
     @Operation(summary = "创建导出任务")
     @PostMapping("/export")
     public Result<Long> createExport(

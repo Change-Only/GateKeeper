@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import com.gatekeeper.common.PageResult;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.entity.Alert;
+import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.AlertService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -100,6 +101,7 @@ public class AlertController {
      * @return 操作结果
      */
     @Operation(summary = "处置告警")
+    @RequirePerm(value = "alarm:handle", risk = false)
     @PutMapping("/{id}/handle")
     public Result<Void> handle(@PathVariable Long id,
                                @RequestParam Integer status,
