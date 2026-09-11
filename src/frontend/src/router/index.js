@@ -45,9 +45,9 @@ const routes = [
       { path: 'perm/perm-datascope', name: 'PermDatascope', component: () => import('@/views/perm/DataScope.vue'), meta: { title: '数据权限', perm: 'sys:datascope:view', module: '权限管理' } },
       { path: 'perm/perm-audit', name: 'PermAudit', component: StubPage, meta: { title: '操作审计', perm: 'audit:list', module: '权限管理' } },
       // ===== 系统设置 =====
-      { path: 'sys/sys-env', name: 'SysEnv', component: StubPage, meta: { title: '环境与网关', perm: 'sys:env:list', module: '系统设置' } },
+      { path: 'sys/sys-env', name: 'SysEnv', component: () => import('@/views/system/SysEnv.vue'), meta: { title: '环境与网关', perm: 'sys:env:list', module: '系统设置' } },
       { path: 'sys/sys-security', name: 'SysSecurity', component: StubPage, meta: { title: '安全策略', perm: 'sys:security:view', module: '系统设置' } },
-      { path: 'sys/sys-bizline', name: 'SysBizline', component: StubPage, meta: { title: '业务线管理', perm: 'sys:bizline:list', module: '系统设置' } },
+      { path: 'sys/sys-bizline', name: 'SysBizline', component: () => import('@/views/system/SysBizLine.vue'), meta: { title: '业务线管理', perm: 'sys:bizline:list', module: '系统设置' } },
       { path: 'sys/sys-dict', name: 'SysDict', component: () => import('@/views/system/SysDict.vue'), meta: { title: '字典管理', perm: 'sys:dict:update', module: '系统设置' } },
       { path: 'sys/sys-alarm', name: 'SysAlarm', component: StubPage, meta: { title: '告警规则', perm: 'sys:alarm:update', module: '系统设置' } },
       { path: 'sys/sys-notify', name: 'SysNotify', component: () => import('@/views/system/SysNotify.vue'), meta: { title: '通知渠道', perm: 'sys:notify:list', module: '系统设置' } },

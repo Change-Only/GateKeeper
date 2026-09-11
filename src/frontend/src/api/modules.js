@@ -352,12 +352,36 @@ export function getBizLineList(params) {
 export function getBizLineAll() {
   return request.get('/biz-line/all')
 }
+export function getBizLineDetail(id) {
+  return request.get(`/biz-line/${id}`)
+}
+export function createBizLine(data) {
+  return request.post('/biz-line/create', data)
+}
+export function updateBizLine(data) {
+  return request.put('/biz-line/update', data)
+}
+export function deleteBizLine(id) {
+  return request.delete(`/biz-line/${id}`)
+}
 // 环境
 export function getEnvList(params) {
   return request.get('/env/list', { params })
 }
 export function getEnvAll() {
   return request.get('/env/all')
+}
+export function getEnvDetail(id) {
+  return request.get(`/env/${id}`)
+}
+export function createEnv(data) {
+  return request.post('/env/create', data)
+}
+export function updateEnv(data) {
+  return request.put('/env/update', data)
+}
+export function deleteEnv(id) {
+  return request.delete(`/env/${id}`)
 }
 // 通知渠道
 export function getNotifyChannelList(params) {

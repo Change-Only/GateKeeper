@@ -64,6 +64,11 @@ export const STATUS_MAP = {
     1: { label: '启用中', type: 'success' },
     2: { label: '已废弃', type: 'info' }
   },
+  // 业务线启停态（对齐后端 BizLineDto.status：0=停用, 1=启用；无 app 的过期态）
+  bizLine: {
+    0: { label: '已停用', type: 'info' },
+    1: { label: '启用中', type: 'success' }
+  },
   // 告警规则启停态
   alarmRule: {
     0: { label: '已停用', type: 'info' },
