@@ -1,0 +1,14 @@
+=== _tools exists? ===
+DELETED
+=== final commit verify ===
+3cd1138 feat(backend): T05 补齐 Config/Dict/DataScope 三控制器 + 补种 datascope 权限点
+3cd1138ddb896dca07a59cc27ab31796c4114a96
+=== files in commit ===
+ .../main/java/com/gatekeeper/vo/RoleSimpleVo.java  |  24 ++
+ .../java/com/gatekeeper/vo/SysDictDetailVo.java    |  23 ++
+ 22 files changed, 1594 insertions(+)
+=== forbidden in commit? ===
+NONE_IN_COMMIT
+=== branch ===
+feat-backend-补课-3controllers
+CLEANUP_DONE

@@ -1,0 +1,188 @@
+// =====================================================================
+// GateKeeper V2 设计系统 · 全局样式
+// 设计规范来源：design/ui-design-v2.md
+// 品牌蓝 #2563eb · 深海军蓝侧栏 #0b1c33 · 页面底 #f4f6fa
+// =====================================================================
+
+// ---- 设计 Token ----
+$brand: #2563eb;
+$brand-hover: #1d4ed8;
+$brand-light: #eaf1ff;
+$navy: #0b1c33;
+$bg-page: #f4f6fa;
+$border: #e3e8f2;
+$border-strong: #d3dbe8;
+$text-strong: #17233d;
+$text-secondary: #5c6b8a;
+$text-muted: #9aa7bf;
+$success: #0e7a5f;   $success-bg: #e2f6ee;
+$warning: #96611a;   $warning-bg: #fdf1dd;
+$danger: #c03337;    $danger-bg: #fdeaea;
+$info: #2053c4;      $info-bg: #eaf1ff;
+
+// ---- 基础重置 ----
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  background: $bg-page;
+  color: $text-strong;
+  font-size: 13px;
+}
+
+#app { height: 100%; }
+
+// 数字等宽对齐（表格、指标更整齐）
+.num, .el-table { font-variant-numeric: tabular-nums; }
+
+// ---- 通用页面容器 ----
+.page-container { padding: 20px; }
+
+// ---- 工具栏（搜索/筛选 + 主操作按钮） ----
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  .spacer { flex: 1; }
+}
+
+// ---- Element UI 主题覆盖（V2 品牌化） ----
+// 主按钮：品牌蓝 + hover 加深 + 微抬升
+.el-button--primary { background: $brand; border-color: $brand; }
+.el-button--primary:hover, .el-button--primary:focus { background: $brand-hover; border-color: $brand-hover; }
+.el-button--primary.is-plain { color: $brand; border-color: $brand; background: $brand-light; }
+.el-button--primary.is-plain:hover { background: $brand; color: #fff; }
+
+// 危险按钮：V2 浅红底深红字语义
+.el-button--danger { background: $danger-bg; border-color: $danger-bg; color: $danger; }
+.el-button--danger:hover, .el-button--danger:focus { background: #fbdada; border-color: #fbdada; color: $danger; }
+
+// 按钮圆角
+.el-button { border-radius: 8px; }
+
+// 输入框/下拉框圆角与聚焦光晕
+.el-input__inner, .el-textarea__inner, .el-select .el-input__inner {
+  border-radius: 8px;
+  border-color: $border-strong;
+}
+.el-input__inner:focus, .el-textarea__inner:focus { border-color: $brand; }
+.el-input.is-active .el-input__inner, .el-input__inner:focus,
+.el-select .el-input.is-focus .el-input__inner { border-color: $brand; box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+.el-range-editor.is-active, .el-range-editor.is-active:hover { border-color: $brand; }
+
+// 卡片：10px 圆角 + 柔和双层阴影 + hover 微抬升
+.el-card {
+  border-radius: 10px;
+  border: 1px solid rgba(227, 232, 242, .6);
+  box-shadow: 0 1px 2px rgba(13, 26, 52, .04), 0 4px 12px rgba(13, 26, 52, .06);
+  transition: box-shadow .15s ease-out, transform .15s ease-out;
+}
+.el-card:hover { box-shadow: 0 6px 20px rgba(13, 26, 52, .10); }
+
+// 表格：表头浅灰底 + 行 hover 高亮
+.el-table { border-radius: 10px; overflow: hidden; }
+.el-table th.el-table__cell { background: #f7f9fd; color: $text-secondary; font-weight: 500; }
+.el-table--enable-row-hover .el-table__body tr:hover > td { background: #f7faff; }
+
+// 分页：品牌蓝激活
+.el-pagination.is-background .el-pager li.active { background: $brand; }
+.el-pagination .el-pager li:hover { color: $brand; }
+
+// 标签：V2 语义色体系
+.el-tag--success { color: $success; background: $success-bg; border-color: transparent; }
+.el-tag--warning { color: $warning; background: $warning-bg; border-color: transparent; }
+.el-tag--danger  { color: $danger;  background: $danger-bg;  border-color: transparent; }
+.el-tag--info    { color: $info;    background: $info-bg;    border-color: transparent; }
+.el-tag { border-radius: 6px; }
+
+// 弹窗：12px 圆角
+.el-dialog { border-radius: 12px; }
+.el-message-box { border-radius: 12px; }
+
+// 树控件选中态：品牌蓝浅底
+.el-tree-node.is-current > .el-tree-node__content { background: $brand-light; color: $brand-hover; }
+
+// 选项卡：品牌蓝指示
+.el-tabs__item.is-active { color: $brand; }
+.el-tabs__active-bar { background: $brand; }
+
+// ---- 方法彩色标签（接口管理/日志页） ----
+.method {
+  display: inline-flex;
+  height: 20px;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-right: 8px;
+  line-height: 1;
+  &.post { background: $info-bg; color: $info; }
+  &.get { background: $success-bg; color: $success; }
+  &.put { background: $warning-bg; color: $warning; }
+  &.delete { background: $danger-bg; color: $danger; }
+}
+
+// ---- KPI 统计卡（仪表盘/详情页通用） ----
+.kpi-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  .kpi-ico {
+    width: 42px; height: 42px; border-radius: 10px; flex: none;
+    display: flex; align-items: center; justify-content: center; font-size: 20px;
+    &.blue { background: $brand-light; color: $brand; }
+    &.green { background: $success-bg; color: $success; }
+    &.orange { background: $warning-bg; color: $warning; }
+    &.red { background: $danger-bg; color: $danger; }
+  }
+  .kpi-main { flex: 1; min-width: 0; }
+  .kpi-label { font-size: 12px; color: $text-secondary; }
+  .kpi-val { font-size: 22px; font-weight: 600; line-height: 1.35; }
+  .kpi-val .unit { font-size: 12px; font-weight: 400; color: $text-muted; margin-left: 2px; }
+  .kpi-delta { font-size: 12px; font-weight: 500; margin-left: 6px;
+    &.up { color: $success; }
+    &.down { color: $danger; }
+  }
+}
+
+// ---- 状态标签扩展（配合 el-tag 使用的纯色类） ----
+.tag-neutral { color: $text-secondary; background: #eef1f7; border-color: transparent; border-radius: 6px; }
+
+// ---- 通用分页：右对齐 ----
+.pagination { text-align: right; margin-top: 16px; }
+
+// ---- 滚动条美化 ----
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #cfd8e8; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #b6c3da; }
+
+// =====================================================================
+// 最小响应式适配（M2）
+// 目标：1366×768 及以上 PC 完整体验；1024 及以下紧凑降级（工具栏纵向堆叠）
+// =====================================================================
+@media (max-width: 1366px) {
+  .page-container { padding: 14px; }
+  .toolbar { gap: 8px; margin-bottom: 12px; }
+  .el-card__body { padding: 14px 16px; }
+  .el-dialog { max-width: 92vw; }
+  // 表格单元格收紧，让更多列可见（固定列不受影响）
+  .el-table .cell { padding-left: 8px; padding-right: 8px; }
+}
+
+@media (max-width: 1024px) {
+  // 工具栏控件全宽纵向堆叠，避免挤压溢出
+  .toolbar .el-input,
+  .toolbar .el-select,
+  .toolbar .el-date-editor { width: 100% !important; margin-bottom: 4px; }
+  // 接口管理左右分栏改为纵向
+  .iface-layout { flex-direction: column; }
+  .group-card { width: 100%; }
+  // 详情对话框常用双列描述改单列
+  .el-dialog { max-width: 96vw; }
+}
+

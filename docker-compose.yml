@@ -1,0 +1,86 @@
+# ============================================================
+# GateKeeper 一键部署编排（MySQL + Redis + 后端网关 + 前端 Nginx）
+# 使用方式：
+#   1. 复制 .env.example 为 .env 并填写真实密钥（三项必填）
+#   2. docker compose up -d
+#   3. 访问 http://localhost:8081
+# ============================================================
+
+services:
+  # ---------- MySQL 数据库 ----------
+  mysql:
+    image: mysql:8.0
+    container_name: gatekeeper-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${GATEKEEPER_DB_PASSWORD:?请在 .env 中配置 GATEKEEPER_DB_PASSWORD}
+      MYSQL_DATABASE: ${GATEKEEPER_DB_NAME:-gatekeeper}
+      TZ: Asia/Shanghai
+    # 首次启动自动执行建表脚本
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./src/backend/src/main/resources/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      # 用容器内运行时环境变量取密码（$$ 转义），避免密码被内联进容器配置、docker inspect 可见
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Redis（限流/封禁/Nonce 防重放） ----------
+  redis:
+    image: redis:7-alpine
+    container_name: gatekeeper-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------- 后端网关服务 ----------
+  backend:
+    build: ./src/backend
+    container_name: gatekeeper-backend
+    restart: unless-stopped
+    environment:
+      # 数据源：指向 compose 内的 mysql 容器
+      GATEKEEPER_DB_HOST: mysql
+      GATEKEEPER_DB_PORT: 3306
+      GATEKEEPER_DB_NAME: ${GATEKEEPER_DB_NAME:-gatekeeper}
+      GATEKEEPER_DB_USERNAME: ${GATEKEEPER_DB_USERNAME:-root}
+      GATEKEEPER_DB_PASSWORD: ${GATEKEEPER_DB_PASSWORD:?请在 .env 中配置 GATEKEEPER_DB_PASSWORD}
+      # Redis：指向 compose 内的 redis 容器
+      GATEKEEPER_REDIS_HOST: redis
+      # 安全密钥（启动自检强校验，缺失或弱密钥将拒绝启动）
+      GATEKEEPER_JWT_SECRET: ${GATEKEEPER_JWT_SECRET:?请在 .env 中配置至少32位的 GATEKEEPER_JWT_SECRET}
+      GATEKEEPER_AES_KEY: ${GATEKEEPER_AES_KEY:?请在 .env 中配置至少32位的 GATEKEEPER_AES_KEY}
+      # 跨域来源：生产环境改成实际访问域名
+      GATEKEEPER_CORS_ORIGINS: ${GATEKEEPER_CORS_ORIGINS:-http://localhost:8081}
+      # 导出文件目录：挂载持久卷，容器重建后历史导出文件不丢
+      GATEKEEPER_EXPORT_DIR: /app/data/exports
+    volumes:
+      - export-data:/app/data/exports
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ---------- 前端 Nginx ----------
+  frontend:
+    build: ./src/frontend
+    container_name: gatekeeper-frontend
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql-data:
+  redis-data:
+  export-data:

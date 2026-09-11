@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GateKeeper · API 安全网关 UI 设计稿</title>
+<style>
+:root{
+  --sidebar:#0f2744;
+  --bg:#f5f6f8;
+  --surface:#ffffff;
+  --border:#e5e7eb;
+  --border-2:#d1d5db;
+  --text:#1f2328;
+  --text-2:#6b7280;
+  --primary:#1d4ed8;
+  --info-bg:#e6f1fb; --info-text:#185fa5;
+  --success-bg:#e1f5ee; --success-text:#0f6e56;
+  --warning-bg:#faeeda; --warning-text:#854f0b;
+  --danger-bg:#fcebeb; --danger-text:#a32d2d;
+  --second-bg:#f1efE8; --second-text:#5f5e5a;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);font-size:13px;}
+.app{display:flex;min-height:100vh;}
+
+/* 侧栏 */
+.sidebar{width:200px;background:var(--sidebar);color:#cbd5e1;padding:16px 12px;flex-shrink:0;position:sticky;top:0;height:100vh;overflow:auto;}
+.logo{font-size:16px;font-weight:600;color:#fff;padding:0 8px;}
+.logo-sub{font-size:11px;color:#7e94b3;padding:0 8px;margin:4px 0 18px;}
+.nav-item{display:flex;align-items:center;gap:8px;font-size:13px;padding:9px 10px;border-radius:6px;margin-bottom:3px;color:#cbd5e1;cursor:pointer;user-select:none;}
+.nav-item:hover{background:rgba(255,255,255,.06);}
+.nav-item.active{background:var(--primary);color:#fff;font-weight:500;}
+.nav-item.screen-link{color:#22d3ee;}
+
+/* 主区 */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;}
+.topbar{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:5;}
+.crumb{font-size:13px;color:var(--text-2);}
+.user{display:flex;align-items:center;gap:8px;}
+.avatar{width:26px;height:26px;border-radius:50%;background:var(--info-bg);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--info-text);}
+.content{padding:20px;}
+
+/* 页面切换 */
+.page{display:none;}
+.page.active{display:block;}
+
+/* 标题 */
+.page-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+.page-title{font-size:16px;font-weight:600;}
+.page-sub{font-size:12px;color:var(--text-2);margin-top:2px;}
+
+/* 按钮 */
+.btn{display:inline-flex;align-items:center;gap:4px;padding:8px 14px;border:1px solid var(--border-2);border-radius:6px;background:var(--surface);font-size:13px;cursor:pointer;color:var(--text);}
+.btn:hover{background:#f3f4f6;}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:#fff;}
+.btn-primary:hover{background:#1e40af;}
+.btn-danger{background:var(--danger-bg);border-color:var(--danger-text);color:var(--danger-text);}
+.btn-sm{padding:4px 8px;font-size:12px;border-radius:4px;}
+
+/* 卡片与表格 */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.filter-bar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+.input,.select{padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);}
+.input{flex:1;min-width:140px;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;padding:12px 14px;font-weight:500;color:var(--text-2);border-bottom:1px solid var(--border);background:#fafafa;}
+td{padding:12px 14px;border-bottom:1px solid var(--border);}
+tr:last-child td{border-bottom:none;}
+
+/* 标签 */
+.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:4px;line-height:1.5;}
+.tag-success{color:var(--success-text);background:var(--success-bg);}
+.tag-warning{color:var(--warning-text);background:var(--warning-bg);}
+.tag-danger{color:var(--danger-text);background:var(--danger-bg);}
+.tag-info{color:var(--info-text);background:var(--info-bg);}
+.tag-second{color:var(--second-text);background:var(--second-bg);}
+.tag-method{font-size:11px;padding:2px 6px;border-radius:3px;}
+
+/* 操作链接 */
+.link{color:var(--info-text);cursor:pointer;margin-right:8px;}
+.link:hover{text-decoration:underline;}
+
+/* 接口管理：分组树 + 列表 */
+.iface-layout{display:flex;gap:16px;align-items:flex-start;}
+.group-tree{width:180px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 8px;flex-shrink:0;}
+.group-tree .gt-title{font-size:12px;color:var(--text-2);padding:4px 8px;margin-bottom:6px;}
+.group-item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:6px;font-size:13px;cursor:pointer;color:var(--text);margin-bottom:2px;}
+.group-item:hover{background:#f3f4f6;}
+.group-item.active{background:var(--info-bg);color:var(--info-text);font-weight:500;}
+.group-item .count{font-size:11px;color:var(--text-2);}
+.group-item.sub{padding-left:26px;font-size:12px;color:var(--text-2);}
+.perm-layout{display:flex;gap:16px;align-items:flex-start;}
+.auth-tree{max-height:320px;overflow:auto;}
+.auth-node{display:flex;align-items:center;gap:6px;padding:6px 8px;font-size:13px;border-radius:4px;}
+.auth-node.group{font-weight:500;}
+.auth-node.iface{padding-left:24px;color:var(--text-2);font-size:12px;}
+.auth-node:hover{background:#f3f4f6;}
+.chk{display:inline-flex;width:16px;height:16px;border:1px solid var(--border-2);border-radius:3px;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;}
+.chk.on{background:var(--info-bg);border-color:var(--info-text);color:var(--info-text);}
+.iface-list{flex:1;min-width:0;}
+
+/* 权限矩阵 */
+.matrix-cell{display:inline-flex;width:20px;height:20px;border-radius:4px;align-items:center;justify-content:center;font-size:12px;}
+.matrix-on{background:var(--info-bg);color:var(--info-text);}
+.matrix-off{border:1px solid var(--border-2);}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--text-2);margin-top:12px;align-items:center;}
+.legend .swatch{width:14px;height:14px;border-radius:4px;display:inline-block;margin-right:6px;vertical-align:-2px;}
+
+/* 封禁表单 */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px;}
+.form-grid label{display:block;color:var(--text-2);margin-bottom:6px;font-size:12px;}
+
+/* 登录页 */
+.login-wrap{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 60px);}
+.login-card{width:360px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;}
+.login-logo{font-size:20px;font-weight:600;text-align:center;}
+.login-sub{text-align:center;color:var(--text-2);font-size:12px;margin:4px 0 24px;}
+.login-field{margin-bottom:16px;}
+.login-field label{display:block;font-size:12px;color:var(--text-2);margin-bottom:6px;}
+.login-btn{width:100%;padding:10px;background:var(--primary);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;}
+
+/* 仪表盘 */
+.kpi-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;}
+.kpi-card .kc-label{font-size:12px;color:var(--text-2);}
+.kpi-card .kc-num{font-size:24px;font-weight:600;margin:4px 0;}
+.dash-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:14px;margin-bottom:16px;}
+.dash-panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;}
+.dash-panel .dp-title{font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.dash-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.dash-bar-name{font-size:12px;color:var(--text-2);width:56px;}
+.dash-bar-track{flex:1;height:8px;background:#eef0f2;border-radius:4px;}
+.dash-bar-fill{height:100%;border-radius:4px;background:var(--primary);}
+.dash-bar-val{font-size:12px;color:var(--text-2);width:44px;text-align:right;}
+
+/* 数据大屏（深色） */
+#page-screen{background:#0a1428;border-radius:12px;padding:20px;color:#e6eef7;}
+.scr-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1e3a5f;padding-bottom:14px;margin-bottom:18px;}
+.scr-title{font-size:17px;font-weight:600;letter-spacing:2px;}
+.scr-clock{font-size:13px;color:#7e94b3;}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px;}
+.kpi{background:#101f36;border:1px solid #1e3a5f;border-radius:8px;padding:14px 16px;}
+.kpi .k-label{font-size:12px;color:#7e94b3;}
+.kpi .k-num{font-size:24px;font-weight:600;margin:4px 0;}
+.kpi .k-sub{font-size:12px;color:#7e94b3;}
+.mid-grid{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:14px;margin-bottom:18px;}
+.panel{background:#101f36;border:1px solid #1e3a5f;border-radius:8px;padding:14px 16px;}
+.panel .p-title{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;font-weight:600;}
+.dot{width:4px;height:14px;border-radius:2px;background:#60a5fa;}
+.hbar-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.hbar-name{font-size:12px;color:#cbd5e1;width:52px;}
+.hbar-track{flex:1;height:8px;background:#1e3a5f;border-radius:4px;}
+.hbar-fill{height:100%;border-radius:4px;}
+.hbar-val{font-size:12px;color:#7e94b3;width:44px;text-align:right;}
+.bot-grid{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:14px;}
+.sec-metric{background:#0a1428;border-radius:6px;padding:10px 12px;}
+.sec-metric .m-label{font-size:12px;color:#7e94b3;}
+.sec-metric .m-num{font-size:20px;font-weight:600;}
+.evt-row{display:flex;gap:8px;font-size:12px;color:#cbd5e1;margin-bottom:6px;}
+.evt-time{color:#7e94b3;}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">GateKeeper</div>
+    <div class="logo-sub">API 安全网关</div>
+    <div class="nav-item active" data-page="dashboard">仪表盘</div>
+    <div class="nav-item screen-link" data-page="screen">◆ 数据大屏</div>
+    <div class="nav-item" data-page="interface">接口管理</div>
+    <div class="nav-item" data-page="app">应用管理</div>
+    <div class="nav-item" data-page="permission">权限管理</div>
+    <div class="nav-item" data-page="crypto">加解密管理</div>
+    <div class="nav-item" data-page="log">调用日志</div>
+    <div class="nav-item" data-page="security">安全防护</div>
+    <div class="nav-item" data-page="system">系统设置</div>
+    <div style="height:1px;background:#1e3a5f;margin:12px 0;"></div>
+    <div class="nav-item" data-page="login">登录页</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="crumb" id="crumb">首页 / 仪表盘</span>
+      <div class="user"><div class="avatar">管</div><span>管理员</span></div>
+    </div>
+    <div class="content">
+
+      <!-- 统计仪表盘 -->
+      <section class="page active" id="page-dashboard">
+        <div class="page-head">
+          <div><div class="page-title">统计仪表盘</div><div class="page-sub">调用量趋势、接口热度、应用排行与错误率统计</div></div>
+          <button class="btn">导出报表</button>
+        </div>
+        <div class="kpi-cards">
+          <div class="kpi-card"><div class="kc-label">今日总调用</div><div class="kc-num" style="color:#185fa5;">2,847,392</div><div class="page-sub">较昨日 ↑ 12.4%</div></div>
+          <div class="kpi-card"><div class="kc-label">调用成功率</div><div class="kc-num" style="color:#0f6e56;">99.87%</div><div class="page-sub">失败 3,702 次</div></div>
+          <div class="kpi-card"><div class="kc-label">平均耗时</div><div class="kc-num" style="color:#1d4ed8;">128ms</div><div class="page-sub">P99 356ms</div></div>
+          <div class="kpi-card"><div class="kc-label">异常调用</div><div class="kc-num" style="color:#ba7517;">23</div><div class="page-sub">待处理 5 起</div></div>
+        </div>
+        <div class="dash-grid">
+          <div class="dash-panel">
+            <div class="dp-title"><span class="dot"></span>调用量趋势（24小时）</div>
+            <svg viewBox="0 0 280 120" style="width:100%;height:120px;">
+              <line x1="8" y1="20" x2="272" y2="20" stroke="#eef0f2"/><line x1="8" y1="45" x2="272" y2="45" stroke="#eef0f2"/><line x1="8" y1="70" x2="272" y2="70" stroke="#eef0f2"/><line x1="8" y1="95" x2="272" y2="95" stroke="#eef0f2"/>
+              <polyline points="8,92 24,84 40,88 56,72 72,78 88,60 104,66 120,50 136,56 152,42 168,48 184,34 200,40 216,28 232,32 248,20 264,24 272,16" fill="none" stroke="#1d4ed8" stroke-width="2"/>
+            </svg>
+          </div>
+          <div class="dash-panel">
+            <div class="dp-title"><span class="dot" style="background:#0f6e56;"></span>接口热度 Top5</div>
+            <div class="dash-bar-row"><span class="dash-bar-name">/pay/create</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:90%;"></div></div><span class="dash-bar-val">88.4万</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">/order/query</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:72%;"></div></div><span class="dash-bar-val">64.9万</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">/user/info</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:58%;"></div></div><span class="dash-bar-val">49.7万</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">/report/export</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:44%;"></div></div><span class="dash-bar-val">31.2万</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">/crm/contact</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:30%;"></div></div><span class="dash-bar-val">19.8万</span></div>
+          </div>
+          <div class="dash-panel">
+            <div class="dp-title"><span class="dot" style="background:#ba7517;"></span>应用排行 Top5</div>
+            <div class="dash-bar-row"><span class="dash-bar-name">支付网关</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:92%;"></div></div><span class="dash-bar-val">45.2万</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">订单中心</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:76%;"></div></div><span class="dash-bar-val">32.8万</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">用户中心</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:63%;"></div></div><span class="dash-bar-val">25.6万</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">报表服务</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:48%;"></div></div><span class="dash-bar-val">18.3万</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">CRM 系统</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:35%;"></div></div><span class="dash-bar-val">12.1万</span></div>
+          </div>
+        </div>
+        <div class="dash-grid">
+          <div class="dash-panel">
+            <div class="dp-title"><span class="dot" style="background:#a32d2d;"></span>错误分布（按状态码）</div>
+            <div class="dash-bar-row"><span class="dash-bar-name">403</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:40%;background:#a32d2d;"></div></div><span class="dash-bar-val">1,482</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">429</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:32%;background:#ba7517;"></div></div><span class="dash-bar-val">1,204</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">500</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:18%;background:#a32d2d;"></div></div><span class="dash-bar-val">652</span></div>
+            <div class="dash-bar-row"><span class="dash-bar-name">401</span><div class="dash-bar-track"><div class="dash-bar-fill" style="width:10%;background:#ba7517;"></div></div><span class="dash-bar-val">364</span></div>
+          </div>
+          <div class="dash-panel">
+            <div class="dp-title"><span class="dot" style="background:#1d4ed8;"></span>耗时分布</div>
+            <div style="font-size:13px;color:var(--text-2);line-height:2;">
+              <div>P50 耗时：<span style="color:var(--text);font-weight:600;">96 ms</span></div>
+              <div>P90 耗时：<span style="color:var(--text);font-weight:600;">248 ms</span></div>
+              <div>P99 耗时：<span style="color:var(--text);font-weight:600;">356 ms</span></div>
+              <div>最大耗时：<span style="color:var(--text);font-weight:600;">1,240 ms</span></div>
+            </div>
+          </div>
+          <div class="dash-panel">
+            <div class="dp-title"><span class="dot" style="background:#0f6e56;"></span>近 7 日调用量</div>
+            <div style="font-size:13px;color:var(--text-2);line-height:2;">
+              <div>08-22　<span style="color:var(--text);font-weight:600;">2.10M</span></div>
+              <div>08-23　<span style="color:var(--text);font-weight:600;">2.34M</span></div>
+              <div>08-24　<span style="color:var(--text);font-weight:600;">2.21M</span></div>
+              <div>08-25　<span style="color:var(--text);font-weight:600;">2.58M</span></div>
+              <div>08-26　<span style="color:var(--text);font-weight:600;">2.49M</span></div>
+              <div>08-27　<span style="color:var(--text);font-weight:600;">2.66M</span></div>
+              <div>08-28　<span style="color:var(--text);font-weight:600;">2.85M</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 数据大屏 -->
+      <section class="page" id="page-screen">
+        <div class="scr-head">
+          <div class="scr-title">◆ GateKeeper · API 安全网关监控大屏</div>
+          <div class="scr-clock">2026-08-28 22:35:09 星期五</div>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi"><div class="k-label">今日总调用量</div><div class="k-num" style="color:#60a5fa;">2,847,392</div><div class="k-sub" style="color:#34d399;">较昨日 ↑ 12.4%</div></div>
+          <div class="kpi"><div class="k-label">调用成功率</div><div class="k-num" style="color:#34d399;">99.87%</div><div class="k-sub">失败 3,702 次</div></div>
+          <div class="kpi"><div class="k-label">平均耗时</div><div class="k-num" style="color:#22d3ee;">128 ms</div><div class="k-sub">P99 356 ms</div></div>
+          <div class="kpi"><div class="k-label">异常调用数</div><div class="k-num" style="color:#f59e0b;">23</div><div class="k-sub" style="color:#f87171;">待处理 5 起</div></div>
+        </div>
+        <div class="mid-grid">
+          <div class="panel">
+            <div class="p-title"><span class="dot"></span>实时调用量趋势（24小时）</div>
+            <svg viewBox="0 0 280 110" style="width:100%;height:110px;">
+              <line x1="8" y1="20" x2="272" y2="20" stroke="#1e3a5f"/><line x1="8" y1="40" x2="272" y2="40" stroke="#1e3a5f"/><line x1="8" y1="60" x2="272" y2="60" stroke="#1e3a5f"/><line x1="8" y1="80" x2="272" y2="80" stroke="#1e3a5f"/><line x1="8" y1="100" x2="272" y2="100" stroke="#1e3a5f"/>
+              <polyline points="8,88 20,80 32,84 44,70 56,76 68,58 80,64 92,48 104,54 116,40 128,46 140,32 152,38 164,26 176,30 188,20 200,24 212,14 224,18 236,10 248,13 260,8 272,11" fill="none" stroke="#60a5fa" stroke-width="2"/>
+              <circle cx="272" cy="11" r="3" fill="#22d3ee"/>
+            </svg>
+          </div>
+          <div class="panel">
+            <div class="p-title"><span class="dot" style="background:#22d3ee;"></span>应用访问量 Top5</div>
+            <div class="hbar-row"><span class="hbar-name">支付网关</span><div class="hbar-track"><div class="hbar-fill" style="width:92%;background:#60a5fa;"></div></div><span class="hbar-val">45.2万</span></div>
+            <div class="hbar-row"><span class="hbar-name">订单中心</span><div class="hbar-track"><div class="hbar-fill" style="width:76%;background:#60a5fa;"></div></div><span class="hbar-val">32.8万</span></div>
+            <div class="hbar-row"><span class="hbar-name">用户中心</span><div class="hbar-track"><div class="hbar-fill" style="width:63%;background:#60a5fa;"></div></div><span class="hbar-val">25.6万</span></div>
+            <div class="hbar-row"><span class="hbar-name">报表服务</span><div class="hbar-track"><div class="hbar-fill" style="width:48%;background:#60a5fa;"></div></div><span class="hbar-val">18.3万</span></div>
+            <div class="hbar-row"><span class="hbar-name">CRM 系统</span><div class="hbar-track"><div class="hbar-fill" style="width:35%;background:#60a5fa;"></div></div><span class="hbar-val">12.1万</span></div>
+          </div>
+          <div class="panel">
+            <div class="p-title"><span class="dot" style="background:#f59e0b;"></span>接口热度 Top5</div>
+            <div class="hbar-row"><span class="hbar-name">/pay/create</span><div class="hbar-track"><div class="hbar-fill" style="width:90%;background:#22d3ee;"></div></div><span class="hbar-val">88.4万</span></div>
+            <div class="hbar-row"><span class="hbar-name">/order/query</span><div class="hbar-track"><div class="hbar-fill" style="width:72%;background:#22d3ee;"></div></div><span class="hbar-val">64.9万</span></div>
+            <div class="hbar-row"><span class="hbar-name">/user/info</span><div class="hbar-track"><div class="hbar-fill" style="width:58%;background:#22d3ee;"></div></div><span class="hbar-val">49.7万</span></div>
+            <div class="hbar-row"><span class="hbar-name">/report/export</span><div class="hbar-track"><div class="hbar-fill" style="width:44%;background:#22d3ee;"></div></div><span class="hbar-val">31.2万</span></div>
+            <div class="hbar-row"><span class="hbar-name">/crm/contact</span><div class="hbar-track"><div class="hbar-fill" style="width:30%;background:#22d3ee;"></div></div><span class="hbar-val">19.8万</span></div>
+          </div>
+        </div>
+        <div class="bot-grid">
+          <div class="panel">
+            <div class="p-title"><span class="dot" style="background:#f87171;"></span>安全态势</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div class="sec-metric"><div class="m-label">异常调用</div><div class="m-num" style="color:#f59e0b;">23</div></div>
+              <div class="sec-metric"><div class="m-label">封禁 IP</div><div class="m-num" style="color:#f87171;">7</div></div>
+              <div class="sec-metric"><div class="m-label">今日限流</div><div class="m-num" style="color:#60a5fa;">1,204</div></div>
+              <div class="sec-metric"><div class="m-label">连续失败</div><div class="m-num" style="color:#a78bfa;">5</div></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="p-title"><span class="dot" style="background:#34d399;"></span>成功率 / 错误率</div>
+            <div style="display:flex;align-items:center;justify-content:center;gap:16px;">
+              <svg viewBox="0 0 100 100" style="width:110px;height:110px;">
+                <circle cx="50" cy="50" r="40" fill="none" stroke="#1e3a5f" stroke-width="12"/>
+                <circle cx="50" cy="50" r="40" fill="none" stroke="#34d399" stroke-width="12" stroke-dasharray="251 251" stroke-dashoffset="1" transform="rotate(-90 50 50)"/>
+                <text x="50" y="48" text-anchor="middle" fill="#e6eef7" font-size="17" font-weight="600">99.87%</text>
+                <text x="50" y="64" text-anchor="middle" fill="#7e94b3" font-size="11">成功率</text>
+              </svg>
+              <div style="font-size:12px;color:#cbd5e1;"><div style="margin-bottom:8px;"><span style="color:#34d399;">■</span> 成功 284.3万</div><div><span style="color:#f87171;">■</span> 失败 0.37万</div></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="p-title"><span class="dot" style="background:#a78bfa;"></span>最近异常事件</div>
+            <div class="evt-row"><span class="evt-time">22:14</span><span style="color:#f87171;">连续鉴权失败</span><span>应用「订单中心」IP 10.2.3.4</span></div>
+            <div class="evt-row"><span class="evt-time">22:10</span><span style="color:#f59e0b;">高频调用</span><span>应用「报表服务」QPS 超限</span></div>
+            <div class="evt-row"><span class="evt-time">21:58</span><span style="color:#f59e0b;">权限越界</span><span>应用「CRM」尝试未授权接口</span></div>
+            <div class="evt-row"><span class="evt-time">21:45</span><span style="color:#f87171;">异常入参</span><span>检测到 SQL 注入特征</span></div>
+            <div class="evt-row"><span class="evt-time">21:30</span><span style="color:#f87171;">IP 自动封禁</span><span>10.8.9.20（5 分钟）</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 接口管理（含分组） -->
+      <section class="page" id="page-interface">
+        <div class="page-head">
+          <div><div class="page-title">接口管理</div><div class="page-sub">注册后端接口，按分组管理并配置入参/返参加密策略</div></div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" onclick="alert('新增分组')">+ 新增分组</button>
+            <button class="btn btn-primary" onclick="alert('新增接口')">+ 新增接口</button>
+          </div>
+        </div>
+        <div class="iface-layout">
+          <div class="group-tree">
+            <div class="gt-title">接口分组（多层级）</div>
+            <div class="group-item active" data-g="all">全部接口 <span class="count">10</span></div>
+            <div class="group-item" data-g="pay">▾ 支付 <span class="count">3</span></div>
+            <div class="group-item sub" data-g="pay-create">支付-创建 <span class="count">2</span></div>
+            <div class="group-item sub" data-g="pay-query">支付-查询 <span class="count">1</span></div>
+            <div class="group-item" data-g="order">▸ 订单 <span class="count">2</span></div>
+            <div class="group-item" data-g="user">▾ 用户 <span class="count">2</span></div>
+            <div class="group-item sub" data-g="user-auth">用户-认证 <span class="count">1</span></div>
+            <div class="group-item" data-g="report">▸ 报表 <span class="count">1</span></div>
+            <div class="group-item" data-g="crm">▸ CRM <span class="count">2</span></div>
+          </div>
+          <div class="iface-list">
+            <div class="filter-bar">
+              <input class="input" placeholder="搜索接口名称 / 路径"/>
+              <select class="select"><option>全部分组</option><option>支付</option><option>订单</option><option>用户</option><option>报表</option><option>CRM</option></select>
+              <button class="btn">查询</button>
+            </div>
+            <div class="card">
+              <table>
+                <thead><tr><th>接口名称</th><th>路径</th><th>方法</th><th>入参类型</th><th>所属分组</th><th>入参加密</th><th>返参加密</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody>
+                  <tr><td>创建支付单</td><td>/pay/create</td><td><span class="tag tag-method tag-info">POST</span></td><td><span class="tag tag-second">JSON</span></td><td><span class="tag tag-second">支付</span></td><td><span class="tag tag-info">SM4</span></td><td><span class="tag tag-info">SM4</span></td><td><span class="tag tag-success">启用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                  <tr><td>查询支付结果</td><td>/pay/query</td><td><span class="tag tag-method tag-success">GET</span></td><td><span class="tag tag-second">QUERY</span></td><td><span class="tag tag-second">支付</span></td><td><span class="tag tag-second">无</span></td><td><span class="tag tag-info">SM4</span></td><td><span class="tag tag-success">启用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                  <tr><td>支付退款</td><td>/pay/refund</td><td><span class="tag tag-method tag-info">POST</span></td><td><span class="tag tag-second">JSON</span></td><td><span class="tag tag-second">支付</span></td><td><span class="tag tag-info">SM4</span></td><td><span class="tag tag-info">SM4</span></td><td><span class="tag tag-success">启用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                  <tr><td>查询订单</td><td>/order/query</td><td><span class="tag tag-method tag-success">GET</span></td><td><span class="tag tag-second">QUERY</span></td><td><span class="tag tag-second">订单</span></td><td><span class="tag tag-second">无</span></td><td><span class="tag tag-info">AES</span></td><td><span class="tag tag-success">启用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                  <tr><td>取消订单</td><td>/order/cancel</td><td><span class="tag tag-method tag-info">POST</span></td><td><span class="tag tag-second">JSON</span></td><td><span class="tag tag-second">订单</span></td><td><span class="tag tag-second">无</span></td><td><span class="tag tag-second">无</span></td><td><span class="tag tag-success">启用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                  <tr><td>获取用户信息</td><td>/user/info</td><td><span class="tag tag-method tag-success">GET</span></td><td><span class="tag tag-second">QUERY</span></td><td><span class="tag tag-second">用户</span></td><td><span class="tag tag-second">无</span></td><td><span class="tag tag-second">无</span></td><td><span class="tag tag-success">启用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                  <tr><td>用户登录</td><td>/user/login</td><td><span class="tag tag-method tag-info">POST</span></td><td><span class="tag tag-second">FORM</span></td><td><span class="tag tag-second">用户</span></td><td><span class="tag tag-info">AES</span></td><td><span class="tag tag-info">AES</span></td><td><span class="tag tag-success">启用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                  <tr><td>报表导出</td><td>/report/export</td><td><span class="tag tag-method tag-info">POST</span></td><td><span class="tag tag-second">JSON</span></td><td><span class="tag tag-second">报表</span></td><td><span class="tag tag-info">AES</span></td><td><span class="tag tag-info">AES</span></td><td><span class="tag tag-warning">停用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                  <tr><td>联系人查询</td><td>/crm/contact</td><td><span class="tag tag-method tag-success">GET</span></td><td><span class="tag tag-second">QUERY</span></td><td><span class="tag tag-second">CRM</span></td><td><span class="tag tag-second">无</span></td><td><span class="tag tag-second">无</span></td><td><span class="tag tag-success">启用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                  <tr><td>新增线索</td><td>/crm/lead</td><td><span class="tag tag-method tag-info">POST</span></td><td><span class="tag tag-second">JSON</span></td><td><span class="tag tag-second">CRM</span></td><td><span class="tag tag-info">AES</span></td><td><span class="tag tag-info">AES</span></td><td><span class="tag tag-success">启用</span></td><td><span class="link">编辑</span><span class="link">加密</span><span class="link">删除</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 应用管理 -->
+      <section class="page" id="page-app">
+        <div class="page-head">
+          <div><div class="page-title">应用管理</div><div class="page-sub">管理调用方应用，配置 IP 白名单、频率限制与到期时间</div></div>
+          <button class="btn btn-primary" onclick="alert('新增应用')">+ 新增应用</button>
+        </div>
+        <div class="filter-bar">
+          <input class="input" placeholder="搜索应用名称 / AppKey"/>
+          <select class="select"><option>全部状态</option><option>启用</option><option>停用</option><option>已过期</option></select>
+          <button class="btn">查询</button>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>应用名称</th><th>AppKey</th><th>状态</th><th>IP 白名单</th><th>QPS</th><th>到期时间</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr><td>支付网关</td><td>ak_pay_8f3k2</td><td><span class="tag tag-success">启用</span></td><td>3 条</td><td>200</td><td>2026-12-31</td><td><span class="link">编辑</span><span class="link">权限</span><span class="link">更多</span></td></tr>
+              <tr><td>订单中心</td><td>ak_order_m2x9</td><td><span class="tag tag-success">启用</span></td><td>2 条</td><td>100</td><td>2027-06-30</td><td><span class="link">编辑</span><span class="link">权限</span><span class="link">更多</span></td></tr>
+              <tr><td>报表服务</td><td>ak_rpt_k71b</td><td><span class="tag tag-warning">已过期</span></td><td>1 条</td><td>50</td><td>2026-08-15</td><td><span class="link">编辑</span><span class="link">权限</span><span class="link">更多</span></td></tr>
+              <tr><td>CRM 系统</td><td>ak_crm_q4n7</td><td><span class="tag tag-danger">停用</span></td><td>0 条</td><td>—</td><td>2027-01-31</td><td><span class="link">编辑</span><span class="link">权限</span><span class="link">更多</span></td></tr>
+              <tr><td>用户中心</td><td>ak_user_h2p5</td><td><span class="tag tag-success">启用</span></td><td>5 条</td><td>300</td><td>2027-12-31</td><td><span class="link">编辑</span><span class="link">权限</span><span class="link">更多</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 权限管理 -->
+      <section class="page" id="page-permission">
+        <div class="page-head">
+          <div><div class="page-title">权限管理</div><div class="page-sub">选择应用后，勾选分组（整组授权，含子分组）或接口（单个授权）</div></div>
+          <button class="btn btn-primary">授权操作</button>
+        </div>
+        <div class="perm-layout">
+          <div class="card" style="width:300px;padding:16px;flex-shrink:0;">
+            <div style="font-size:12px;color:var(--text-2);margin-bottom:6px;">授权应用</div>
+            <select class="select" style="width:100%;margin-bottom:14px;"><option>支付网关</option><option>订单中心</option><option>用户中心</option></select>
+            <div style="font-size:12px;color:var(--text-2);margin-bottom:6px;">分组 / 接口（可展开勾选）</div>
+            <div class="auth-tree">
+              <div class="auth-node group on"><span class="chk on">✓</span> 支付</div>
+              <div class="auth-node iface on"><span class="chk on">✓</span> /pay/create 创建支付单</div>
+              <div class="auth-node iface"><span class="chk"></span> /pay/query 查询支付结果</div>
+              <div class="auth-node group"><span class="chk"></span> 订单</div>
+              <div class="auth-node iface"><span class="chk"></span> /order/query 查询订单</div>
+              <div class="auth-node group on"><span class="chk on">✓</span> 用户</div>
+              <div class="auth-node iface on"><span class="chk on">✓</span> /user/info 获取用户信息</div>
+              <div class="auth-node group"><span class="chk"></span> 报表</div>
+              <div class="auth-node iface"><span class="chk"></span> /report/export 报表导出</div>
+            </div>
+          </div>
+          <div class="card" style="flex:1;min-width:0;">
+            <table>
+              <thead><tr><th>应用 \ 接口</th><th style="text-align:center;">/pay/create</th><th style="text-align:center;">/order/query</th><th style="text-align:center;">/user/info</th><th style="text-align:center;">/report/export</th><th style="text-align:center;">/crm/contact</th></tr></thead>
+              <tbody>
+                <tr><td>支付网关</td><td style="text-align:center;"><span class="matrix-cell matrix-on">✓</span></td><td style="text-align:center;"><span class="matrix-cell matrix-on">✓</span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td></tr>
+                <tr><td>订单中心</td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-on">✓</span></td><td style="text-align:center;"><span class="matrix-cell matrix-on">✓</span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td></tr>
+                <tr><td>用户中心</td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-on">✓</span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td></tr>
+                <tr><td>报表服务</td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-on">✓</span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td></tr>
+                <tr><td>CRM 系统</td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-off"></span></td><td style="text-align:center;"><span class="matrix-cell matrix-on">✓</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="legend"><span><span class="swatch" style="background:var(--info-bg);border:1px solid var(--info-text);"></span>已授权</span><span><span class="swatch" style="border:1px solid var(--border-2);"></span>未授权</span></div>
+      </section>
+
+      <!-- 加解密管理 -->
+      <section class="page" id="page-crypto">
+        <div class="page-head">
+          <div><div class="page-title">加解密管理</div><div class="page-sub">密钥加密托管、版本管理与定时轮换</div></div>
+          <button class="btn btn-primary" onclick="alert('新增密钥')">+ 新增密钥</button>
+        </div>
+        <div class="filter-bar">
+          <input class="input" placeholder="搜索名称 / 应用 / 接口"/>
+          <select class="select"><option>全部算法</option><option>SM2</option><option>SM4</option><option>AES</option></select>
+          <button class="btn">查询</button>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>名称</th><th>算法</th><th>范围</th><th>模式</th><th>当前版本</th><th>轮换状态</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr><td>支付网关-主密钥</td><td><span class="tag tag-info">SM4</span></td><td>应用级</td><td>CBC</td><td>v3</td><td><span class="tag tag-success">生效中</span></td><td><span class="link">轮换</span><span class="link">查看</span></td></tr>
+              <tr><td>订单中心-返参密钥</td><td><span class="tag tag-info">AES</span></td><td>应用级</td><td>GCM</td><td>v2</td><td><span class="tag tag-warning">待轮换</span></td><td><span class="link">轮换</span><span class="link">查看</span></td></tr>
+              <tr><td>/pay/create-入参密钥</td><td><span class="tag tag-info">SM2</span></td><td>接口级</td><td>签名</td><td>v1</td><td><span class="tag tag-success">生效中</span></td><td><span class="link">轮换</span><span class="link">查看</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 调用日志 -->
+      <section class="page" id="page-log">
+        <div class="page-head">
+          <div><div class="page-title">调用日志</div><div class="page-sub">全链路调用记录，敏感字段已自动脱敏</div></div>
+          <button class="btn">导出 CSV</button>
+        </div>
+        <div class="filter-bar">
+          <input class="input" placeholder="时间范围" style="flex:none;width:160px;"/>
+          <select class="select"><option>全部应用</option><option>支付网关</option></select>
+          <select class="select"><option>全部接口</option></select>
+          <select class="select"><option>全部状态码</option></select>
+          <button class="btn">查询</button>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>请求时间</th><th>应用</th><th>接口</th><th>状态码</th><th>耗时</th><th>调用 IP</th><th>限流/拦截</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr><td>22:14:08.231</td><td>支付网关</td><td>/pay/create</td><td><span class="tag tag-success">200</span></td><td>128ms</td><td>10.2.1.15</td><td><span class="tag tag-second">正常</span></td><td><span class="link">详情</span></td></tr>
+              <tr><td>22:14:05.912</td><td>订单中心</td><td>/order/query</td><td><span class="tag tag-success">200</span></td><td>45ms</td><td>10.2.2.31</td><td><span class="tag tag-second">正常</span></td><td><span class="link">详情</span></td></tr>
+              <tr><td>22:13:52.104</td><td>报表服务</td><td>/report/export</td><td><span class="tag tag-warning">429</span></td><td>3ms</td><td>10.2.3.42</td><td><span class="tag tag-warning">已限流</span></td><td><span class="link">详情</span></td></tr>
+              <tr><td>22:13:48.777</td><td>CRM 系统</td><td>/pay/create</td><td><span class="tag tag-danger">403</span></td><td>2ms</td><td>10.8.9.20</td><td><span class="tag tag-danger">已拦截</span></td><td><span class="link">详情</span></td></tr>
+              <tr><td>22:13:30.001</td><td>用户中心</td><td>/user/info</td><td><span class="tag tag-success">200</span></td><td>89ms</td><td>10.2.4.8</td><td><span class="tag tag-second">正常</span></td><td><span class="link">详情</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 安全防护 -->
+      <section class="page" id="page-security">
+        <div class="page-head">
+          <div><div class="page-title">IP 封禁管理</div><div class="page-sub">支持全局封禁与针对具体应用封禁，可设置封禁时长</div></div>
+          <button class="btn btn-danger" onclick="alert('手动封禁')">+ 手动封禁</button>
+        </div>
+        <div class="card" style="margin-bottom:16px;">
+          <table>
+            <thead><tr><th>IP 地址</th><th>关联应用</th><th>类型</th><th>封禁时长</th><th>剩余时间</th><th>原因</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr><td>10.8.9.20</td><td>全局</td><td><span class="tag tag-danger">自动</span></td><td>5 分钟</td><td>2 分 10 秒</td><td>连续鉴权失败</td><td><span class="link">解封</span></td></tr>
+              <tr><td>203.0.113.5</td><td>报表服务</td><td><span class="tag tag-info">手动</span></td><td>24 小时</td><td>18 时 32 分</td><td>高频调用</td><td><span class="link">解封</span></td></tr>
+              <tr><td>198.51.100.7</td><td>CRM 系统</td><td><span class="tag tag-info">手动</span></td><td>7 天</td><td>6 天 4 时</td><td>权限越界</td><td><span class="link">解封</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card" style="padding:16px;max-width:460px;">
+          <div style="font-size:14px;font-weight:600;margin-bottom:14px;">手动封禁</div>
+          <div class="form-grid">
+            <div><label>IP 地址</label><input class="input" style="width:100%;" placeholder="192.168.1.10"/></div>
+            <div><label>关联应用</label><select class="select" style="width:100%;"><option>全局封禁</option><option>支付网关</option><option>报表服务</option></select></div>
+            <div><label>封禁时长</label><select class="select" style="width:100%;"><option>5 分钟</option><option>1 小时</option><option>24 小时</option><option>7 天</option></select></div>
+            <div><label>封禁原因</label><input class="input" style="width:100%;" placeholder="选填"/></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;"><button class="btn">取消</button><button class="btn btn-danger">确认封禁</button></div>
+        </div>
+      </section>
+
+      <!-- 系统设置 -->
+      <section class="page" id="page-system">
+        <div class="page-head">
+          <div><div class="page-title">系统设置</div><div class="page-sub">系统配置、登录安全、用户与角色管理</div></div>
+        </div>
+        <div class="card">
+          <table>
+            <thead><tr><th>配置项</th><th>说明</th><th>当前值</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr><td>网关默认超时</td><td>转发后端服务的默认超时时间</td><td>5000 ms</td><td><span class="link">修改</span></td></tr>
+              <tr><td>日志保留天数</td><td>调用日志归档清理周期</td><td>90 天</td><td><span class="link">修改</span></td></tr>
+              <tr><td>异常时段</td><td>非工作时间异常调用检测</td><td>23:00 - 06:00</td><td><span class="link">修改</span></td></tr>
+              <tr><td>登录失败锁定</td><td>连续失败锁定策略</td><td>5 次 / 10 分钟</td><td><span class="link">修改</span></td></tr>
+              <tr><td>密码强度</td><td>管理员密码复杂度要求</td><td>8 位含大小写+数字</td><td><span class="link">修改</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 登录页 -->
+      <section class="page" id="page-login">
+        <div class="login-wrap">
+          <div class="login-card">
+            <div class="login-logo">GateKeeper</div>
+            <div class="login-sub">API 安全网关管理后台</div>
+            <div class="login-field"><label>账号</label><input class="input" style="width:100%;" placeholder="请输入管理员账号"/></div>
+            <div class="login-field"><label>密码</label><input class="input" style="width:100%;" type="password" placeholder="请输入密码"/></div>
+            <button class="login-btn">登 录</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var crumbMap = {
+    dashboard:'首页 / 仪表盘', screen:'数据大屏', interface:'首页 / 接口管理', app:'首页 / 应用管理',
+    permission:'首页 / 权限管理', crypto:'首页 / 加解密管理', log:'首页 / 调用日志',
+    security:'首页 / 安全防护 / IP 封禁管理', system:'首页 / 系统设置', login:'登录页'
+  };
+  var items = document.querySelectorAll('.nav-item');
+  var pages = document.querySelectorAll('.page');
+  var crumb = document.getElementById('crumb');
+
+  function show(page){
+    pages.forEach(function(p){ p.classList.remove('active'); });
+    var el = document.getElementById('page-' + page);
+    if(el){ el.classList.add('active'); }
+    items.forEach(function(it){
+      if(it.getAttribute('data-page') === page){ it.classList.add('active'); }
+      else { it.classList.remove('active'); }
+    });
+    crumb.textContent = crumbMap[page] || page;
+  }
+
+  items.forEach(function(it){
+    it.addEventListener('click', function(){
+      show(it.getAttribute('data-page'));
+    });
+  });
+
+  // 分组树点击高亮
+  var groups = document.querySelectorAll('.group-item');
+  groups.forEach(function(g){
+    g.addEventListener('click', function(){
+      groups.forEach(function(x){ x.classList.remove('active'); });
+      g.classList.add('active');
+    });
+  });
+})();
+</script>
+</body>
+</html>

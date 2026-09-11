@@ -1,0 +1,265 @@
+package com.gatekeeper.service.impl;
+
+import cn.hutool.core.util.IdUtil;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.gatekeeper.common.PageResult;
+import com.gatekeeper.crypto.CryptoService;
+import com.gatekeeper.entity.App;
+import com.gatekeeper.entity.AppIpWhitelist;
+import com.gatekeeper.entity.AppRateLimit;
+import com.gatekeeper.mapper.AppIpWhitelistMapper;
+import com.gatekeeper.mapper.AppMapper;
+import com.gatekeeper.mapper.AppRateLimitMapper;
+import com.gatekeeper.service.AppService;
+import com.gatekeeper.util.CryptoKeyUtil;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * 应用管理服务实现 — 负责接入应用的分页查询、创建、更新、启停与删除，
+ * 并管理应用级 IP 白名单、限流配置，以及生成/重置应用的 AppKey、AppSecret 凭证。
+ *
+ * <p>安全要点：AppSecret 落库前使用 AES-256 加密存储（密钥来自配置），
+ * 列表查询时对 AppSecret 脱敏置空，仅创建/重置时返回一次明文。</p>
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppService {
+
+    private final AppIpWhitelistMapper ipWhitelistMapper;
+    private final AppRateLimitMapper rateLimitMapper;
+    private final CryptoService cryptoService;
+
+    /** AppSecret 落库加密密钥（配置注入） */
+    @Value("${gatekeeper.crypto.aes-key}")
+    private String aesDbKey;
+
+    /**
+     * 分页查询应用列表，支持按应用名称模糊匹配与状态筛选
+     *
+     * @param current 当前页码
+     * @param size    每页条数
+     * @param appName 应用名称（模糊匹配，可为空）
+     * @param status  应用状态（可为空，为空则不筛选）
+     * @return 应用分页结果
+     */
+    @Override
+    public PageResult<App> pageQuery(int current, int size, String appName, Integer status) {
+        Page<App> page = new Page<>(current, size);
+        QueryWrapper<App> wrapper = new QueryWrapper<>();
+        if (appName != null && !appName.isEmpty()) {
+            wrapper.like("app_name", appName); // 应用名称模糊匹配
+        }
+        if (status != null) {
+            wrapper.eq("status", status); // 按状态精确筛选
+        }
+        wrapper.orderByDesc("created_at"); // 按创建时间倒序
+        baseMapper.selectPage(page, wrapper);
+        // 安全：列表响应不返回 AppSecret（明文仅在创建/重置时展示一次）
+        page.getRecords().forEach(a -> a.setAppSecret(null));
+        return PageResult.of(page.getRecords(), page.getTotal(), page.getCurrent(), page.getSize());
+    }
+
+    /**
+     * 创建应用：生成 AppKey 与 AppSecret 凭证、初始化启用状态，
+     * 并同步创建一条默认（不限流）的限流配置
+     *
+     * @param app 待创建的应用实体
+     * @return 创建后的应用实体（含生成的凭证）
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public App createApp(App app) {
+        app.setAppKey(generateAppKey()); // 生成 32 位随机 AppKey
+        String plainSecret = generateAppSecret(); // 生成 64 位随机 AppSecret（明文）
+        app.setAppSecret(encryptSecret(plainSecret)); // 落库前 AES 加密
+        app.setStatus(1); // 默认启用
+        app.setCreatedAt(LocalDateTime.now());
+        app.setUpdatedAt(LocalDateTime.now());
+        baseMapper.insert(app);
+
+        // 创建默认限流配置
+        AppRateLimit rateLimit = new AppRateLimit();
+        rateLimit.setAppId(app.getId());
+        rateLimit.setQpsLimit(0); // 0 表示不限流
+        rateLimit.setConcurrentLimit(0);
+        rateLimit.setDailyLimit(0);
+        rateLimit.setCreatedAt(LocalDateTime.now());
+        rateLimitMapper.insert(rateLimit);
+
+        // 仅本次响应返回明文 AppSecret（后续不可再查）
+        app.setAppSecret(plainSecret);
+        return app;
+    }
+
+    /**
+     * 更新应用基本信息
+     *
+     * @param id  应用 ID
+     * @param app 待更新的应用实体
+     */
+    @Override
+    public void updateApp(Long id, App app) {
+        app.setId(id);
+        app.setUpdatedAt(LocalDateTime.now());
+        baseMapper.updateById(app);
+    }
+
+    /**
+     * 更新应用启停状态
+     *
+     * @param id     应用 ID
+     * @param status 目标状态（1 启用 / 0 停用）
+     */
+    @Override
+    public void updateStatus(Long id, Integer status) {
+        App app = new App();
+        app.setId(id);
+        app.setStatus(status);
+        app.setUpdatedAt(LocalDateTime.now());
+        baseMapper.updateById(app);
+    }
+
+    /**
+     * 删除应用
+     *
+     * @param id 应用 ID
+     */
+    @Override
+    public void deleteApp(Long id) {
+        baseMapper.deleteById(id);
+    }
+
+    /**
+     * 查询指定应用的 IP 白名单列表（按创建时间倒序）
+     *
+     * @param appId 应用 ID
+     * @return IP 白名单列表
+     */
+    @Override
+    public List<AppIpWhitelist> listIpWhitelist(Long appId) {
+        return ipWhitelistMapper.selectList(
+                new QueryWrapper<AppIpWhitelist>().eq("app_id", appId).orderByDesc("created_at"));
+    }
+
+    /**
+     * 为指定应用新增一条 IP 白名单记录
+     *
+     * @param appId     应用 ID
+     * @param whitelist IP 白名单实体
+     */
+    @Override
+    public void addIpWhitelist(Long appId, AppIpWhitelist whitelist) {
+        whitelist.setAppId(appId);
+        whitelist.setCreatedAt(LocalDateTime.now());
+        ipWhitelistMapper.insert(whitelist);
+    }
+
+    /**
+     * 删除指定 IP 白名单记录
+     *
+     * @param whitelistId 白名单记录 ID
+     */
+    @Override
+    public void removeIpWhitelist(Long whitelistId) {
+        ipWhitelistMapper.deleteById(whitelistId);
+    }
+
+    /**
+     * 查询指定应用的限流配置
+     *
+     * @param appId 应用 ID
+     * @return 限流配置实体，不存在时返回 null
+     */
+    @Override
+    public AppRateLimit getRateLimit(Long appId) {
+        return rateLimitMapper.selectOne(
+                new QueryWrapper<AppRateLimit>().eq("app_id", appId));
+    }
+
+    /**
+     * 更新指定应用的限流配置；若配置不存在则新建一条
+     *
+     * @param appId     应用 ID
+     * @param rateLimit 限流配置实体
+     */
+    @Override
+    public void updateRateLimit(Long appId, AppRateLimit rateLimit) {
+        AppRateLimit existing = rateLimitMapper.selectOne(
+                new QueryWrapper<AppRateLimit>().eq("app_id", appId));
+        if (existing != null) {
+            // 已有配置则覆盖限流阈值
+            existing.setQpsLimit(rateLimit.getQpsLimit());
+            existing.setConcurrentLimit(rateLimit.getConcurrentLimit());
+            existing.setDailyLimit(rateLimit.getDailyLimit());
+            existing.setUpdatedAt(LocalDateTime.now());
+            rateLimitMapper.updateById(existing);
+        } else {
+            // 无配置则新建
+            rateLimit.setAppId(appId);
+            rateLimit.setCreatedAt(LocalDateTime.now());
+            rateLimitMapper.insert(rateLimit);
+        }
+    }
+
+    /**
+     * 重置应用 AppSecret 并返回更新后的应用（仅本次返回明文）
+     *
+     * @param id 应用 ID
+     * @return 更新后的应用实体（appSecret 为明文，仅展示一次），应用不存在时返回 null
+     */
+    @Override
+    public App resetSecret(Long id) {
+        App app = baseMapper.selectById(id);
+        if (app == null) {
+            return null;
+        }
+        String plainSecret = generateAppSecret(); // 重新生成 AppSecret（明文）
+        app.setAppSecret(encryptSecret(plainSecret)); // 落库前 AES 加密
+        app.setUpdatedAt(LocalDateTime.now());
+        baseMapper.updateById(app);
+        app.setAppSecret(plainSecret); // 仅本次响应返回明文
+        return app;
+    }
+
+    /**
+     * 吊销应用凭证（T02 轻量实现）。
+     *
+     * <p>MVP 阶段等价语义：将应用 status 置 0（停用），旧凭证即使存在也无法通过网关。
+     * T03 完整凭证域上线后，将扩展为对 {@code app_credential} 多套凭证的精确吊销。</p>
+     *
+     * @param id 应用 ID
+     */
+    @Override
+    public void revokeCredential(Long id) {
+        updateStatus(id, 0);
+    }
+
+    /**
+     * AppSecret 明文 AES-256 加密（ECB/PKCS5Padding），密钥取自配置
+     *
+     * @param plainSecret 明文密钥
+     * @return Base64 密文
+     */
+    private String encryptSecret(String plainSecret) {
+        String key = CryptoKeyUtil.toBase64Key(aesDbKey);
+        return cryptoService.encrypt("AES", plainSecret, key, null, "ECB", "PKCS5Padding");
+    }
+
+    private String generateAppKey() {
+        return IdUtil.fastSimpleUUID(); // 生成 32 位无横线 UUID 作为 AppKey
+    }
+
+    private String generateAppSecret() {
+        return IdUtil.fastSimpleUUID() + IdUtil.fastSimpleUUID(); // 两个 UUID 拼接生成 64 位 AppSecret
+    }
+}
