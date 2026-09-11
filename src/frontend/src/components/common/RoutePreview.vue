@@ -101,7 +101,9 @@ export default {
     async load() {
       try {
         const res = await getApiEnvConfigList(this.apiId)
-        this.fetched = (res.data && res.data.records) || res.data || []
+        // GET /api-env-config/list 返回 Result<List<ApiEnvConfigDto>>（裸数组，无 records/total 信封）。
+        // 直接裸取 res.data（T09-A，见 docs/T08-ClassG-响应形状审计.md §6-①）
+        this.fetched = (res && res.data) || []
       } catch (e) {
         this.fetched = []
       }

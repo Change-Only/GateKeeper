@@ -156,6 +156,9 @@ export default {
       if (Array.isArray(res.list)) return { list: res.list, total: res.total || 0 }
       if (res.data) {
         const d = res.data
+        // 裸数组响应（Result<List<T>> 未被外层 fetch 拆包，data 本身即列表）。
+        // 仅新增此分支，其余判定顺序不变（T09-A，见 docs/T08-ClassG-响应形状审计.md §6-②）
+        if (Array.isArray(d)) return { list: d, total: d.length }
         if (Array.isArray(d.list)) return { list: d.list, total: d.total || 0 }
         if (Array.isArray(d.records)) return { list: d.records, total: d.total || 0 }
       }
