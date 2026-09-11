@@ -36,6 +36,9 @@ pnpm-debug.log*
 !.env.example
 application-local.yml
 application-dev.yml
+# 主配置含真实密钥（DB/AES/JWT），永不入库（T09-④：此前仅 local/dev 变体被忽略，
+# 主文件常年以 untracked 挂在 git status，存在 git add -A 误入库风险）
+src/backend/src/main/resources/application.yml
 
 # ==================== 测试 / 覆盖率 ====================
 coverage/
