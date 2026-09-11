@@ -1,5 +1,6 @@
 package com.gatekeeper.controller;
 
+import com.gatekeeper.aspect.ApiChangeLog;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.dto.ApiVersionDto;
 import com.gatekeeper.security.RequirePerm;
@@ -10,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,6 +30,8 @@ import java.util.List;
  *   <li>GET    /api-version/{id}                      详情</li>
  *   <li>POST   /api-version/create                    创建（{@code api_version:create} 高危）</li>
  *   <li>POST   /api-version/{id}/set-current          设为当前版本（事务，EXACTLY ONE）</li>
+ *   <li>POST   /api-version/{id}/publish              发布（{@code api:publish} 高危，校验已验证环境）</li>
+ *   <li>PUT    /api-version/{id}/gray                 设置灰度比例（{@code api_version:gray} 高危）</li>
  *   <li>POST   /api-version/{id}/deprecate            弃用（status=2）</li>
  *   <li>POST   /api-version/{id}/offline              下线（status=3）</li>
  * </ul></p>
@@ -38,7 +42,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api-version")
 @RequiredArgsConstructor
-@Tag(name = "接口版本", description = "接口版本管理（多版本 + 当前默认 + 灰度 + 弃用/下线）")
+@Tag(name = "接口版本", description = "接口版本管理（多版本 + 当前默认 + 灰度 + 发布 + 弃用/下线）")
 public class ApiVersionController {
 
     private final ApiVersionService apiVersionService;
@@ -75,6 +79,7 @@ public class ApiVersionController {
      *
      * <p>T03b 权限点 {@code api_version:create}（risk=true）。</p>
      */
+    @ApiChangeLog(value = "新建接口版本", changeType = "UPDATE", fieldName = "versions", fieldLabel = "版本")
     @RequirePerm(value = "api_version:create", risk = true)
     @Operation(summary = "创建接口版本")
     @PostMapping("/create")
@@ -90,6 +95,35 @@ public class ApiVersionController {
     public Result<Void> setCurrent(@PathVariable Long id) {
         apiVersionService.setCurrent(id);
         return Result.success();
+    }
+
+    /**
+     * 发布版本（高危）。
+     *
+     * <p>业务规则：发布前必须已配置至少 1 个「已验证」环境地址（configStatus=2）。
+     * 发布后本版本 isCurrent=1、接口 publishStatus=2。</p>
+     *
+     * <p>权限点复用 T02 的 {@code api:publish}（risk=true），不新增同名权限点。</p>
+     */
+    @ApiChangeLog(value = "发布接口版本", changeType = "PUBLISH", fieldName = "publishStatus", fieldLabel = "发布状态")
+    @RequirePerm(value = "api:publish", risk = true)
+    @Operation(summary = "发布接口版本")
+    @PostMapping("/{id}/publish")
+    public Result<ApiVersionDto> publish(@PathVariable Long id) {
+        return Result.success(apiVersionService.publish(id));
+    }
+
+    /**
+     * 设置灰度比例（高危）。
+     *
+     * <p>T03b 权限点 {@code api_version:gray}（risk=true）。比例 0-100，仅当前版本可设。</p>
+     */
+    @ApiChangeLog(value = "设置版本灰度比例", changeType = "UPDATE", fieldName = "grayRatio", fieldLabel = "灰度比例")
+    @RequirePerm(value = "api_version:gray", risk = true)
+    @Operation(summary = "设置版本灰度比例")
+    @PutMapping("/{id}/gray")
+    public Result<ApiVersionDto> gray(@PathVariable Long id, @RequestParam Integer grayRatio) {
+        return Result.success(apiVersionService.setGray(id, grayRatio));
     }
 
     /**

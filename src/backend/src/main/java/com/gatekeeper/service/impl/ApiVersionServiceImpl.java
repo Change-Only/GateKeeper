@@ -3,13 +3,18 @@ package com.gatekeeper.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gatekeeper.dto.ApiVersionDto;
+import com.gatekeeper.entity.ApiEnvConfig;
+import com.gatekeeper.entity.ApiInterface;
 import com.gatekeeper.entity.ApiVersion;
 import com.gatekeeper.exception.GatewayException;
+import com.gatekeeper.mapper.ApiEnvConfigMapper;
+import com.gatekeeper.mapper.ApiInterfaceMapper;
 import com.gatekeeper.mapper.ApiVersionMapper;
 import com.gatekeeper.service.ApiVersionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -26,6 +31,8 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>create 必填 apiId / version，按 uk_version_api 唯一预检</li>
  *   <li>setCurrent 事务：同接口其余版本 is_current 清零，本版本置 1（EXACTLY ONE）</li>
+ *   <li>publish 前必须有已验证环境（api_env_config.config_status=2），并同步接口发布态</li>
+ *   <li>setGray 仅当前版本可设，比例 0-100</li>
  *   <li>deprecate / offline 仅改生命周期状态</li>
  * </ul></p>
  *
@@ -36,6 +43,29 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ApiVersionServiceImpl extends ServiceImpl<ApiVersionMapper, ApiVersion> implements ApiVersionService {
+
+    /** 环境配置「已验证」状态值（原型 apiEnvConfigs.configStatus） */
+    private static final int CONFIG_STATUS_VERIFIED = 2;
+
+    /** 接口发布状态「已发布」（原型 api_status） */
+    private static final int PUBLISH_STATUS_PUBLISHED = 2;
+
+    /** 版本状态「生效中」 */
+    private static final int VERSION_STATUS_ACTIVE = 1;
+
+    /**
+     * 环境配置 Mapper（publish 校验「已验证环境」用）。
+     *
+     * <p>使用字段注入以保留无参构造，兼容既有单测。</p>
+     */
+    @Autowired
+    private ApiEnvConfigMapper apiEnvConfigMapper;
+
+    /**
+     * 接口 Mapper（publish 同步 api_interface.publish_status / current_version 用）。
+     */
+    @Autowired
+    private ApiInterfaceMapper apiInterfaceMapper;
 
     @Override
     public List<ApiVersionDto> list(Long apiId) {
@@ -127,6 +157,74 @@ public class ApiVersionServiceImpl extends ServiceImpl<ApiVersionMapper, ApiVers
         target.setUpdatedAt(LocalDateTime.now());
         baseMapper.updateById(target);
         log.info("ApiVersion setCurrent: id={}, apiId={}", id, apiId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiVersionDto publish(Long id) {
+        if (id == null) {
+            throw GatewayException.badRequest("版本ID不能为空");
+        }
+        ApiVersion target = baseMapper.selectById(id);
+        if (target == null) {
+            throw GatewayException.notFound("接口版本不存在: id=" + id);
+        }
+        Long apiId = target.getApiId();
+
+        // 1) 发布前校验：至少 1 个「已验证」环境配置
+        Long verifiedCount = apiEnvConfigMapper.selectCount(
+                new QueryWrapper<ApiEnvConfig>()
+                        .eq("api_id", apiId)
+                        .eq("config_status", CONFIG_STATUS_VERIFIED));
+        if (verifiedCount == null || verifiedCount == 0L) {
+            throw GatewayException.badRequest("发布前必须至少配置 1 个已验证的环境地址（configStatus=2）");
+        }
+
+        // 2) 其余版本 is_current 清零
+        ApiVersion reset = new ApiVersion();
+        reset.setIsCurrent(0);
+        reset.setUpdatedAt(LocalDateTime.now());
+        baseMapper.update(reset, new QueryWrapper<ApiVersion>().eq("api_id", apiId).eq("is_current", 1));
+
+        // 3) 本版本置 current + 生效中
+        target.setIsCurrent(1);
+        target.setStatus(VERSION_STATUS_ACTIVE);
+        target.setUpdatedAt(LocalDateTime.now());
+        baseMapper.updateById(target);
+
+        // 4) 同步接口发布态（publish_status=2 已发布 + current_version）
+        ApiInterface iface = new ApiInterface();
+        iface.setId(apiId);
+        iface.setPublishStatus(PUBLISH_STATUS_PUBLISHED);
+        iface.setCurrentVersion(target.getVersion());
+        iface.setUpdatedAt(LocalDateTime.now());
+        apiInterfaceMapper.updateById(iface);
+
+        log.info("ApiVersion publish: id={}, apiId={}, version={}", id, apiId, target.getVersion());
+        return toDto(target);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ApiVersionDto setGray(Long id, Integer grayRatio) {
+        if (id == null) {
+            throw GatewayException.badRequest("版本ID不能为空");
+        }
+        if (grayRatio == null || grayRatio < 0 || grayRatio > 100) {
+            throw GatewayException.badRequest("灰度比例必须在 0-100 之间");
+        }
+        ApiVersion target = baseMapper.selectById(id);
+        if (target == null) {
+            throw GatewayException.notFound("接口版本不存在: id=" + id);
+        }
+        if (target.getIsCurrent() == null || target.getIsCurrent() != 1) {
+            throw GatewayException.badRequest("仅当前版本（isCurrent=1）可设置灰度比例");
+        }
+        target.setGrayRatio(grayRatio);
+        target.setUpdatedAt(LocalDateTime.now());
+        baseMapper.updateById(target);
+        log.info("ApiVersion setGray: id={}, grayRatio={}", id, grayRatio);
+        return toDto(target);
     }
 
     @Override

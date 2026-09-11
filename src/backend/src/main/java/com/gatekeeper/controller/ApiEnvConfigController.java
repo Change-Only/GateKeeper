@@ -1,5 +1,6 @@
 package com.gatekeeper.controller;
 
+import com.gatekeeper.aspect.ApiChangeLog;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.dto.ApiEnvConfigDto;
 import com.gatekeeper.security.RequirePerm;
@@ -28,7 +29,9 @@ import java.util.List;
  *   <li>GET    /api-env-config/list                      按 apiId/envCode 筛选</li>
  *   <li>GET    /api-env-config/{id}                      详情</li>
  *   <li>POST   /api-env-config/create                    创建（{@code api_env_config:create} 高危）</li>
+ *   <li>POST   /api-env-config/upsert                    创建或更新（按 apiId+envCode+version）</li>
  *   <li>PUT    /api-env-config/{id}/update               更新可编辑字段</li>
+ *   <li>POST   /api-env-config/{id}/test                 连通性测试（HEAD，通过置已验证）</li>
  *   <li>POST   /api-env-config/{id}/toggle-mock          翻转 Mock 开关</li>
  *   <li>DELETE /api-env-config/{id}                      删除（{@code api_env_config:delete} 高危）</li>
  * </ul></p>
@@ -69,6 +72,7 @@ public class ApiEnvConfigController {
      *
      * <p>T03b 权限点 {@code api_env_config:create}（risk=true）。</p>
      */
+    @ApiChangeLog(value = "新增接口环境配置", changeType = "UPDATE", fieldName = "envConfigs", fieldLabel = "环境配置")
     @RequirePerm(value = "api_env_config:create", risk = true)
     @Operation(summary = "创建接口环境配置")
     @PostMapping("/create")
@@ -77,13 +81,41 @@ public class ApiEnvConfigController {
     }
 
     /**
+     * 创建或更新环境配置（UPSERT，按 apiId + envCode + version 唯一）。
+     *
+     * <p>T03b 权限点复用 {@code api_env_config:create}（risk=true）。</p>
+     */
+    @ApiChangeLog(value = "配置接口环境地址", changeType = "UPDATE", fieldName = "envConfigs", fieldLabel = "环境配置")
+    @RequirePerm(value = "api_env_config:create", risk = true)
+    @Operation(summary = "创建或更新接口环境配置")
+    @PostMapping("/upsert")
+    public Result<ApiEnvConfigDto> upsert(@Valid @RequestBody ApiEnvConfigDto dto) {
+        return Result.success(apiEnvConfigService.upsert(dto));
+    }
+
+    /**
      * 更新接口环境配置（仅可编辑字段）。
      */
+    @ApiChangeLog(value = "修改接口环境配置", changeType = "UPDATE", fieldName = "envConfigs", fieldLabel = "环境配置")
     @Operation(summary = "更新接口环境配置")
     @PutMapping("/{id}/update")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody ApiEnvConfigDto dto) {
         apiEnvConfigService.update(id, dto);
         return Result.success();
+    }
+
+    /**
+     * 连通性测试：对 upstreamUrl 发 HEAD 请求（5s 超时）。
+     *
+     * <p>通过 → configStatus=2（已验证）；失败 → configStatus=1（已配置）。
+     * T03b 权限点 {@code api_env_config:test}（risk=false，诊断动作）。</p>
+     */
+    @ApiChangeLog(value = "环境连通性测试", changeType = "UPDATE", fieldName = "configStatus", fieldLabel = "配置状态")
+    @RequirePerm(value = "api_env_config:test", risk = false)
+    @Operation(summary = "接口环境连通性测试")
+    @PostMapping("/{id}/test")
+    public Result<ApiEnvConfigDto> test(@PathVariable Long id) {
+        return Result.success(apiEnvConfigService.testConnectivity(id));
     }
 
     /**

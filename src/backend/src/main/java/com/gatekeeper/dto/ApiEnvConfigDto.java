@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  *
  * <p>字段命名严格对齐原型 MOCK.apiEnvConfigs 字典：
  * <ul>
- *   <li>configStatus: 1=已配置, 2=未配置（由 upstreamUrl 是否填写推导）</li>
+ *   <li>configStatus: 0=未配置, 1=已配置（已填地址未验证）, 2=已验证（连通性测试通过）</li>
  *   <li>mockEnabled: 1=开启Mock, 0=关闭</li>
  * </ul></p>
  *
@@ -54,7 +54,7 @@ public class ApiEnvConfigDto {
     /** 1=开启Mock, 0=关闭（原型 mockEnabled） */
     private Integer mockEnabled;
 
-    /** 1=已配置, 2=未配置（原型 configStatus），由 upstreamUrl 推导 */
+    /** 0=未配置, 1=已配置, 2=已验证（原型 configStatus）；由 upstreamUrl 与连通性测试推导 */
     private Integer configStatus;
 
     /** 创建时间（响应字段） */
