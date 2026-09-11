@@ -14,6 +14,7 @@
       :query="query"
       row-key="id"
       :show-pagination="false"
+      :actions-width="300"
       @loaded="onLoaded"
     >
       <template #envCode="{ row }">
@@ -28,6 +29,12 @@
       <template #actions="{ row }">
         <PermButton perm="" type="text" @click="toggleMock(row)">切换 Mock</PermButton>
         <PermButton perm="" type="text" @click="openEdit(row)">编辑</PermButton>
+        <PermButton
+          perm="api_env_config:test"
+          type="text"
+          :loading="testingId === row.id"
+          @click="testConnectivity(row)"
+        >测试连通</PermButton>
         <PermButton perm="api_env_config:delete" type="text" class="danger-link" @click="remove(row)">删除</PermButton>
       </template>
     </CrudTable>
@@ -47,10 +54,10 @@
 <script>
 /**
  * 接口环境配置 Tab（T05 Phase 1 · api-list 详情）
- * 对接 /api-env-config/* ：list/create/update/toggle-mock/delete。
+ * 对接 /api-env-config/* ：list/create/update/toggle-mock/delete + 连通性测试 test。
  * 顶部复用 RoutePreview 网关路由/版本预览构件。
  */
-import { getApiEnvConfigList, createApiEnvConfig, updateApiEnvConfig, toggleApiEnvConfigMock, deleteApiEnvConfig } from '@/api/modules'
+import { getApiEnvConfigList, createApiEnvConfig, updateApiEnvConfig, toggleApiEnvConfigMock, deleteApiEnvConfig, testApiEnvConfig } from '@/api/modules'
 import { ENV_LIST } from '@/utils/enum'
 import StatusTag from '@/components/common/StatusTag.vue'
 import RoutePreview from '@/components/common/RoutePreview.vue'
@@ -79,6 +86,7 @@ export default {
       dialogVisible: false,
       dialogTitle: '新增环境配置',
       submitting: false,
+      testingId: null,
       form: {},
       fields: [
         { prop: 'envCode', label: '环境', type: 'select', required: true, options: ENV_LIST.map((e) => ({ value: e.code, label: e.label })), span: 12 },
@@ -167,6 +175,24 @@ export default {
           this.$message.success('Mock 状态已切换')
           this.reload()
         } catch (e) { /* 拦截器已提示 */ }
+      }).catch(() => {})
+    },
+    // 连通性测试（api_env_config:test）：后端对 upstreamUrl 发 HEAD，通过置 configStatus=2 已验证
+    testConnectivity(row) {
+      this.$confirm(`对「${this.envLabel(row.envCode)}」环境的后端地址发起连通性测试？`, '测试连通', { type: 'info' }).then(async () => {
+        this.testingId = row.id
+        try {
+          const res = await testApiEnvConfig(row.id)
+          const cfg = (res && res.data) || {}
+          if (cfg.configStatus === 2) {
+            this.$message.success('连通测试通过 · 已标记为「已验证」')
+          } else {
+            this.$message.warning('连通测试未通过 · 仍为「已配置」，请检查后端地址')
+          }
+          this.reload()
+        } catch (e) { /* 拦截器已提示 */ } finally {
+          this.testingId = null
+        }
       }).catch(() => {})
     },
     remove(row) {

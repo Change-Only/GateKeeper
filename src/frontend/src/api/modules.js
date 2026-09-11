@@ -176,6 +176,16 @@ export function getRecentEvents() {
   return request.get('/dashboard/screen/recent-events')
 }
 
+// ============ 概览页聚合（T06-B · 待办 / 风险，与 screen/* 一致无需权限点） ============
+// 待办清单：顺序固定为 api 待审核接口 / grant 待审批授权 / cred 密钥即将过期 / alarm 未处理告警
+export function getDashboardTodo() {
+  return request.get('/dashboard/todo')
+}
+// 风险看板：按 alert.level 分级（CRITICAL/WARNING/INFO，仅未处理 status IN (0,1)）
+export function getDashboardRisk() {
+  return request.get('/dashboard/risk')
+}
+
 // ============ 加解密配置 ============
 // 查询接口级加解密配置
 export function getInterfaceEncryptionConfig(interfaceId) {
@@ -456,6 +466,10 @@ export function toggleApiEnvConfigMock(id) {
 // 删除环境配置
 export function deleteApiEnvConfig(id) {
   return request.delete(`/api-env-config/${id}`)
+}
+// 连通性测试（api_env_config:test，诊断动作；通过置 configStatus=2 已验证，失败回 1 已配置，返回更新后的配置）
+export function testApiEnvConfig(id) {
+  return request.post(`/api-env-config/${id}/test`)
 }
 
 // ============ 接口变更历史（api-change-log 子域 · T05 Phase 1，只读） ============
