@@ -5,8 +5,8 @@ import { buildMenus } from './menu'
 
 Vue.use(VueRouter)
 
-// 20 个业务页 + 保留页共用同一个占位 StubPage（Phase 0 骨架；真实页面在后续 Phase 实现）
-const StubPage = () => import('@/views/StubPage.vue')
+// 说明：T05 Phase 1~4 已将所有业务路由替换为真实页面视图，StubPage 占位组件已不再被引用。
+// 保留 @/views/StubPage.vue 文件本身，供后续新增未实现路由时临时占位复用。
 
 const routes = [
   // 根路径重定向到仪表盘页面
@@ -39,24 +39,24 @@ const routes = [
       { path: 'api/api-group', name: 'ApiGroup', component: () => import('@/views/api/ApiGroup.vue'), meta: { title: '接口分组', perm: 'api:list', module: '接口管理' } },
       { path: 'api/api-list', name: 'ApiList', component: () => import('@/views/api/ApiList.vue'), meta: { title: '接口列表', perm: 'api:list', module: '接口管理' } },
       // ===== 权限管理 =====
-      { path: 'perm/perm-user', name: 'PermUser', component: StubPage, meta: { title: '用户管理', perm: 'sys:user:list', module: '权限管理' } },
-      { path: 'perm/perm-role', name: 'PermRole', component: StubPage, meta: { title: '角色管理', perm: 'sys:role:list', module: '权限管理' } },
-      { path: 'perm/perm-matrix', name: 'PermMatrix', component: StubPage, meta: { title: '接口授权总览', perm: 'grant:list', module: '权限管理' } },
+      { path: 'perm/perm-user', name: 'PermUser', component: () => import('@/views/perm/PermUser.vue'), meta: { title: '用户管理', perm: 'sys:user:list', module: '权限管理' } },
+      { path: 'perm/perm-role', name: 'PermRole', component: () => import('@/views/perm/PermRole.vue'), meta: { title: '角色管理', perm: 'sys:role:list', module: '权限管理' } },
+      { path: 'perm/perm-matrix', name: 'PermMatrix', component: () => import('@/views/perm/PermMatrix.vue'), meta: { title: '接口授权总览', perm: 'grant:list', module: '权限管理' } },
       { path: 'perm/perm-datascope', name: 'PermDatascope', component: () => import('@/views/perm/DataScope.vue'), meta: { title: '数据权限', perm: 'sys:datascope:view', module: '权限管理' } },
-      { path: 'perm/perm-audit', name: 'PermAudit', component: StubPage, meta: { title: '操作审计', perm: 'audit:list', module: '权限管理' } },
+      { path: 'perm/perm-audit', name: 'PermAudit', component: () => import('@/views/perm/PermAudit.vue'), meta: { title: '操作审计', perm: 'audit:list', module: '权限管理' } },
       // ===== 系统设置 =====
       { path: 'sys/sys-env', name: 'SysEnv', component: () => import('@/views/system/SysEnv.vue'), meta: { title: '环境与网关', perm: 'sys:env:list', module: '系统设置' } },
-      { path: 'sys/sys-security', name: 'SysSecurity', component: StubPage, meta: { title: '安全策略', perm: 'sys:security:view', module: '系统设置' } },
+      { path: 'sys/sys-security', name: 'SysSecurity', component: () => import('@/views/system/SysSecurity.vue'), meta: { title: '安全策略', perm: 'sys:security:view', module: '系统设置' } },
       { path: 'sys/sys-bizline', name: 'SysBizline', component: () => import('@/views/system/SysBizLine.vue'), meta: { title: '业务线管理', perm: 'sys:bizline:list', module: '系统设置' } },
       { path: 'sys/sys-dict', name: 'SysDict', component: () => import('@/views/system/SysDict.vue'), meta: { title: '字典管理', perm: 'sys:dict:update', module: '系统设置' } },
-      { path: 'sys/sys-alarm', name: 'SysAlarm', component: StubPage, meta: { title: '告警规则', perm: 'sys:alarm:update', module: '系统设置' } },
+      { path: 'sys/sys-alarm', name: 'SysAlarm', component: () => import('@/views/system/SysAlarm.vue'), meta: { title: '告警规则', perm: 'sys:alarm:update', module: '系统设置' } },
       { path: 'sys/sys-notify', name: 'SysNotify', component: () => import('@/views/system/SysNotify.vue'), meta: { title: '通知渠道', perm: 'sys:notify:list', module: '系统设置' } },
       { path: 'sys/sys-config', name: 'SysConfig', component: () => import('@/views/system/SysConfig.vue'), meta: { title: '参数配置', perm: 'sys:config:list', module: '系统设置' } },
-      { path: 'sys/sys-log', name: 'SysLog', component: StubPage, meta: { title: '日志与审计', perm: 'sys:log:list', module: '系统设置' } },
+      { path: 'sys/sys-log', name: 'SysLog', component: () => import('@/views/system/SysLog.vue'), meta: { title: '日志与审计', perm: 'sys:log:list', module: '系统设置' } },
       // ===== 监控与审计 =====
-      { path: 'mon/mon-calllog', name: 'MonCalllog', component: StubPage, meta: { title: '调用日志', perm: 'log:call:list', module: '监控与审计' } },
-      { path: 'mon/mon-alarm', name: 'MonAlarm', component: StubPage, meta: { title: '告警记录', perm: 'alarm:list', module: '监控与审计' } },
-      { path: 'mon/mon-block', name: 'MonBlock', component: StubPage, meta: { title: '封禁管理', perm: 'block:list', module: '监控与审计' } },
+      { path: 'mon/mon-calllog', name: 'MonCalllog', component: () => import('@/views/monitor/MonCalllog.vue'), meta: { title: '调用日志', perm: 'log:call:list', module: '监控与审计' } },
+      { path: 'mon/mon-alarm', name: 'MonAlarm', component: () => import('@/views/monitor/MonAlarm.vue'), meta: { title: '告警记录', perm: 'alarm:list', module: '监控与审计' } },
+      { path: 'mon/mon-block', name: 'MonBlock', component: () => import('@/views/monitor/MonBlock.vue'), meta: { title: '封禁管理', perm: 'block:list', module: '监控与审计' } },
       // 保留但不进侧边菜单的旧页面（后续并入 sys-security / 保留独立入口）
       { path: 'encryption', name: 'EncryptionConfig', component: () => import('@/views/encryption/Index.vue'), meta: { title: '加解密管理' } }
     ]

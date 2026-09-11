@@ -561,3 +561,105 @@ export function deleteNotifyChannel(id) {
 export function testNotifyChannel(id) {
   return request.post(`/notify-channel/${id}/test`)
 }
+
+// ============ 授权审批流 grant（T04-A · perm-matrix 复用 · T05 Phase 4） ============
+// 授权列表（按 app/api/env/status 筛选；后端返回 List，无分页）
+export function getGrantList(params) {
+  return request.get('/grant/list', { params })
+}
+// 待审批列表
+export function getGrantPending(params) {
+  return request.get('/grant/pending', { params })
+}
+// 创建授权（待审批，grant:create 高危）
+export function createGrant(data) {
+  return request.post('/grant/create', data)
+}
+// 审批通过（grant:approve 高危）
+export function approveGrant(id, data) {
+  return request.post(`/grant/${id}/approve`, data)
+}
+// 审批驳回（grant:reject 高危，意见必填）
+export function rejectGrant(id, data) {
+  return request.post(`/grant/${id}/reject`, data)
+}
+// 撤销授权（grant:revoke 高危，原因必填）
+export function revokeGrant(id, data) {
+  return request.post(`/grant/${id}/revoke`, data)
+}
+// 延期授权
+export function renewGrant(id, data) {
+  return request.post(`/grant/${id}/renew`, data)
+}
+
+// ============ 角色-菜单授权 sys/role-menu + 菜单（T02 · perm-role 复用 · T05 Phase 4） ============
+// 查某角色已授权的菜单 ID 集合
+export function getRoleMenuIds(roleId) {
+  return request.get(`/sys/role-menu/${roleId}`)
+}
+// 替换某角色的菜单集合（sys:role:grant 高危；事务内全删全插）
+export function replaceRoleMenus(roleId, menuIds) {
+  return request.post(`/sys/role-menu/${roleId}/replace`, { menuIds })
+}
+// 全量启用菜单（type 1/2/3）
+export function getMenuList() {
+  return request.get('/sys/menu/list')
+}
+// 仅权限点（type=3）
+export function getMenuPermPoints() {
+  return request.get('/sys/menu/perm-points')
+}
+
+// ============ 告警规则 alarm-rule（T04-C · sys-alarm 复用 · T05 Phase 4） ============
+// 规则详情
+export function getAlarmRuleDetail(id) {
+  return request.get(`/alarm-rule/${id}`)
+}
+// 创建规则（alarm_rule:create 高危）
+export function createAlarmRule(data) {
+  return request.post('/alarm-rule/create', data)
+}
+// 修改规则
+export function updateAlarmRule(id, data) {
+  return request.put(`/alarm-rule/${id}/update`, data)
+}
+// 启用/停用（status=1/0）
+export function toggleAlarmRule(id, status) {
+  return request.post(`/alarm-rule/${id}/toggle`, null, { params: { status } })
+}
+// 发送测试告警
+export function testAlarmRule(id) {
+  return request.post(`/alarm-rule/${id}/test`)
+}
+
+// ============ 动态封禁规则 block-rule（T04-D · mon-block 复用 · T05 Phase 4） ============
+// 规则列表（全量，按 id 升序）
+export function getBlockRuleList(params) {
+  return request.get('/block-rule/list', { params })
+}
+// 规则详情
+export function getBlockRuleDetail(id) {
+  return request.get(`/block-rule/${id}`)
+}
+// 新建规则（block_rule:create 高危）
+export function createBlockRule(data) {
+  return request.post('/block-rule/create', data)
+}
+// 修改规则
+export function updateBlockRule(id, data) {
+  return request.put(`/block-rule/${id}/update`, data)
+}
+// 启用/停用（enabled=1/0）
+export function toggleBlockRule(id, enabled) {
+  return request.post(`/block-rule/${id}/toggle`, null, { params: { enabled } })
+}
+// 人工封禁（block_rule:manual 高危）
+export function manualBlock(id, data) {
+  return request.post(`/block-rule/${id}/manual-block`, data)
+}
+
+// ============ 操作审计导出 operation-log/export（perm-audit / sys-log · T05 Phase 4） ============
+// 导出审计日志 CSV（audit:export 高危，blob 流式下载）
+export function exportOperationLog(params) {
+  return request.get('/system/operation-log/export', { params, responseType: 'blob' })
+}

@@ -114,6 +114,28 @@ export const STATUS_MAP = {
     BIZ_LINE: { label: '仅本业务线', type: 'warning' },
     CUSTOM: { label: '自定义', type: 'primary' },
     SELF: { label: '仅本人', type: 'info' }
+  },
+  // 系统角色启停态（sys_role.status：0=停用, 1=启用）
+  role: {
+    0: { label: '已停用', type: 'info' },
+    1: { label: '启用中', type: 'success' }
+  },
+  // IP 封禁状态（ip_ban.ban_status：0=已解封, 1=封禁中）
+  ipBan: {
+    0: { label: '已解封', type: 'info' },
+    1: { label: '封禁中', type: 'danger' }
+  },
+  // 动态封禁规则启停态（block_rule.enabled：0=停用, 1=启用）
+  blockRule: {
+    0: { label: '已停用', type: 'info' },
+    1: { label: '启用中', type: 'success' }
+  },
+  // 告警处理/读取态（alert.status：0=未读, 1=已读, 2=已处理, 3=已忽略）
+  alertStatus: {
+    0: { label: '未读', type: 'danger' },
+    1: { label: '已读', type: 'info' },
+    2: { label: '已处理', type: 'success' },
+    3: { label: '已忽略', type: 'warning' }
   }
 }
 
@@ -136,6 +158,13 @@ export const ALARM_LEVEL = {
   1: { label: 'INFO', type: 'info' },
   2: { label: 'WARNING', type: 'warning' },
   3: { label: 'CRITICAL', type: 'danger' }
+}
+
+// 告警等级（alert.level 字符串形态：INFO / WARNING / CRITICAL）
+export const ALERT_LEVEL = {
+  INFO: { label: 'INFO', type: 'info' },
+  WARNING: { label: 'WARNING', type: 'warning' },
+  CRITICAL: { label: 'CRITICAL', type: 'danger' }
 }
 
 // 告警类型标签
