@@ -45,20 +45,20 @@ Docker 化资产**不是从零开始**，以下三件已在仓库中（HEAD@7a2b
 - **Dockerfile 与 compose 内零明文密钥**（逐行实测确认）：compose 用 `${VAR:?}` 强制从 `.env` 读取；mysql healthcheck 用容器内运行时变量 `$$MYSQL_ROOT_PASSWORD`，不内联。
 - DB/AES/JWT 的 host、port、name、username 等非密钥项也全走环境变量占位（`application.yml:14-16`）。
 
-### 2.2 ⚠️ 与 lead 口径的差异：第 4 处「Redis 口令」现状不存在（需 lead 裁定）
+### 2.2 ⚠️ 与 lead 口径的差异：第 4 处「Redis 口令」现状不存在（✅ 已裁定：不做）
 
 lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT」。**实测现状只有 3 处**：
 - `application.yml:26-30`：`spring.redis` 仅 host/port/database/timeout，**无 `password` 键**（注释原文「当前 Redis 未启用密码，如需可自行补充」）；
 - 后端全代码 `grep redis.*password` **零引用**；
 - compose redis 服务无 `--requirepass`；`.env.example` 无 `GATEKEEPER_REDIS_PASSWORD`。
 
-**对齐方案（演进式只加不改，P1）**：`spring.redis.password: "${GATEKEEPER_REDIS_PASSWORD:}"`（空默认=兼容本地无口令）+ compose redis `command: --requirepass ${GATEKEEPER_REDIS_PASSWORD:?...}` + backend env 同名传递 + `.env.example` 补一行。是否本轮做，**留 lead 裁定**（内网/容器网络内的 Redis 无口令属常见取舍，且 Redis 已有 fail-open 降级策略 `application.yml:37-39`）。
+**✅ 裁定：不做对齐，保持现状 3 密钥（lead，2026-09-12）**。理由：`spring.redis` 在 application.yml 里根本没有 password 配置行，compose 内 Redis 若加 `requirepass` 反而**直接断连**；本地栈内网隔离，风险不成立。（原「对齐方案」存档：`spring.redis.password: "${GATEKEEPER_REDIS_PASSWORD:}"` + compose `--requirepass` + backend env 传递 + `.env.example` 补行，演进式 4 行——将来若出内网部署再启用。）
 
 ### 2.3 已知债（P2，留档不阻塞）：application.yml 占位默认值即真实密钥
 
 实测 `application.yml:17/72/75` 三个占位符**默认值是真实可用密钥**（DB 口令与远程库实连一致；AES/JWT 为 32+ 位真实值）。该文件按 lead 口径未被 git 跟踪，且全仓 docs/test grep 该三串**零命中**（密钥唯一载体就是此本地文件）。风险与缓解：
 - **容器路径已安全**：compose 三变量均 `:?` 强制，容器内不会回退到默认值；
-- **裸 `java -jar` 路径依赖默认值**（已知债）：`.gitignore` 无 `application.yml` 条目（仅 `application-local/dev.yml`，:37-38）⇒ 未跟踪状态会在 `git status` 常驻显示，存在误 `git add` 风险。**建议**（P2）：.gitignore 增补该条目或改为「仓库内 application.yml 全空默认值 + 本地真值走 application-local.yml」（后者改动面大，仅留档）。
+- **裸 `java -jar` 路径依赖默认值**（已知债，缓解已落地）：`.gitignore` **已补 `src/backend/src/main/resources/application.yml` 条目**（lead 提交于 `b3a0759`，含注释），误 `git add` 风险已闭环。备选方案「仓库内 application.yml 全空默认值 + 本地真值走 application-local.yml」改动面大，仅留档不实施。
 
 ---
 
@@ -168,7 +168,7 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 | S1 Dockerfile ×2 review | ✅ 本轮已完成 | §1.1/§1.2，结论：无需改动 |
 | S2 compose 密钥面 review | ✅ 本轮已完成 | §2.1，零明文、`:?` 强制、healthcheck 防泄露 |
 | S3 初始化 SQL 链组装 | 📝 方案已给（§3.2），**待施工** | 改 compose volumes（10 行挂载）+ 静态核对每个文件存在性与幂等性；可在无 Docker 环境 review YAML |
-| S4 Redis 口令对齐（第 4 密钥） | ⏸ 待 lead 裁定 | §2.2，与 lead 口径存在现状差异 |
+| S4 Redis 口令对齐（第 4 密钥） | 🟢 **已裁定：不做**（lead，2026-09-12） | §2.2：现状 3 密钥保持；compose 加 requirepass 反而断连，内网隔离风险不成立 |
 | S5 mock-upstream 服务 | 📝 方案已给（§3.3），待施工 | 复用 nginx 镜像，零新增下载 |
 | S6 E2E 脚本 | 📝 剧本已给（§4），待环境 | 解除阻塞 A 后落地执行 |
 | S7 远程库快赢 2 核对 | ✅ 已满足（lead 实测） | `api_call_log` 10 个组合索引已存在、表 0 行——E2E 落库即有索引可用，无需补 DDL |
@@ -183,7 +183,7 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 | R2 | init.sql 旧 schema ⇒ 栈起不来业务 | 🔴 P0 | §3.2 初始化链（本方案核心增量） |
 | R3 | initdb 仅空卷执行 ⇒ 脏卷导致「改了没生效」 | 🟠 P1 | U0/U7 强制 `down -v`；剧本写死 |
 | R4 | 种子文件间顺序/幂等缺陷（如 t09-hygiene 未终稿） | 🟠 P1 | S3 静态逐一核对；hygiene 挂载前 lead 确认 |
-| R5 | Redis 无口令与 lead 口径不一致 | 🟡 P2 | §2.2 待裁定 |
+| R5 | Redis 无口令与 lead 口径不一致 | 🟢 **已裁定闭环** | §2.2：保持现状 3 密钥（lead，2026-09-12）；加 requirepass 会断连，内网隔离风险不成立 |
 | R6 | application.yml 默认值含真钥（裸 jar 路径） | 🟡 P2 | §2.3 留档；容器路径已有双保险 |
 | R7 | 无外联环境拉不到新镜像 | 🟢 已规避 | mock-upstream 复用既有 nginx 镜像（§3.3） |
 | R8 | E2E 用例沦为「绿灯漏检」 | 🟠 P1 | §4 验收纪律：带数据正面断言 |
