@@ -16,10 +16,35 @@ services:
       MYSQL_ROOT_PASSWORD: ${GATEKEEPER_DB_PASSWORD:?请在 .env 中配置 GATEKEEPER_DB_PASSWORD}
       MYSQL_DATABASE: ${GATEKEEPER_DB_NAME:-gatekeeper}
       TZ: Asia/Shanghai
-    # 首次启动自动执行建表脚本
+    # 首次启动自动执行建表脚本（11 文件有序链，按字典序挂载；源文件名不动）
+    #   ⚠ 对方案 §3.2 的【有意偏离】—— 方案原文列 10 文件挂载不含
+    #   `t09-hygiene.sql`，但 `docs/sql/t03a-seed-permissions.sql:33` 会创建野行
+    #   `sys_menu.id=221`（与 `migrate-v2.sql` 播的 `id=212` 同 pid=5/type=2/
+    #   route='/sys/bizline'/name='业务线管理'，且 221 零 sys_role_menu 引用、
+    #   零子节点）。若按方案原 10 挂载 fresh bootstrap，`sys_menu` 总数 = 113
+    #   ≠ dev 库现状 112，T09-B 修复的"双业务线管理"问题会重现。
+    #   本编排补入 #11（t09-hygiene.sql）使 fresh bootstrap 达正确终态。
+    #   t09-hygiene.sql 实际行为（非 no-op）：
+    #     · DELETE sys_menu.id=221 —— 首跑删 1 行；WHERE 共 7 个条件：
+    #       5 列精确锁定（id+pid+type+route_path+name）+ 两处 NOT EXISTS 防误删
+    #       （已授权/有子节点即不删）；重跑命中 0 行；
+    #     · ALTER alert.alarm_level / app.audit_status —— 仅改 COMMENT，
+    #       列 definition 守恒（与 dev 库实测一致）；
+    #     · UPDATE sys_dict SET remark WHERE dict_code='alarm_level' —— 1 行。
+    #   完整判据与 T11 候选见 docs/T10-D-初始化链幂等性核对与T11候选.md。
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./src/backend/src/main/resources/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./src/backend/src/main/resources/sql/init.sql:/docker-entrypoint-initdb.d/00-t01-base.sql:ro
+      - ./docs/sql/schema-v2.sql:/docker-entrypoint-initdb.d/01-schema-v2.sql:ro
+      - ./docs/sql/migrate-v2.sql:/docker-entrypoint-initdb.d/02-migrate-v2.sql:ro
+      - ./docs/sql/t02-seed-admin-role.sql:/docker-entrypoint-initdb.d/03-t02-seed.sql:ro
+      - ./docs/sql/t03a-seed-permissions.sql:/docker-entrypoint-initdb.d/04-t03a-seed.sql:ro
+      - ./docs/sql/t03b-seed-permissions.sql:/docker-entrypoint-initdb.d/05-t03b-seed.sql:ro
+      - ./docs/sql/seed-perm-alignment.sql:/docker-entrypoint-initdb.d/06-t05-seed.sql:ro
+      - ./docs/sql/seed-datascope-perm.sql:/docker-entrypoint-initdb.d/07-t05-datascope.sql:ro
+      - ./docs/sql/t07a-seed-rules.sql:/docker-entrypoint-initdb.d/08-t07a-seed.sql:ro
+      - ./docs/sql/t08-seed-perms.sql:/docker-entrypoint-initdb.d/09-t08-seed.sql:ro
+      - ./docs/sql/t09-hygiene.sql:/docker-entrypoint-initdb.d/10-t09-hygiene.sql:ro
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
       # 用容器内运行时环境变量取密码（$$ 转义），避免密码被内联进容器配置、docker inspect 可见
@@ -79,6 +104,14 @@ services:
       - "8081:80"
     depends_on:
       - backend
+
+  # ---------- mock 上游（E2E U5 网关转发用例，方案 §3.3；复用 frontend 已用的 nginx 镜像，零新增下载） ----------
+  mock-upstream:
+    image: nginx:1.25-alpine
+    container_name: gatekeeper-mock-upstream
+    restart: unless-stopped
+    volumes:
+      - ./docker/mock-upstream.conf:/etc/nginx/conf.d/default.conf:ro
 
 volumes:
   mysql-data:

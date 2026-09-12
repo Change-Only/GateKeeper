@@ -2,9 +2,13 @@
 -- T09 数据卫生三件套（team-lead 亲自核查并执行，2026-09-12）
 -- 幂等：可重复执行；全部为数据/注释级操作，不改表结构、不删业务数据
 -- 核查依据（逐条实测，非推断）：
---   * sys_menu id=221 系种子脚本之外的野行（migrate-v2.sql:136 只播了 212），
---     212/221 均为 pid=5 type=2 route_path='/sys/bizline'，221 零 sys_role_menu 引用、零子节点；
---     getRoleMenu 授权树（PermRole.vue → GET /sys/menu/list）会渲染出两个「业务线管理」
+--   * sys_menu id=221 与 id=212 均为「业务线管理」菜单（pid=5 type=2 route_path='/sys/bizline'），
+--     系【跨脚本重复播种】：migrate-v2.sql:136 播 212（规范行），t03a-seed-permissions.sql:33
+--     又播 221（未查重），二者完全同值。221 零 sys_role_menu 引用、零子节点；
+--     getRoleMenu 授权树（PermRole.vue → GET /sys/menu/list）会渲染出两个「业务线管理」。
+--     本脚本删 221 留 212（212 为 migrate-v2 规范行）。
+--     注：t03a 播 221 一事由 eng-shape 在 T10-D 核对时发现，修正了 lead 最初
+--     「221 系种子脚本之外的野行」的错误归因。
 --   * alert.level 才是真实等级列（VARCHAR，INFO/WARNING/CRITICAL，AlertServiceImpl.publish 写入）；
 --     alert.alarm_level 为死列（1 行数据中 0 非 NULL，后端零引用），
 --     且列注释「1=提示,2=警告,3=严重」本身就有误导性（RiskVo 注释亦警示过）
@@ -13,7 +17,8 @@
 --     有意设计，id=1 有 9 处 sys_role_menu 引用 —— 刻意不动，防后人误"修"
 -- ============================================================
 
--- 1) 删除 sys_menu 野行 221（带四重守卫：任一不满足即不删）
+-- 1) 删除重复菜单行 221（WHERE 共 7 个条件：5 列精确锁定 + 2 处 NOT EXISTS 防误删，
+--    任一不满足即不删）
 DELETE FROM sys_menu
 WHERE id = 221
   AND pid = 5
