@@ -17,13 +17,13 @@ services:
       MYSQL_DATABASE: ${GATEKEEPER_DB_NAME:-gatekeeper}
       TZ: Asia/Shanghai
     # 首次启动自动执行建表脚本（11 文件有序链，按字典序挂载；源文件名不动）
-    #   ⚠ 对方案 §3.2 的【有意偏离】—— 方案原文列 10 文件挂载不含
-    #   `t09-hygiene.sql`，但 `docs/sql/t03a-seed-permissions.sql:33` 会创建野行
+    #   ⚠ 关于 #11（t09-hygiene.sql）：方案 §3.2 原文 YAML 已含本条目但标注
+    #   「可选，待 lead 确认终稿」——T10-D 施工将其定位【升级为必需】。
+    #   原因：`docs/sql/t03a-seed-permissions.sql:33` 会播种重复菜单行
     #   `sys_menu.id=221`（与 `migrate-v2.sql` 播的 `id=212` 同 pid=5/type=2/
     #   route='/sys/bizline'/name='业务线管理'，且 221 零 sys_role_menu 引用、
-    #   零子节点）。若按方案原 10 挂载 fresh bootstrap，`sys_menu` 总数 = 113
-    #   ≠ dev 库现状 112，T09-B 修复的"双业务线管理"问题会重现。
-    #   本编排补入 #11（t09-hygiene.sql）使 fresh bootstrap 达正确终态。
+    #   零子节点）。若不挂 hygiene，fresh bootstrap 后 `sys_menu` 总数 = 113
+    #   ≠ dev 库现状 112，T09-B 修复的"双业务线管理"问题会在容器栈重现。
     #   t09-hygiene.sql 实际行为（非 no-op）：
     #     · DELETE sys_menu.id=221 —— 首跑删 1 行；WHERE 共 7 个条件：
     #       5 列精确锁定（id+pid+type+route_path+name）+ 两处 NOT EXISTS 防误删
