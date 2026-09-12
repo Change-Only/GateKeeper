@@ -84,8 +84,11 @@ public class OperationLogAspect {
 
     /** 组装并写入审计记录 */
     private void record(HttpServletRequest request, String uri, String method, long cost) {
+        // uri 含 context-path（/api），segments = ["", "api", "app", ...]。
+        // 模块名取跳过 context-path 后的首段（segments[2]）——T10-E 修正：
+        // 原取 segments[1] 恒为 "api"，MODULE_MAP 永不命中，operation_module 恒 "API"。
         String[] segments = uri.split("/");
-        String moduleKey = segments.length > 1 ? segments[1] : "UNKNOWN";
+        String moduleKey = segments.length > 2 ? segments[2] : "UNKNOWN";
         String module = MODULE_MAP.getOrDefault(moduleKey, moduleKey.toUpperCase());
 
         String type = "POST".equals(method) ? "CREATE" : ("PUT".equals(method) ? "UPDATE" : "DELETE");
