@@ -62,6 +62,13 @@
       </template>
     </CrudTable>
 
+    <!--
+      T10-N2 动态表单（契约：docs/T09-告警通知渠道扩展-技术方案.md §2.2 冻结 Schema v1 + §4）
+      - channelType 从 CrudDialog 的 fields 移入本插槽自渲染：el-select 挂 @change 钩子，
+        实现「类型切换清空动态散字段」（§4.3），共享组件 CrudDialog 零改动（方案 R7）。
+      - channelType 与动态字段的校验经父级 rules 通道传入（CrudDialog 的 rules prop
+        会按 prop 合并进 formRules，extra 插槽内带 prop 的 el-form-item 同样参与校验）。
+    -->
     <CrudDialog
       :visible.sync="dialog.visible"
       :title="dialog.form.id ? '编辑通知渠道' : '新建通知渠道'"
@@ -72,16 +79,64 @@
       :loading="dialog.loading"
       @submit="onSubmit"
     >
-      <template #extra="{form}">
-        <el-form-item v-if="form.channelType === 'WEBHOOK'" label="Webhook URL" prop="webhookUrl">
-          <el-input v-model="form['webhookUrl']" placeholder="https://..." />
-        </el-form-item>
-        <el-form-item v-else-if="form.channelType === 'EMAIL'" label="收件邮箱" prop="emailAddress">
-          <el-input v-model="form['emailAddress']" placeholder="alert@example.com" />
-        </el-form-item>
-        <el-form-item v-else-if="form.channelType === 'WECOM' || form.channelType === 'DINGTALK'" label="机器人 Key" prop="botKey">
-          <el-input v-model="form['botKey']" show-password />
-        </el-form-item>
+      <template #extra="{ form }">
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="渠道类型" prop="channelType">
+              <el-select v-model="form.channelType" placeholder="请选择" style="width:100%" @change="onChannelTypeChange(form)">
+                <el-option v-for="t in channelTypeOptions" :key="t.value" :value="t.value" :label="t.label" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+
+          <!-- WECOM / DINGTALK / WEBHOOK：完整 Webhook URL（Schema v1：{ "webhook": "https://..." }） -->
+          <template v-if="isWebhookType(form.channelType)">
+            <el-col :span="24">
+              <el-form-item label="Webhook 地址" prop="webhook">
+                <el-input v-model="form.webhook" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" clearable />
+              </el-form-item>
+            </el-col>
+          </template>
+
+          <!-- EMAIL：SMTP 完整配置（Schema v1：smtpHost/smtpPort/ssl/username/password/from/to） -->
+          <template v-else-if="form.channelType === 'EMAIL'">
+            <el-col :span="12">
+              <el-form-item label="SMTP 服务器" prop="smtpHost">
+                <el-input v-model="form.smtpHost" placeholder="smtp.example.com" clearable />
+              </el-form-item>
+            </el-col>
+            <el-col :span="6">
+              <el-form-item label="端口" prop="smtpPort" label-width="60px">
+                <el-input-number v-model="form.smtpPort" :min="1" :max="65535" :step="1" controls-position="right" style="width:100%" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="6">
+              <el-form-item label="SSL" prop="ssl" label-width="50px">
+                <el-switch v-model="form.ssl" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="认证账号" prop="username">
+                <el-input v-model="form.username" placeholder="alert@example.com（匿名可留空）" clearable />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="认证密码" prop="password">
+                <el-input v-model="form.password" show-password placeholder="未修改请保持原样" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="发件人" prop="from">
+                <el-input v-model="form.from" placeholder="alert@example.com" clearable />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="收件人" prop="to">
+                <el-input v-model="form.to" placeholder="ops-a@example.com,ops-b@example.com" clearable />
+              </el-form-item>
+            </el-col>
+          </template>
+        </el-row>
       </template>
     </CrudDialog>
   </div>
@@ -101,6 +156,21 @@ const channelTypeOptions = ENUM_OPTIONS.channelType || []
 const channelTypeMetaRow = new Map(channelTypeOptions.map((o) => [o.value, o.value === 'EMAIL' ? 'warning' : 'primary']))
 const channelTypeLabel = (v) => (channelTypeOptions.find((o) => o.value === v) || {}).label || v
 
+/**
+ * 动态散字段默认值（T09 §2.2 Schema v1 的全集；新建渠道时全部初始化，
+ * 保证传给 CrudDialog 的 model 含全部 key —— onOpen 深拷贝后属性均为响应式）
+ */
+const EMPTY_CONFIG_FIELDS = {
+  webhook: '',
+  smtpHost: '',
+  smtpPort: 465,
+  ssl: true,
+  username: '',
+  password: '',
+  from: '',
+  to: ''
+}
+
 export default {
   name: 'SysNotify',
   data() {
@@ -116,7 +186,7 @@ export default {
         { prop: 'status', label: '状态', width: 80, slot: 'status' },
         { prop: 'lastTestTime', label: '最后测试时间', width: 170, formatter: (v) => v || '—' },
         { prop: 'lastTestResult', label: '测试结果', width: 90, slot: 'lastTestResult' },
-        { prop: 'remark', label: '备注', minWidth: 160, showOverflowTooltip: true }
+        { prop: 'updatedAt', label: '更新时间', width: 170, formatter: (v) => v || '—' }
       ],
       dialog: {
         visible: false,
@@ -152,37 +222,125 @@ export default {
       this.query.status = undefined
       this.reload()
     },
+    /** WECOM / DINGTALK / WEBHOOK 共用 { webhook } 单字段配置（NotifySender 读 webhook/url key） */
+    isWebhookType(t) {
+      return t === 'WECOM' || t === 'DINGTALK' || t === 'WEBHOOK'
+    },
     baseFields() {
+      // channelType 移入 #extra 插槽自渲染（挂 @change 钩子）；remark 已移除（表无此列，伪字段）
       return [
         { prop: 'channelName', label: '渠道名称', type: 'input', required: true, span: 12, placeholder: '请输入渠道名称' },
-        {
-          prop: 'channelType', label: '渠道类型', type: 'select', required: true, span: 12,
-          options: channelTypeOptions
-        },
-        { prop: 'status', label: '状态', type: 'switch', span: 12, activeValue: 1, inactiveValue: 0 },
-        { prop: 'remark', label: '备注', type: 'textarea', span: 24, rows: 2 }
+        { prop: 'status', label: '状态', type: 'switch', span: 12, activeValue: 1, inactiveValue: 0 }
       ]
     },
+    /** 按当前渠道类型生成校验规则（经 CrudDialog 的 rules prop 合并生效，含 extra 插槽内字段） */
+    buildRules(type) {
+      const rules = {
+        channelType: [{ required: true, message: '请选择渠道类型', trigger: 'change' }]
+      }
+      if (this.isWebhookType(type)) {
+        rules.webhook = [{ required: true, message: '请填写 Webhook 地址', trigger: 'blur' }]
+      } else if (type === 'EMAIL') {
+        rules.smtpHost = [{ required: true, message: '请填写 SMTP 服务器', trigger: 'blur' }]
+        rules.from = [{ required: true, message: '请填写发件人地址', trigger: 'blur' }]
+        rules.to = [{ required: true, message: '请填写收件人地址', trigger: 'blur' }]
+      }
+      return rules
+    },
+    /** 解析 channelConfig JSON（容错：空/非法 JSON/已是对象 均安全返回 {}） */
+    parseChannelConfig(raw) {
+      if (!raw) return {}
+      if (typeof raw === 'object') return raw
+      try {
+        const parsed = JSON.parse(raw)
+        return (parsed && typeof parsed === 'object') ? parsed : {}
+      } catch (e) {
+        return {}
+      }
+    },
+    /**
+     * 提交前组装：散字段 → channelConfig JSON 字符串（T09 缺陷①③ 根因修复）。
+     * key 名与冻结 Schema v1 一字不差（后端按这些 key 解析与加密）。
+     * password 掩码策略：编辑回显的是后端脱敏掩码，未修改时**原样传回**，
+     * 由后端 §3.3 掩码防线（识别掩码格式则跳过该字段更新）兜底 —— 与冻结契约一致。
+     */
+    buildChannelConfig(form) {
+      if (this.isWebhookType(form.channelType)) {
+        return JSON.stringify({ webhook: (form.webhook || '').trim() })
+      }
+      if (form.channelType === 'EMAIL') {
+        return JSON.stringify({
+          smtpHost: (form.smtpHost || '').trim(),
+          smtpPort: Number(form.smtpPort) || 465,
+          ssl: form.ssl !== false,
+          username: (form.username || '').trim(),
+          password: form.password || '',
+          from: (form.from || '').trim(),
+          to: (form.to || '').trim()
+        })
+      }
+      // 未知类型：原样保留库中已有配置串，避免误清
+      return form.channelConfig != null ? form.channelConfig : null
+    },
+    /** 类型切换：清空全部动态散字段 + 重建该类型的校验规则（防 SMTP 残留进 webhook 渠道） */
+    onChannelTypeChange(form) {
+      Object.keys(EMPTY_CONFIG_FIELDS).forEach((k) => {
+        form[k] = JSON.parse(JSON.stringify(EMPTY_CONFIG_FIELDS[k]))
+      })
+      this.dialog.rules = this.buildRules(form.channelType)
+    },
     onCreate() {
-      this.dialog.form = { channelName: '', channelType: 'WECOM', status: 1, remark: '' }
+      this.dialog.form = {
+        channelName: '',
+        channelType: 'WECOM',
+        status: 1,
+        channelConfig: null,
+        ...JSON.parse(JSON.stringify(EMPTY_CONFIG_FIELDS))
+      }
       this.dialog.fields = this.baseFields()
-      this.dialog.rules = {}
+      this.dialog.rules = this.buildRules('WECOM')
       this.dialog.visible = true
     },
     onEdit(row) {
-      this.dialog.form = { ...row }
+      const cfg = this.parseChannelConfig(row.channelConfig)
+      this.dialog.form = {
+        id: row.id,
+        channelName: row.channelName || '',
+        channelType: row.channelType,
+        status: row.status === 0 ? 0 : 1,
+        channelConfig: row.channelConfig != null ? row.channelConfig : null, // 原始串兜底（未知类型不误清）
+        ...JSON.parse(JSON.stringify(EMPTY_CONFIG_FIELDS)),
+        // 回显反填（§4.2）：解析 channelConfig JSON 反填散字段；
+        // password 为后端脱敏掩码，原样回显，未改则原样传回
+        webhook: cfg.webhook || '',
+        smtpHost: cfg.smtpHost || '',
+        smtpPort: cfg.smtpPort != null ? Number(cfg.smtpPort) : 465,
+        ssl: cfg.ssl !== undefined ? !!cfg.ssl : true,
+        username: cfg.username || '',
+        password: cfg.password || '',
+        from: cfg.from || '',
+        to: cfg.to || ''
+      }
       this.dialog.fields = this.baseFields()
-      this.dialog.rules = {}
+      this.dialog.rules = this.buildRules(row.channelType)
       this.dialog.visible = true
     },
     async onSubmit(form) {
+      // 只提交实体真实字段（channelName/channelType/status/channelConfig），
+      // 散字段（webhook/smtpHost…）已序列化进 channelConfig，不再随 form 平铺
+      const payload = {
+        channelName: (form.channelName || '').trim(),
+        channelType: form.channelType,
+        status: form.status ? 1 : 0,
+        channelConfig: this.buildChannelConfig(form)
+      }
       this.dialog.loading = true
       try {
         if (form.id) {
-          await updateNotifyChannel(form.id, form)
+          await updateNotifyChannel(form.id, payload)
           this.$message.success('渠道已更新')
         } else {
-          await createNotifyChannel(form)
+          await createNotifyChannel(payload)
           this.$message.success('渠道已创建')
         }
         this.dialog.visible = false
