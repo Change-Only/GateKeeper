@@ -171,6 +171,32 @@ const EMPTY_CONFIG_FIELDS = {
   to: ''
 }
 
+/** 复用 { webhook } 形状的渠道类型（单一来源：isWebhookType 与 schemaForType 共用，防止两处字面量漂移） */
+const WEBHOOK_TYPES = ['WECOM', 'DINGTALK', 'WEBHOOK']
+
+/**
+ * 渠道配置 Schema 单一来源（T09 §2.2 冻结 v1 + 后端读侧别名）。
+ *
+ * - canonical：本页表单渲染、保存时**写出**的规范 key；
+ * - aliases  ：后端读侧等价的别名 key（值类型合法但非本页规范形状）——
+ *   WebhookSender.java:73 以 {@code webhook} 优先、回退 {@code url}；
+ *   EmailSmtpSender.java:87-88 以 {@code smtpHost} 优先回退 {@code host}、{@code smtpPort} 回退 {@code port}。
+ *   编辑回显时把这些别名**归一迁移**到 canonical key（值不丢）。
+ *
+ * analyzeConfig 的「已知 key 白名单」与 buildChannelConfig 的「写出 key」**均从本常量派生**，
+ * 二者不各存一份清单 —— 漏 key ⇒ 对健康配置假报警；多 key ⇒ 未知 key 被静默丢弃。
+ */
+const CONFIG_SCHEMA = {
+  WEBHOOK: {
+    canonical: ['webhook'],
+    aliases: { url: 'webhook' }
+  },
+  EMAIL: {
+    canonical: ['smtpHost', 'smtpPort', 'ssl', 'username', 'password', 'from', 'to'],
+    aliases: { host: 'smtpHost', port: 'smtpPort' }
+  }
+}
+
 export default {
   name: 'SysNotify',
   data() {
@@ -193,7 +219,11 @@ export default {
         loading: false,
         form: {},
         fields: [],
-        rules: {}
+        rules: {},
+        // 静默覆盖防线（T10-N2b，SE-5 设计、lead 复核采纳）：描述「库中原配置」相对当前表单的丢失风险，
+        // 与用户当前所选 channelType 无关 —— 保存始终会整串重建该列，故类型切换不清此标记。
+        configLossy: false,
+        configLossyReason: ''
       }
     }
   },
@@ -224,7 +254,19 @@ export default {
     },
     /** WECOM / DINGTALK / WEBHOOK 共用 { webhook } 单字段配置（NotifySender 读 webhook/url key） */
     isWebhookType(t) {
-      return t === 'WECOM' || t === 'DINGTALK' || t === 'WEBHOOK'
+      return WEBHOOK_TYPES.indexOf(t) !== -1
+    },
+    /** 该类型对应的 Schema 描述符（未知类型返回 null）；canonical/aliases 见模块常量 CONFIG_SCHEMA */
+    schemaForType(type) {
+      if (this.isWebhookType(type)) return CONFIG_SCHEMA.WEBHOOK
+      if (type === 'EMAIL') return CONFIG_SCHEMA.EMAIL
+      return null
+    },
+    /** 该类型的「已知 key」全集（canonical ∪ aliases）—— analyzeConfig 判 lossy 的白名单 */
+    knownKeysForType(type) {
+      const schema = this.schemaForType(type)
+      if (!schema) return []
+      return schema.canonical.concat(Object.keys(schema.aliases))
     },
     baseFields() {
       // channelType 移入 #extra 插槽自渲染（挂 @change 钩子）；remark 已移除（表无此列，伪字段）
@@ -247,16 +289,40 @@ export default {
       }
       return rules
     },
-    /** 解析 channelConfig JSON（容错：空/非法 JSON/已是对象 均安全返回 {}） */
-    parseChannelConfig(raw) {
-      if (!raw) return {}
-      if (typeof raw === 'object') return raw
-      try {
-        const parsed = JSON.parse(raw)
-        return (parsed && typeof parsed === 'object') ? parsed : {}
-      } catch (e) {
-        return {}
+    /**
+     * 分析库中原始配置串（**输入必须是 row.channelConfig 原串**，不能先 parse —— 否则丢失
+     * 「能否解析」这一信息，恰好漏掉主场景）。返回 { lossy, reason, cfg }：
+     * - 空/null            → 无可丢失，非 lossy；
+     * - 非对象/JSON.parse 失败 → lossy=true（保存会整串重建 ⇒ 静默覆盖）；
+     * - 对象但含白名单外的 key → lossy=true（保存会丢弃这些 key，reason 列出它们）；
+     * - 未知 channelType     → buildChannelConfig 原样保留原串，不构成丢失，非 lossy；
+     * - 其余                → 非 lossy。
+     */
+    analyzeConfig(raw, type) {
+      if (raw == null || raw === '') return { lossy: false, reason: '', cfg: {} }
+      let cfg = null
+      if (typeof raw === 'object') {
+        cfg = Array.isArray(raw) ? null : raw
+      } else {
+        try {
+          const parsed = JSON.parse(raw)
+          cfg = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : null
+        } catch (e) {
+          cfg = null
+        }
       }
+      if (!cfg) {
+        return { lossy: true, reason: '原配置无法解析为 JSON 对象', cfg: {} }
+      }
+      if (!this.schemaForType(type)) {
+        return { lossy: false, reason: '', cfg }
+      }
+      const known = this.knownKeysForType(type)
+      const extra = Object.keys(cfg).filter((k) => known.indexOf(k) === -1)
+      if (extra.length > 0) {
+        return { lossy: true, reason: '原配置含本页未展示的字段：' + extra.join('、'), cfg }
+      }
+      return { lossy: false, reason: '', cfg }
     },
     /**
      * 提交前组装：散字段 → channelConfig JSON 字符串（T09 缺陷①③ 根因修复）。
@@ -265,24 +331,28 @@ export default {
      * 由后端 §3.3 掩码防线（识别掩码格式则跳过该字段更新）兜底 —— 与冻结契约一致。
      */
     buildChannelConfig(form) {
-      if (this.isWebhookType(form.channelType)) {
-        return JSON.stringify({ webhook: (form.webhook || '').trim() })
+      const schema = this.schemaForType(form.channelType)
+      if (!schema) {
+        // 未知类型：原样保留库中已有配置串，避免误清
+        return form.channelConfig != null ? form.channelConfig : null
       }
-      if (form.channelType === 'EMAIL') {
-        return JSON.stringify({
-          smtpHost: (form.smtpHost || '').trim(),
-          smtpPort: Number(form.smtpPort) || 465,
-          ssl: form.ssl !== false,
-          username: (form.username || '').trim(),
-          password: form.password || '',
-          from: (form.from || '').trim(),
-          to: (form.to || '').trim()
-        })
-      }
-      // 未知类型：原样保留库中已有配置串，避免误清
-      return form.channelConfig != null ? form.channelConfig : null
+      // 写出 key = schema.canonical（与 analyzeConfig 白名单同一来源，杜绝两份清单漂移）
+      const out = {}
+      schema.canonical.forEach((k) => { out[k] = this.canonicalValue(k, form) })
+      return JSON.stringify(out)
     },
-    /** 类型切换：清空全部动态散字段 + 重建该类型的校验规则（防 SMTP 残留进 webhook 渠道） */
+    /** 规范 key 的取值归一：smtpPort 数值化（空回退 465）、ssl 布尔化、password 不 trim，其余字符串 trim */
+    canonicalValue(key, form) {
+      const v = form[key]
+      if (key === 'smtpPort') return Number(v) || 465
+      if (key === 'ssl') return v !== false
+      if (key === 'password') return v || ''
+      return (v == null ? '' : String(v)).trim()
+    },
+    /**
+     * 类型切换：清空全部动态散字段 + 重建该类型的校验规则（防 SMTP 残留进 webhook 渠道）。
+     * 注：dialog.configLossy 描述的是「库中原配置」的丢失风险、与当前所选类型无关，故在此**不重置**。
+     */
     onChannelTypeChange(form) {
       Object.keys(EMPTY_CONFIG_FIELDS).forEach((k) => {
         form[k] = JSON.parse(JSON.stringify(EMPTY_CONFIG_FIELDS[k]))
@@ -297,12 +367,29 @@ export default {
         channelConfig: null,
         ...JSON.parse(JSON.stringify(EMPTY_CONFIG_FIELDS))
       }
+      this.dialog.configLossy = false // 新建无既有配置，不存在覆盖丢失
+      this.dialog.configLossyReason = ''
       this.dialog.fields = this.baseFields()
       this.dialog.rules = this.buildRules('WECOM')
       this.dialog.visible = true
     },
     onEdit(row) {
-      const cfg = this.parseChannelConfig(row.channelConfig)
+      // analyzeConfig 输入必须是库中原始串（row.channelConfig），以保留「能否解析」信息
+      const analysis = this.analyzeConfig(row.channelConfig, row.channelType)
+      const cfg = analysis.cfg || {}
+      const schema = this.schemaForType(row.channelType)
+      // 别名归一：规范 key 缺失而后端等价别名存在时，用别名值预填（保存写回规范 key ⇒ 值迁移、不丢）
+      const canonical = {}
+      if (schema) {
+        schema.canonical.forEach((k) => { canonical[k] = cfg[k] })
+        Object.keys(schema.aliases).forEach((alias) => {
+          const target = schema.aliases[alias]
+          const cur = canonical[target]
+          if ((cur == null || cur === '') && cfg[alias] != null && cfg[alias] !== '') {
+            canonical[target] = cfg[alias]
+          }
+        })
+      }
       this.dialog.form = {
         id: row.id,
         channelName: row.channelName || '',
@@ -310,22 +397,40 @@ export default {
         status: row.status === 0 ? 0 : 1,
         channelConfig: row.channelConfig != null ? row.channelConfig : null, // 原始串兜底（未知类型不误清）
         ...JSON.parse(JSON.stringify(EMPTY_CONFIG_FIELDS)),
-        // 回显反填（§4.2）：解析 channelConfig JSON 反填散字段；
+        // 回显反填（§4.2）：解析（含别名归一）后反填散字段；
         // password 为后端脱敏掩码，原样回显，未改则原样传回
-        webhook: cfg.webhook || '',
-        smtpHost: cfg.smtpHost || '',
-        smtpPort: cfg.smtpPort != null ? Number(cfg.smtpPort) : 465,
-        ssl: cfg.ssl !== undefined ? !!cfg.ssl : true,
-        username: cfg.username || '',
-        password: cfg.password || '',
-        from: cfg.from || '',
-        to: cfg.to || ''
+        webhook: canonical.webhook != null ? String(canonical.webhook) : '',
+        smtpHost: canonical.smtpHost != null ? String(canonical.smtpHost) : '',
+        smtpPort: canonical.smtpPort != null ? Number(canonical.smtpPort) : 465,
+        ssl: canonical.ssl !== undefined ? !!canonical.ssl : true,
+        username: canonical.username != null ? String(canonical.username) : '',
+        password: canonical.password != null ? String(canonical.password) : '',
+        from: canonical.from != null ? String(canonical.from) : '',
+        to: canonical.to != null ? String(canonical.to) : ''
       }
+      // 静默覆盖防线标记（T10-N2b）：库中原配置无法解析 / 含未展示字段时置位，保存前弹确认
+      this.dialog.configLossy = analysis.lossy
+      this.dialog.configLossyReason = analysis.reason
       this.dialog.fields = this.baseFields()
       this.dialog.rules = this.buildRules(row.channelType)
       this.dialog.visible = true
     },
     async onSubmit(form) {
+      // 静默覆盖防线（T10-N2b）：库中原配置无法解析 / 含本页未展示字段时，保存会整串重建，
+      // 必须先让用户知情确认。**确认框在 loading=true 之前**弹出；用户取消则直接中止
+      // （loading 未置位、表单不被清空、不发请求）。
+      if (this.dialog.configLossy) {
+        try {
+          await this.$confirm(
+            (this.dialog.configLossyReason || '库中原配置与当前表单不一致') +
+              '，保存将用本页内容覆盖原配置并丢弃上述内容，是否继续？',
+            '配置覆盖确认',
+            { type: 'warning', confirmButtonText: '仍然覆盖', cancelButtonText: '取消' }
+          )
+        } catch (e) {
+          return // 用户取消：中止提交
+        }
+      }
       // 只提交实体真实字段（channelName/channelType/status/channelConfig），
       // 散字段（webhook/smtpHost…）已序列化进 channelConfig，不再随 form 平铺
       const payload = {
