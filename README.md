@@ -384,6 +384,50 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081
 > **属于「应然步骤」而非「已验证步骤」**。请在你的机器上执行；若报错，请以你本地环境的
 > Docker 版本为准。**不要因为本文档未标注而误以为该路径已验证。**
 
+**多实例 / 集群部署限制（未验证）**
+
+> 本项目**仅在单实例下验证**。仓库自带的 Docker E2E 剧本 `docs/sql/t09-docker-e2e.sh`（U0–U2b–U7）
+> 同样是**单实例**编排——U0 起栈为「4 业务容器 + 1 mock-upstream」，不含任何副本或横向扩容；
+> 且该剧本目前**仍是静态草稿，尚未在真实 Docker 环境执行过**。
+> **本文档未做过多实例 / 集群部署测试，也不构成对集群部署的支持声明。**
+
+后端存在 **6 个 `@Scheduled` 定时任务，且没有任何分布式互斥机制**：
+
+| 任务 | 触发方式 |
+|------|---------|
+| `job/AlarmEvaluateJob`（实时评估） | `fixedDelay = 10000` |
+| `job/AlarmEvaluateJob`（离线评估） | `cron = "0 */5 * * * ?"` |
+| `job/GrantExpireJob` | `cron = "0 0 2 * * ?"` |
+| `job/LogRetentionJob` | `cron = "0 30 2 * * ?"` |
+| `job/QuotaResetJob` | `cron = "0 0 0 * * ?"` |
+| `job/RedisHealthMonitor` | `fixedDelay = 30000` |
+
+「无分布式互斥」的判定依据（以下两条检索均为**空命中**）：
+
+```bash
+grep -iE "shedlock|quartz|redisson|curator|zookeeper" src/backend/pom.xml            # → 0 命中
+grep -rnE "lock|Lock|mutex" src/backend/src/main/java/com/gatekeeper/job/             # → 0 命中
+```
+
+代码中 `setIfAbsent` 的用途**均与任务调度无关**，只服务于防重放与告警去重：
+`AppAuthHandler.java:181`（Nonce 防重放）、`HighFrequencyDetector.java:63` 与 `OffHoursDetector.java:56`（同一时间窗内告警只发一次）。
+
+**后果**：若以多个后端副本部署（集群，或 `docker compose up -d --scale backend=N`），这 6 个任务会在
+**每个副本各执行一遍**。其中：
+
+- `GrantExpireJob`（授权过期处理）
+- `LogRetentionJob`（调用日志 `DELETE` 清理）
+- `QuotaResetJob`（配额重置）
+
+并发重复执行会导致**状态错乱或重复动作**——它们**不是**"多跑几次也无妨"的幂等任务。
+
+**如需多实例部署，必须由部署方自行补齐以下之一（本项目未内置）：**
+
+1. 引入 **ShedLock** 一类的分布式调度锁（`@SchedulerLock`），保证同一时刻只有一个副本真正执行；
+2. 将定时调度**移出应用**，交由外部单点承担（独立调度服务、K8s CronJob 等）；
+3. 若某些副本不需要后台任务（例如纯转发副本），可为它们关闭调度——但当前 `@EnableScheduling`
+   与各任务类都是无条件启用的，**关闭需改动代码或自行增加配置开关**。
+
 不想装 JDK/MySQL/Redis 时，可用仓库自带的编排一键拉起全栈（MySQL + Redis + 后端 + 前端 Nginx）：
 
 ```bash
