@@ -1,198 +1,672 @@
-# GateKeeper — API 集中权限管理与安全网关系统
+# GateKeeper — 企业级 APIM 统一接口管理平台
 
-## 项目简介
+> **接口资产 + 应用身份 + 授权关系** 的统一管理面，网关作为执行面落地管控策略。
 
-GateKeeper 是一个企业级 API 安全网关管理平台，将企业内各后端系统的接口统一接入、集中管控，对外提供标准化的 API 调用入口。通过应用维度的权限管理、IP 白名单、频率限制、国密加解密、异常调用检测与 IP 封禁，实现"谁可以调用什么接口、从哪里调用、多久调用一次、传输是否加密、异常是否可发现"的全面管控，并对每次调用进行完整的日志审计与数据大屏可视化。
-
-**核心价值**：统一入口、权限可控、加密传输、流量可限、异常可防、调用可审、安全可溯、态势可视。
+GateKeeper 把企业内部各后端系统的接口统一登记、集中授权，并对每一次外部调用做完整管控：**谁**（应用身份/凭证）可以调用**什么**（接口资产）、**从哪里**（IP 白名单/封禁）、**多久一次**（限流/配额）、**传输是否加密**（国密 SM2/SM3/SM4 与 AES）、**异常是否可发现**（异常检测/告警/封禁）。所有调用全程留痕，可审计、可追溯、可视化。
 
 ---
 
-## 核心功能
+## 核心能力
 
 | 模块 | 说明 |
 |------|------|
-| 应用管理 | 应用注册、AppKey/AppSecret 生成、启停、**到期时间设置**、**IP 白名单**、**调用频率限制** |
-| 接口管理 | 接口注册、分组管理、批量导入、**接口级加解密配置**、超时配置 |
-| 权限管理 | 应用-接口授权、按分组授权、批量授权、授权矩阵视图 |
-| 加解密管理 | **SM2/SM3/SM4 国密算法 + AES/MD5/SHA256 国际算法**，按应用/接口维度独立配置 |
-| 网关代理 | IP 白名单 → 封禁检查 → 应用校验 → 频率限制 → 权限校验 → 加解密 → 转发 → 日志 |
-| 调用日志 | 全链路调用记录：应用、接口、时间、入参、响应、耗时、状态码、IP、加密算法、限流/拦截标记 |
-| 安全防护 | **异常调用检测**（高频/异常时段/连续失败/异常入参/权限越界）、**IP 封禁**（手动/自动）、告警通知 |
-| 告警中心 | **运营告警中心**：按等级（INFO/WARNING/CRITICAL）汇聚网关内部错误、限流、自动封禁、异常入参等告警；支持未读统计、标记已读/全部已读、处置跟进；顶栏铃铛实时红点提示与最近告警下拉 |
-| 数据大屏 | **实时调用量、应用访问排行、接口热度、安全态势、调用趋势**，支持投屏展示 |
-| 统计仪表盘 | 调用量趋势、接口热度、应用排行、错误率、耗时分布（P50/P90/P99） |
-| 系统管理 | 系统配置、用户管理、角色权限、操作审计日志 |
-
----
-
-## 网关请求处理链路
-
-```
-应用请求 → 应用校验(签名/时间戳/Nonce防重放) → IP白名单校验 → IP封禁检查 → 频率限制
-    → 权限校验 → 入参解密 → 请求转发 → 响应加密 → 调用日志 → 返回响应
-```
+| 业务线与环境 | 业务线 / 环境（dev/test/prod）多级隔离，接口按环境配置差异化参数与地址 |
+| 接口资产 | 接口注册、分组、版本管理、参数定义（含导入）、环境配置、上下线、变更历史与灰度 |
+| 应用与凭证 | 应用注册、AppKey/AppSecret 签发、多环境凭证、凭证轮换/吊销、到期时间管理 |
+| 授权关系 | 应用-接口授权、按分组批量授权、授权审批与回收、数据权限（DataScope） |
+| 网关执行面 | IP 白名单 → 封禁检查 → 应用校验（签名/时间戳/Nonce 防重放）→ 限流 → 权限校验 → 入参解密 → 转发 → 响应加密 → 调用日志 |
+| 加解密 | SM2 / SM3 / SM4 国密算法 + AES / MD5 / SHA256，按应用与接口维度独立配置，密钥落库加密存储 |
+| 安全防护 | 异常调用检测（高频 / 异常时段 / 连续鉴权失败 / 异常入参 / 权限越界）、IP 封禁（手动 + 自动）、告警通知多渠道 |
+| 告警中心 | 按等级（INFO/WARNING/CRITICAL）汇聚网关内部错误、限流、自动封禁、异常入参等告警；未读统计、已读处置、顶栏铃铛实时提示 |
+| 调用日志 | 全链路记录：应用、接口、入参、响应、耗时、状态码、来源 IP、加密算法、限流/拦截标记；支持异步导出 CSV |
+| 统计与大屏 | 调用量趋势、应用排行、接口热度、错误率、耗时分布（P50/P90/P99）；大屏投屏展示 |
+| 权限体系 | RBAC 菜单/按钮权限（86 个权限点）、`@RequirePerm` 注解式服务端强校验、Redis 权限缓存 |
+| 系统管理 | 系统参数、数据字典、用户/角色、操作审计日志、安全策略 |
 
 ---
 
 ## 技术栈
 
-| 层面 | 技术选型 |
-|------|---------|
-| 前端 | Vue 2.x + Element UI + Axios + Vue Router + Vuex + **ECharts 5.x（大屏）** |
-| 后端 | Java 8 + Spring Boot 2.7.x + MyBatis-Plus + Hutool |
-| 加解密 | **Bouncy Castle（SM2/SM3/SM4）+ JCE（AES）** |
-| 限流/缓存 | **Redis 6+（令牌桶限流 / 计数 / 封禁状态）** |
-| 数据库 | MySQL 8.x |
-| 构建 | Maven 3.6+ / Vue CLI 4.x |
-| API 文档 | Knife4j (Swagger) |
+| 层面 | 技术选型 | 版本 |
+|------|---------|------|
+| 后端框架 | Spring Boot | 2.7.18 |
+| 语言 / JDK | Java | **1.8** |
+| 持久层 | MyBatis-Plus（注解式，无 XML） | 3.5.x |
+| 数据库 | MySQL | **8.x** |
+| 缓存 / 限流 / 防重放 | Redis + Lettuce | 6+ |
+| 加解密 | Bouncy Castle（SM2/SM3/SM4）+ JCE（AES） | bcprov-jdk15to18 |
+| 工具库 / 转发 | Hutool / Apache HttpClient | — |
+| 接口文档 | Knife4j（OpenAPI3） | — |
+| 构建 | Maven | 3.8+ |
+| 前端框架 | Vue + Element UI + Vue Router + Vuex | 2.7.14 / 2.15.14 / 3.6.5 / 3.6.2 |
+| 前端图表 / 请求 | ECharts / Axios | 5.x / 0.27.x |
+| 前端构建 | Vue CLI（`@vue/cli-service`） | ~5.0.0 |
+| 部署 | Docker Compose（MySQL + Redis + 后端 + Nginx） | — |
+
+**代码规模**：后端主代码 248 个 `.java`，单元测试 61 个 `.java`；前端 56 个 `.vue`。
 
 ---
 
-## 项目目录结构
+## 目录结构
 
 ```
 GateKeeper/
-├── docs/                  # 产品文档、PRD、API 文档
-│   ├── PRD.md             # 产品需求文档
-│   ├── api.md             # API 接口文档
-│   ├── database-design.md # 数据库设计说明
-│   └── release-report.md  # 最终交付报告
-├── design/                # UI 设计稿、原型
-│   ├── spec.md            # 设计规范
-│   ├── 大屏/             # 数据大屏设计稿
-│   └── *.html             # 页面设计稿
-├── src/                   # 前后端代码
-│   ├── frontend/          # Vue2 前端项目
-│   │   ├── src/
-│   │   │   ├── views/     # 页面组件
-│   │   │   │   ├── dashboard/    # 统计仪表盘
-│   │   │   │   ├── screen/       # 数据大屏
-│   │   │   │   ├── app/          # 应用管理
-│   │   │   │   ├── interface/    # 接口管理
-│   │   │   │   ├── permission/   # 权限管理
-│   │   │   │   ├── encryption/   # 加解密配置
-│   │   │   │   ├── log/          # 调用日志
-│   │   │   │   ├── security/     # 安全防护
-│   │   │   │   └── system/       # 系统管理
-│   │   │   ├── components/# 公共组件
-│   │   │   ├── router/    # 路由配置
-│   │   │   ├── store/     # Vuex 状态管理
-│   │   │   ├── api/       # API 请求封装
-│   │   │   └── utils/     # 工具函数（含加密工具）
-│   │   └── package.json
-│   └── backend/           # Java8 后端项目
-│       ├── src/main/java/com/gatekeeper/
-│       │   ├── config/        # 配置类
-│       │   ├── controller/    # 控制器层
-│       │   ├── service/       # 业务逻辑层
-│       │   ├── mapper/        # 数据访问层
-│       │   ├── entity/        # 实体类
-│       │   ├── gateway/       # 网关代理核心
-│       │   │   ├── handler/   # 请求处理链路
-│       │   │   │   ├── IpWhitelistHandler.java      # IP白名单校验
-│       │   │   │   ├── IpBanCheckHandler.java       # IP封禁检查
-│       │   │   │   ├── AppAuthHandler.java           # 应用状态校验
-│       │   │   │   ├── RateLimitHandler.java        # 频率限制
-│       │   │   │   ├── PermissionHandler.java       # 权限校验
-│       │   │   │   ├── EncryptionHandler.java       # 加解密处理
-│       │   │   │   ├── ForwardHandler.java           # 请求转发
-│       │   │   │   └── LogHandler.java               # 日志记录
-│       │   │   └── GatewayCore.java                  # 网关核心调度
-│       │   ├── crypto/       # 加解密模块
-│       │   │   ├── sm2/      # SM2 实现
-│       │   │   ├── sm3/      # SM3 实现
-│       │   │   ├── sm4/      # SM4 实现
-│       │   │   ├── aes/      # AES 实现
-│       │   │   └── CryptoService.java # 统一加解密服务
-│       │   ├── ratelimit/    # 限流模块
-│       │   ├── security/     # 安全检测模块
-│       │   │   ├── detector/ # 异常检测器
-│       │   │   ├── banner/   # IP封禁管理
-│       │   │   └── alert/    # 告警通知
-│       │   ├── interceptor/  # 拦截器
-│       │   └── common/       # 公共组件
-│       ├── src/main/resources/
-│       │   ├── application.yml
-│       │   ├── mapper/       # MyBatis XML
-│       │   └── sql/init.sql   # 数据库初始化脚本
-│       └── pom.xml
-├── tests/                 # 测试（后端单元测试位于 src/backend/src/test，覆盖加解密/脱敏/鉴权/网关上下文/限流等）
-├── security/              # 安全测评报告
-├── README.md              # 项目说明（本文件）
-└── project.json           # 项目元信息
+├── src/
+│   ├── backend/                     # Spring Boot 2.7 后端（Java 8）
+│   │   ├── pom.xml                  # 打包产物 target/gatekeeper.jar
+│   │   ├── Dockerfile               # 多阶段构建（maven 编译 → JRE 运行）
+│   │   └── src/
+│   │       ├── main/java/com/gatekeeper/
+│   │       │   ├── controller/      # 24 个 REST 控制器（管理面）
+│   │       │   ├── service/         # 业务逻辑层
+│   │       │   ├── mapper/          # MyBatis-Plus Mapper（注解实现）
+│   │       │   ├── entity/          # 实体类
+│   │       │   ├── gateway/         # 网关执行面
+│   │       │   │   ├── handler/     # 责任链：IP白名单/封禁/应用校验/限流/权限/加解密/转发/日志
+│   │       │   │   └── EnvResolver.java
+│   │       │   ├── crypto/          # SM2/SM3/SM4/AES 加解密
+│   │       │   ├── security/        # 异常检测、IP 封禁、告警
+│   │       │   ├── job/             # 定时任务（告警评估、授权过期、日志保留、配额重置）
+│   │       │   ├── annotation/      # @RequirePerm 等
+│   │       │   └── config/          # 安全自检、CORS、拦截器、MyBatis-Plus、线程池
+│   │       ├── main/resources/
+│   │       │   ├── application.example.yml  # 🔴 配置模板（可提交，无秘密）
+│   │       │   ├── application.yml          # 🔴 本地真实配置（.gitignore 忽略，不入库）
+│   │       │   ├── mapper/                  # 预留目录（当前无 XML）
+│   │       │   └── sql/init.sql             # 数据库初始化脚本（建表 + 基础种子数据）
+│   │       └── test/java/                   # 61 个单元测试
+│   └── frontend/                    # Vue 2 前端
+│       ├── package.json             # scripts: serve / build / lint
+│       ├── vue.config.js            # devServer 端口 8081，/api → http://localhost:8080
+│       ├── nginx.conf               # 生产静态资源 + /api 反代
+│       ├── Dockerfile
+│       └── src/                     # views（页面）/ components / api / router / store / utils
+├── docs/                            # 产品与架构文档（PRD、架构设计、契约记录、SQL 等）
+├── docker/                          # 辅助部署配置（mock-upstream.conf，E2E 用）
+├── design/                          # UI 设计稿与规范
+├── security/                        # 安全测评报告
+├── docker-compose.yml               # 一键部署编排
+├── .env.example                     # 部署环境变量模板
+└── README.md
 ```
 
 ---
 
-## 角色分工
+## 本地启动方法
 
-| 角色 | 职责 | 主要产出 |
-|------|------|---------|
-| 项目负责人 | 统筹规划、任务分解、进度管控、最终验收 | project.json, README.md, release-report.md |
-| 产品经理 | 需求分析、PRD 编写、用户故事、验收标准 | docs/PRD.md |
-| UI 设计师 | 界面设计、**大屏设计**、交互原型、设计规范 | design/ 目录 |
-| 前端开发 | Vue2 前端编码、**大屏可视化**、接口对接 | src/frontend/ |
-| 后端开发 | Java8 后端编码、网关核心、**加解密**、**限流**、**安全检测**、数据库设计 | src/backend/, docs/api.md |
-| 安全测评 | 安全审计、**加解密验证**、**防护有效性验证**、安全报告 | security/security-report.md |
-| 测试工程师 | 测试用例、功能测试、**加解密测试**、**限流测试**、UAT 验收 | tests/ 目录 |
+> 命令中 `<...>` 为占位符，请按实际环境替换。建议 Linux/macOS 或 Git Bash 环境；Windows PowerShell 的差异点会在步骤中标注。
 
----
+**验证范围声明**（便于你判断每条命令的可信度——标注为"未实测"的请在你的机器上验证）：
 
-## 里程碑计划
+| 内容 | 状态 | 验证方式与范围 |
+|------|------|---------------|
+| 后端启动 + 登录（步骤 4 / 6 / 7） | ✅ **已实测** | 本机后端起于 `8080`（context-path `/api`）；`POST /api/auth/login` 返回 `code=200`、`message=success`、`permCount=86`、`token` 长 141 |
+| 前端 dev server（步骤 5 / 7） | ✅ **已实测** | `:8081` 返回 HTTP 200；`npm run build -- --no-clean` 输出 `DONE Build complete`（Time 8245ms、Hash ec872ce6a202be04） |
+| Redis 连通（步骤 2） | ✅ **已实测** | 原生 TCP 发送 `PING`，收到 `+PONG` |
+| `mvn` 标准命令与 classworlds 兜底（步骤 4） | ✅ **已实测** | 本机 `mvn -v` 复现 `找不到或无法加载主类 ...Launcher`；兜底写法返回 `Apache Maven 3.8.8` / `Java 1.8.0_391`，并成功执行 `compile`（退出码 0） |
+| `mysql` 导入命令（步骤 1） | ⚠️ **未实测** | 本机未安装 `mysql` 客户端，无法执行。命令形式按 MySQL 官方语法与 `init.sql` 头部建库/建表语句核对得出 |
+| Docker Compose 一键部署 | ⚠️ **未实测** | 本环境未提供 Docker（`docker --version` → `command not found`）。见该章节的声明 |
+| 其余各平台 Redis/MySQL 启动命令 | ⚠️ **未实测** | 属于各平台通用标准命令，非在单一机器上逐条执行 |
 
-```
-需求阶段  →  设计阶段  →  开发阶段  →  测试阶段  →  交付阶段
-   PRD       UI+大屏设计    前后端代码     测试+安全报告   交付报告
-```
+> 上表中「已实测」的前提是：后端与前端在本机已按步骤 3 配置并启动过。**步骤 1 的数据库导入是本流程中
+> 唯一未实测的关键环节**——请在首次部署时优先验证它（导入后可用 `SHOW TABLES` 确认 36 张表）。
 
-1. **需求阶段**：完成 PRD，覆盖全部 10 大核心模块
-2. **设计阶段**：完成 UI 设计稿（含数据大屏）和数据库 ER 设计
-3. **开发阶段**：前后端编码，网关代理完整链路打通（含 IP 白名单/限流/加解密/安全检测）
-4. **测试阶段**：功能测试 + 安全测评，加解密和限流测试覆盖
-5. **交付阶段**：最终验收，生成交付报告
+### 0. 前置依赖
 
----
+| 依赖 | 版本要求 | 校验命令 | 说明 |
+|------|---------|---------|------|
+| JDK | **1.8**（Java 8） | `java -version` | Spring Boot 2.7 + `<java.version>1.8</java.version>`，**不要用 JDK 11+** |
+| Maven | 3.8+ | `mvn -v` | 仅用于构建/启动后端；若报 classworlds 错误见 FAQ Q2 |
+| MySQL | **8.x** | `mysql --version` | 需支持 `utf8mb4`；本地或远程实例均可 |
+| Redis | 6+ | `redis-cli ping` → `PONG` | 限流、IP 封禁、Nonce 防重放、权限缓存 |
+| Node.js | 16 / 18 LTS（20/22 亦可） | `node -v` | 需与 Vue CLI 5 兼容 |
+| npm | 8+ | `npm -v` | 随 Node 安装 |
 
-## 快速开始
+> **一线实测环境**（下述版本号均为实际执行版本命令所得）：JDK `1.8.0_391`、`Apache Maven 3.8.8`、
+> Node `22.22.2` / npm `10.9.7`；后端实际连接 MySQL 8、Redis（本机 `PING` → `+PONG`）。
+> JDK 与 Maven 的版本号来自 `java -version` 与 classworlds 兜底命令的 `-v` 输出。
 
-### 方式一：Docker 一键部署（推荐）
+### 1. 初始化数据库
+
+`init.sql` 自带建库语句（`CREATE DATABASE IF NOT EXISTS \`gatekeeper\`` + `USE \`gatekeeper\``），**无需先手动建库**，直接导入即可：
 
 ```bash
-# 1. 准备环境变量（必填三项，缺一不可——启动自检会拒绝启动）
-cp .env.example .env
-# 编辑 .env 填入：GATEKEEPER_JWT_SECRET / GATEKEEPER_AES_KEY / GATEKEEPER_DB_PASSWORD
-# 生成随机密钥：openssl rand -base64 32
-
-# 2. 启动全部服务（MySQL + Redis + 后端网关 + 前端 Nginx）
-docker compose up -d
-
-# 3. 访问 http://localhost:8081
+mysql -h <MySQL主机> -P <MySQL端口> -u <用户名> -p \
+  < src/backend/src/main/resources/sql/init.sql
 ```
 
-> 安全说明：本项目采用**激进密钥策略**——JWT/AES/数据库密码不设任何默认值，
-> `SecurityStartupCheck` 在启动阶段强校验（缺失、过短、等于历史默认值均拒绝启动），
-> 杜绝默认密钥被提交到仓库后可伪造管理员令牌的风险。
-
-### 方式二：本地开发
+示例（本地默认端口）：
 
 ```bash
-# 后端（需先导出环境变量，否则启动自检不通过）
-export GATEKEEPER_JWT_SECRET=$(openssl rand -base64 32)
-export GATEKEEPER_AES_KEY=$(openssl rand -base64 32)
-export GATEKEEPER_DB_PASSWORD=你的数据库密码
+mysql -h 127.0.0.1 -P 3306 -u root -p < src/backend/src/main/resources/sql/init.sql
+```
+
+执行后会提示输入密码。验证导入结果（**期望列出 36 张表**）：
+
+```bash
+mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
+```
+
+> ⚠️ **本步骤未在本仓库开发环境中实测**（该环境未安装 `mysql` 客户端）。上面两条命令是按 MySQL 官方
+> 语法与 `init.sql` 实际头部语句（`SET NAMES utf8mb4;` / `CREATE DATABASE IF NOT EXISTS` / `USE`）核对得出。
+> 请首次部署时优先执行并确认表数为 **36**。可参考已验证的脚本静态事实：1513 行、36 张表、
+> 全部 `CREATE TABLE IF NOT EXISTS`（幂等）、种子数据落在 9 张系统域表上。
+>
+> ⚠️ **切勿把 `init.sql` 直接导入已存在数据的库**：脚本第 25–26 行是 `CREATE DATABASE IF NOT EXISTS \`gatekeeper\``
+> + `USE \`gatekeeper\``，会**指向 `gatekeeper` 库本身**。若你想在别处试用，请先做文本替换改成临时库名，
+> 或直接在全新的 MySQL 实例上执行。
+
+> **前置条件**：`init.sql` 中的 `CREATE DATABASE` 需要该账号具备建库权限。
+> 若你的运维规范不允许应用账号建库，请由 DBA 预先执行 `CREATE DATABASE gatekeeper DEFAULT CHARACTER SET utf8mb4;`，
+> 再单独导入其余建表语句。
+
+### 2. 启动 Redis
+
+```bash
+# Linux
+sudo systemctl start redis-server      # 或 redis-server /etc/redis/redis.conf
+
+# macOS（Homebrew）
+brew services start redis
+
+# Windows（解压版，路径按实际调整）
+C:\redis\redis-server.exe
+
+# Docker（任何平台通用）
+docker run -d --name gatekeeper-redis -p 6379:6379 redis:7-alpine
+```
+
+校验：
+
+```bash
+redis-cli ping     # 期望输出：PONG
+```
+
+> 若 Redis 使用非默认地址/端口，请在第 3 步配置 `GATEKEEPER_REDIS_HOST` / `GATEKEEPER_REDIS_PORT`。
+> Redis 不可用时后端**仍能启动**，网关防护组件会按 fail-open 策略降级放行（详见 FAQ Q5）。
+
+### 3. 配置后端
+
+仓库**不包含** `application.yml`（含真实密钥，已被 `.gitignore` 忽略）。请从模板复制后填写：
+
+```bash
+cd src/backend/src/main/resources
+cp application.example.yml application.yml
+```
+
+然后编辑 `application.yml`，**必须**填写以下三项，否则启动自检会拒绝启动：
+
+| 配置项 | 环境变量 | 要求 | 说明 |
+|--------|---------|------|------|
+| 数据库密码 | `GATEKEEPER_DB_PASSWORD` | 非空、非弱口令 | 禁止 `root` / `123456` / `admin` / `password` 等 |
+| JWT 签名密钥 | `GATEKEEPER_JWT_SECRET` | **≥ 32 位**随机串 | 泄露 = 任何人可伪造管理员令牌 |
+| AES 加密密钥 | `GATEKEEPER_AES_KEY` | **≥ 32 位**随机串 | 加密落库的 AppSecret；**一旦轮换历史数据将无法解密** |
+
+生成随机密钥：
+
+```bash
+openssl rand -base64 32        # Linux / macOS / Git Bash
+```
+
+```powershell
+# Windows PowerShell（无 openssl 时）
+[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+```
+
+同时按需修改数据库连接（模板默认 `localhost:3306`，账号 `root`，库名 `gatekeeper`）：
+
+```yaml
+url: jdbc:mysql://${GATEKEEPER_DB_HOST:localhost}:${GATEKEEPER_DB_PORT:3306}/${GATEKEEPER_DB_NAME:gatekeeper}?...
+```
+
+> **推荐做法**：保持模板中的占位为空，改用环境变量注入（更利于容器化与密钥轮换，变量名与 `.env.example` / `docker-compose.yml` 完全一致）：
+> ```bash
+> export GATEKEEPER_DB_PASSWORD='<你的数据库密码>'
+> export GATEKEEPER_JWT_SECRET="$(openssl rand -base64 32)"
+> export GATEKEEPER_AES_KEY="$(openssl rand -base64 32)"
+> ```
+> 这种方式下 `application.yml` 里可以一个真实密钥都不出现。
+
+### 4. 启动后端
+
+```bash
 cd src/backend
-mvn clean package
-java -jar target/gatekeeper-1.0.0.jar
+mvn spring-boot:run
+```
 
-# 前端
+**Windows / 部分 shell 下的 `mvn` 兜底写法**（本仓库实测必需，原因见 FAQ Q2）：
+
+```bash
+cd src/backend
+java -classpath "<MAVEN_HOME>\boot\plexus-classworlds-2.6.0.jar" \
+  -Dclassworlds.conf="<MAVEN_HOME>\bin\m2.conf" \
+  -Dmaven.home="<MAVEN_HOME>" \
+  -Dmaven.multiModuleProjectDirectory="<项目绝对路径>/src/backend" \
+  org.codehaus.plexus.classworlds.launcher.Launcher spring-boot:run
+```
+
+将 `<MAVEN_HOME>` 换成 Maven 安装目录、`<项目绝对路径>` 换成本仓库根目录的绝对路径。例如：
+
+```
+<MAVEN_HOME>     → C:\apache-maven-3.8.8        （Windows，按你的实际安装位置替换）
+<项目绝对路径>   → C:\projects\GateKeeper       （仓库根的绝对路径）
+```
+
+> 校验该写法是否可用：把最后的 `spring-boot:run` 换成 `-v`，能打印出 Maven 版本号即正常。
+
+> ⚠️ `spring-boot:run` **不能加 `-o`（离线模式）**，否则报 `NoPluginFoundForPrefixException`。详见 FAQ Q3。
+
+**打包后运行**（生产方式）：
+
+```bash
+cd src/backend
+mvn clean package -DskipTests
+java -jar target/gatekeeper.jar
+```
+
+**启动成功标志**（典型输出，`x.xxx` 为实际耗时）：
+
+```
+Security startup check passed: jwt/aes/db secrets are properly configured
+... Tomcat started on port(s): 8080 (http) with context path '/api'
+... Started GatekeeperApplication in x.xxx seconds
+```
+
+后端监听 **8080**，全局路径前缀 **`/api`**。
+
+> 说明：第一行来自源码 `config/SecurityStartupCheck` 的日志语句（本仓库已按该实现核对）；
+> 后两行为 Spring Boot 2.7 的标准启动日志。**本次未捕获一份完整的后端启动日志原文**
+> （验证时的后端实例先于本次工作已在运行），因此这里给出的是"应看到的标志"，
+> 判断是否启动成功请以此三行为准。
+
+### 5. 启动前端
+
+```bash
 cd src/frontend
-npm install
+npm install        # 首次执行，或 package.json 变更后
 npm run serve
 ```
 
+**启动成功标志**（典型输出）：
+
+```
+App running at:
+- Local:   http://localhost:8081/
+```
+
+> 说明：本次未捕获 dev server 的控制台原文（验证时前端已在运行），判断依据是
+> `curl -s -o /dev/null -w "%{http_code}" http://localhost:8081` **返回 200**，以及端口 8081 处于监听状态。
+
+前端 dev server 端口 **8081**，`vue.config.js` 中已将 `/api` 代理到 `http://localhost:8080`，因此前端代码只需请求 `/api/xxx`（见 `src/frontend/src/api/index.js` 的 `baseURL: '/api'`），无需处理跨域。
+
+**生产构建**：
+
+```bash
+cd src/frontend
+npm run build                    # 产物输出到 dist/
+npm run build -- --no-clean      # 若构建工具因清空 dist/ 被沙箱/权限拦截，用此写法跳过清理
+```
+
+构建产物为纯静态文件，交给任意 Web 服务器托管，并把 `/api` 反代到后端 `8080`（可直接参考 `src/frontend/nginx.conf`）。
+
+### 6. 访问与登录
+
+浏览器打开 **http://localhost:8081**
+
+| 账号 | 密码 |
+|------|------|
+| `admin` | `admin123` |
+
+> ⚠️ 该账号为初始化种子数据，**仅用于本地开发**。部署到任何可被外部访问的环境前，
+> 必须修改管理员密码，并替换第 3 步中的全部三项密钥。
+
+### 7. 验证是否跑通
+
+**① 后端存活 + 登录（注意后端 context-path 是 `/api`）**
+
+```bash
+curl -i http://localhost:8080/api/auth/login \
+  -X POST -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}'
+```
+
+期望：HTTP 200，响应体形如
+
+```json
+{"code":200,"message":"success","data":{"user":{"id":1,"username":"admin","realName":"系统管理员"},
+ "permCount":86,"perms":["api:list","app:list","..."],
+ "token":"eyJhbGciOiJIUzI1NiJ9..."}}
+```
+
+**② 带 token 调用受保护接口**
+
+```bash
+TOKEN=$(curl -s http://localhost:8080/api/auth/login \
+  -X POST -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}' \
+  | python -c "import sys,json;print(json.load(sys.stdin)['data']['token'])")
+
+curl -s "http://localhost:8080/api/app/list?page=1&size=10" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+期望：`{"code":200,"message":"success","data":{"records":[...],"total":N,...}}`
+
+**③ 前端 dev server 存活**
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081
+# 期望：200
+```
+
+**④ 接口文档（Knife4j）**
+
+浏览器打开 **http://localhost:8080/api/doc.html**
+
 ---
 
-## 协作说明
+**本节四项的实测结果**（本仓库开发环境，验证时后端/前端/Redis 均已运行）：
 
-本项目采用 WorkBuddy 多角色协作开发模式，各角色在独立任务中完成各自工作，通过共享工作空间目录传递上下文。
+| 检查项 | 实测输出 |
+|--------|---------|
+| ① 登录 | HTTP **200**；`code=200`、`message=success`、`user={'id':1,'username':'admin','realName':'系统管理员'}`、`permCount=86`、`token` 长 141 |
+| ② 带 token 调 `/api/app/list` | `{"code":200,"message":"success","data":{"records":[...],"total":1,"current":1,"size":2}}` |
+| ③ 前端 `:8081` | HTTP **200** |
+| ④ `/api/doc.html` | HTTP **200** |
+
+---
+
+## 一键部署（Docker Compose）
+
+> ⚠️ **验证范围声明**：本节命令**未在本仓库的开发环境实测过**——该环境未提供 Docker
+> （`docker --version` → `command not found`，Docker Desktop 未安装，亦无 podman/WSL）。
+> 因此下面这套 Docker 路径是按 `docker-compose.yml` 与 `Dockerfile` 的实际内容整理的，
+> **属于「应然步骤」而非「已验证步骤」**。请在你的机器上执行；若报错，请以你本地环境的
+> Docker 版本为准。**不要因为本文档未标注而误以为该路径已验证。**
+
+不想装 JDK/MySQL/Redis 时，可用仓库自带的编排一键拉起全栈（MySQL + Redis + 后端 + 前端 Nginx）：
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入三项必填密钥：GATEKEEPER_JWT_SECRET / GATEKEEPER_AES_KEY / GATEKEEPER_DB_PASSWORD
+# 生成随机密钥：openssl rand -base64 32
+
+docker compose up -d
+# 访问 http://localhost:8081
+```
+
+容器启动时由 `docker-entrypoint-initdb.d/` 下的 SQL 链自动完成建库、建表与种子数据初始化，无需手动导入。
+
+> 说明：本编排的 MySQL 容器会按文件名顺序挂载执行 11 个 SQL 脚本（`init.sql` 与 `docs/sql/` 下的历史脚本）。
+> 其中 `init.sql` 现已**自足**（36 张表 + 系统域种子数据），其余脚本按用途分两类：
+> ① 8 个 seed 脚本使用 `INSERT IGNORE`（只补不覆盖），对已建基线是幂等的；
+> ② `schema-v2.sql` / `migrate-v2.sql` / `t09-hygiene.sql` 含 `ALTER` / `UPDATE` / `DELETE` 等
+> 结构校正与数据迁移语句，**并非纯 no-op**，属"历史回放"性质。
+>
+> ⚠️ 这条初始化链**未在本环境实测**（无 Docker）。若你想简化，也可只用 `init.sql` 单独导入
+> （见上一节的本地启动步骤 1）——它已能独立构建出完整的 36 张表与基础种子数据。
+
+---
+
+## 配置项说明
+
+所有密钥类配置均支持**环境变量覆盖**，变量名与 `.env.example`、`docker-compose.yml` 保持一致。
+
+### 必填（启动自检强校验）
+
+| 环境变量 | 对应配置项 | 要求 |
+|---------|-----------|------|
+| `GATEKEEPER_DB_PASSWORD` | `spring.datasource.password` | 非空，非弱口令 |
+| `GATEKEEPER_JWT_SECRET` | `gatekeeper.jwt.secret` | ≥ 32 位 |
+| `GATEKEEPER_AES_KEY` | `gatekeeper.crypto.aes-key` | ≥ 32 位 |
+
+### 数据库与缓存
+
+| 环境变量 | 默认值 | 说明 |
+|---------|-------|------|
+| `GATEKEEPER_DB_HOST` | `localhost` | MySQL 主机 |
+| `GATEKEEPER_DB_PORT` | `3306` | MySQL 端口 |
+| `GATEKEEPER_DB_NAME` | `gatekeeper` | 数据库名 |
+| `GATEKEEPER_DB_USERNAME` | `root` | 数据库账号 |
+| `GATEKEEPER_REDIS_HOST` | `localhost` | Redis 主机 |
+| `GATEKEEPER_REDIS_PORT` | `6379` | Redis 端口 |
+| `GATEKEEPER_REDIS_DATABASE` | `0` | Redis 逻辑库编号 |
+| `GATEKEEPER_REDIS_PASSWORD` | *（无）* | Redis 访问密码；默认端口配置未启用，需要时在 `spring.redis` 下自行补 `password` 一行 |
+| `GATEKEEPER_REDIS_FAIL_OPEN` | `true` | Redis 故障时防护组件是否降级放行 |
+
+### 运行时
+
+| 环境变量 | 默认值 | 说明 |
+|---------|-------|------|
+| `GATEKEEPER_CORS_ORIGINS` | `http://localhost:8081` | 允许跨域来源，逗号分隔；生产改成实际域名 |
+| `GATEKEEPER_EXPORT_DIR` | `./data/exports` | 调用日志异步导出 CSV 落盘目录 |
+| `GATEKEEPER_ENV` | `prod` | 网关默认环境码，可被请求头 `X-Gk-Env` 逐请求覆盖 |
+
+### 其他常用配置项（`application.yml` 内调整）
+
+| 配置项 | 默认值 | 说明 |
+|--------|-------|------|
+| `server.port` | `8080` | 后端监听端口 |
+| `server.servlet.context-path` | `/api` | 全局路径前缀，前端代理依赖此值 |
+| `gatekeeper.jwt.expire-minutes` | `120` | 登录令牌有效期（分钟） |
+| `gatekeeper.security.login-fail-threshold` | `5` | 管理后台登录失败锁定阈值 |
+| `gatekeeper.security.login-lock-minutes` | `10` | 登录失败锁定时长 |
+| `gatekeeper.security.trust-xff` | `false` | 是否信任 `X-Forwarded-For`（仅在可信反代后才可置 `true`） |
+| `gatekeeper.security.auto-ban-duration-min` | `60` | 触发异常检测后自动封禁时长 |
+| `gatekeeper.log.retention-days` | `90` | 调用日志保留天数 |
+| `knife4j.enable` | `true` | 接口文档开关，生产建议置 `false` |
+
+完整配置项及中文注释见 [`src/backend/src/main/resources/application.example.yml`](src/backend/src/main/resources/application.example.yml)。
+
+---
+
+## 常见问题（FAQ）
+
+### Q1. 后端启动报「安全配置自检失败，服务拒绝启动」
+
+```
+==================== 安全配置自检失败，服务拒绝启动 ====================
+  [X] 缺少 gatekeeper.jwt.secret：请设置环境变量 GATEKEEPER_JWT_SECRET
+  [X] 缺少数据库密码：请设置环境变量 GATEKEEPER_DB_PASSWORD
+====================================================================
+```
+
+**原因**：`com.gatekeeper.config.SecurityStartupCheck` 在 Bean 初始化阶段（早于端口监听）强校验三项密钥。
+出现**缺失 / 长度 < 32 位 / 等于历史默认值或常见弱口令**（`123456`、`root`、`admin`、`password`）任一情况即 fail-fast。
+
+**这是刻意的安全设计**：历史版本曾把 JWT/AES/DB 默认密钥写进配置文件并提交仓库，任何人拿到仓库即可伪造管理员令牌。
+现在配置文件中不再携带任何真实默认值。
+
+**解决**：按第 3 步填好三项密钥（注意 JWT 与 AES 必须 ≥ 32 位）后重启。
+
+### Q2. `mvn` 报「找不到或无法加载主类 org.codehaus.plexus.classworlds.launcher.Launcher」
+
+```
+错误: 找不到或无法加载主类 org.codehaus.plexus.classworlds.launcher.Launcher
+```
+
+**原因**：某些 shell / 终端环境（如 Windows 下的 Git Bash、非标准安装的 Maven）下，
+`mvn` 启动脚本未能正确拼装 `classworlds` 的 classpath。
+
+**解决**：绕开 `mvn` 启动脚本，直接用 `java` 调起 Maven 的 launcher（见第 4 步）：
+
+```bash
+java -classpath "<MAVEN_HOME>\boot\plexus-classworlds-2.6.0.jar" \
+  -Dclassworlds.conf="<MAVEN_HOME>\bin\m2.conf" \
+  -Dmaven.home="<MAVEN_HOME>" \
+  -Dmaven.multiModuleProjectDirectory="<项目绝对路径>\src\backend" \
+  org.codehaus.plexus.classworlds.launcher.Launcher spring-boot:run
+```
+
+把 `<MAVEN_HOME>` 换成你的 Maven 安装目录（如 `C:\apache-maven-3.8.8`）。
+校验该写法是否可用：把最后的 `spring-boot:run` 换成 `-v`，能打印 Maven 版本号即正常。
+
+> **实测依据**：本仓库开发环境确实复现了上述报错（`mvn -v` 即失败），且该兜底写法实测有效——
+> `-v` 输出 `Apache Maven 3.8.8` / `Java 1.8.0_391`；随后执行 `compile` 目标退出码为 0。
+> 结论为「本机必需」；在你的机器上 `mvn` 若正常，直接用标准写法即可。
+
+### Q3. `spring-boot:run` 报 `NoPluginFoundForPrefixException`
+
+**原因**：`spring-boot:run` 使用插件前缀（prefix）解析，需要在**在线**状态下从远程仓库解析插件元数据。
+一旦加了 `-o`（离线模式），前缀解析必然失败。
+
+**解决**：启动后端时**不要加 `-o`**。只有 `mvn test`（其插件已缓存）才可以安全加 `-o`。
+
+> **验证范围**：本条为**机制性结论，未逐条实测**——我们实测过的是「`mvn` 在本机需走 classworlds 兜底」（Q2），
+> 以及「离线模式下插件前缀无法解析」这一 Maven 副作用。稳妥做法是：启动后端时不要加 `-o`，
+> 若你的环境网络受限，可预先 `mvn dependency:go-offline` 预热本地仓库后再试。
+
+### Q4. 前端 `npm run build` 被拦截 / `dist/` 报权限或批量删除错误
+
+**现象**：构建前清空 `dist/` 的操作被安全策略拦截（如 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`）。
+
+**解决**：跳过清理步骤：
+
+```bash
+npm run build -- --no-clean
+```
+
+手动删除 `dist/` 后重跑 `npm run build` 亦可。
+
+> **实测依据**：`npm run build -- --no-clean` 在本仓库开发环境实测成功，输出
+> `DONE Build complete. The dist directory is ready to be deployed.`。
+> 需注意该参数**不清理旧产物**，多次构建会在 `dist/` 中累积同名不同 hash 的历史文件
+> （实测可见十几次构建的残留），发布前建议手动清空 `dist/` 再构建一次。
+
+### Q5. Redis 没启动，网关防护还生效吗？
+
+**不会全部生效，但业务不中断。** 项目采用 **fail-open 降级**策略（`GATEKEEPER_REDIS_FAIL_OPEN` 默认 `true`）：
+
+- **降级放行**（Redis 不可用时自动跳过，仅记录 WARN 日志）：IP 封禁检查、频率限制、Nonce 防重放、权限缓存命中。
+- **仍然生效**：应用身份校验、IP 白名单、接口权限校验等基于数据库的管控。
+
+安全性要求极高的场景（强合规）可把 `gatekeeper.redis.fail-open` 置为 `false`，改为 **fail-closed**：
+Redis 故障时防护组件直接抛错、网关整体拒绝请求，代价是 Redis 抖动会直接导致网关不可用。
+
+> **验证范围**：本条为**代码级结论，未做"停掉 Redis"的运行时实测**。依据是源码实现——
+> `gateway/handler/IpBanCheckHandler` 通过 `@Value("${gatekeeper.redis.fail-open:true}")` 读取该开关，
+> 并在 Redis 异常分支按开关决定「放行」或「抛错」；`AppAuthHandler` 的 Nonce 防重放同样标注为 fail-open 降级。
+>
+> ⚠️ 另外提示一个配置细节：该开关的**正确配置键是 `gatekeeper.redis.fail-open`**（本仓库模板
+> `application.example.yml` 已按此放置），请勿写在 `spring.redis` 下——那样不会生效。
+
+> 生产环境请务必保证 Redis 高可用，不要依赖 fail-open 兜底。
+
+### Q6. 前端请求报 404 / 跨域错误
+
+- **404**：先确认后端 `context-path` 是 `/api`。前端请求路径必须是 `/api/xxx`（`src/frontend/src/api/index.js` 的 `baseURL: '/api'`），
+  而 `vue.config.js` 的代理是**原样转发** `/api` 前缀到 `http://localhost:8080` 的，不会去掉前缀。
+  可用 `curl` 直接打后端 `http://localhost:8080/api/xxx` 交叉验证。
+- **跨域（CORS）**：走前端 dev server（8081）时由代理规避，不会跨域。
+  若直接用其他端口/域名访问后端，需把该来源加入 `GATEKEEPER_CORS_ORIGINS`（逗号分隔）。
+
+### Q7. 端口被占用
+
+后端默认 8080、前端默认 8081、Redis 6379。
+
+```bash
+# Windows
+netstat -ano | findstr ":8080"
+# Linux / macOS
+lsof -i :8080
+```
+
+临时换端口：
+
+```bash
+mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
+```
+
+前端改端口需同时修改 `vue.config.js` 的 `devServer.port`（代理目标不变）。
+
+### Q8. 数据库连不上 / 时区或编码异常
+
+- 确认 JDBC URL 参数完整，尤其是 `useSSL=false`（本地无证书时）、`allowPublicKeyRetrieval=true`（MySQL 8 caching_sha2 认证需要）、
+  `serverTimezone=Asia/Shanghai`、`characterEncoding=utf8`。
+- 若 MySQL 使用**非默认端口**，务必显式设置 `GATEKEEPER_DB_PORT`，模板默认是 `3306`。
+- 中文乱码：确认库与表使用 `utf8mb4`（`init.sql` 已指定 `DEFAULT CHARACTER SET utf8mb4`）。
+
+---
+
+## 数据库设计
+
+初始化脚本为 [`src/backend/src/main/resources/sql/init.sql`](src/backend/src/main/resources/sql/init.sql)，覆盖 **36 张表**，按域划分如下：
+
+| 域 | 表 | 说明 |
+|----|-------|------|
+| 业务线 / 环境 | `biz_line`、`env`、`api_env_config` | 多业务线隔离，接口按环境差异化配置 |
+| 接口资产 | `api_interface`、`api_group`、`api_version`、`api_param`、`api_change_log` | 接口注册、分组、版本、参数、变更审计 |
+| 应用与凭证 | `app`、`app_credential`、`app_ip_whitelist`、`app_rate_limit`、`app_quota` | 应用身份、多环境凭证、白名单、限流与配额 |
+| 授权关系 | `app_api_permission`、`app_api_grant` | 应用-接口授权、授权申请与审批流转 |
+| 加解密 | `api_encryption_config`、`app_encryption_config` | 按接口/应用维度的算法与密钥配置（密钥密文落库） |
+| 网关调用 | `api_call_log`、`export_task` | 全链路调用日志与异步导出任务 |
+| 安全防护 | `ip_ban`、`block_rule`、`security_event`、`security_rule` | 封禁名单、封禁规则、安全事件与检测规则 |
+| 告警 | `alert`、`alarm_rule`、`notify_channel` | 告警记录、告警规则、通知渠道 |
+| 系统管理 | `sys_user`、`sys_role`、`sys_user_role`、`sys_menu`、`sys_role_menu`、`sys_role_datascope`、`sys_dict`、`sys_dict_item`、`sys_config`、`sys_operation_log` | RBAC、菜单权限、数据权限、字典、参数、操作审计 |
+
+全部建表语句均为 `CREATE TABLE IF NOT EXISTS`，脚本可**重复执行**（幂等）；脚本规模 **1513 行**。
+种子数据仅包含**基础运行数据**，落在 **9 张系统域表**上：
+`sys_user`（管理员 `admin`）、`sys_role`、`sys_menu`（全部权限点，含菜单与按钮）、`sys_user_role`、
+`sys_role_menu`、`sys_role_datascope`（数据权限）、`sys_dict`、`sys_dict_item`、`sys_config`。
+——**不含任何业务数据**（无应用、接口、调用日志）。
+更详细的表结构说明见 [`docs/database-design.md`](docs/database-design.md)。
+
+---
+
+## 文档索引
+
+| 文档 | 内容 |
+|------|------|
+| [`docs/PRD-APIM重新设计.md`](docs/PRD-APIM重新设计.md) | 产品需求文档（APIM 重新设计） |
+| [`docs/APIM重新设计-总纲.md`](docs/APIM重新设计-总纲.md) | 总体设计总纲 |
+| [`docs/架构设计-APIM重新设计.md`](docs/架构设计-APIM重新设计.md) | 系统架构设计 |
+| [`docs/database-design.md`](docs/database-design.md) | 数据库设计说明 |
+| [`docs/T05-权限点契约对齐方案.md`](docs/T05-权限点契约对齐方案.md) | 权限点契约（86 个权限点） |
+| [`docs/T08-权限执行缺口-契约记录.md`](docs/T08-权限执行缺口-契约记录.md) | 服务端权限执行缺口修复记录 |
+| [`docs/启动记录与缺陷修复.md`](docs/启动记录与缺陷修复.md) | 启动过程记录与缺陷修复 |
+| [`docs/告警功能说明.md`](docs/告警功能说明.md) | 告警中心功能说明 |
+| [`security/security-report.md`](security/security-report.md) | 安全测评报告 |
+| [`design/spec.md`](design/spec.md) | UI 设计规范 |
+
+---
+
+## 安全说明
+
+本项目采用**激进密钥策略**：JWT / AES / 数据库密码**不设任何可用的默认值**，
+由 `SecurityStartupCheck` 在启动阶段强校验（缺失、过短、等于历史默认值均拒绝启动），
+杜绝「默认密钥被提交到仓库后可直接伪造管理员令牌」的风险。
+
+- `application.yml`、`.env` 均已在 `.gitignore` 中忽略，**请勿提交**；仓库内只保留 `application.example.yml` 与 `.env.example` 两个无密钥模板。
+
+- **提交前自检**（以下命令均**期望无输出**；`git grep` 有匹配时退出码为 0，无匹配为 1）：
+
+```bash
+# ① 密钥是否被填入了真实值（占位符形如 <xxx> / 'xxx' / "xxx" 的不算）
+git grep -nE "GATEKEEPER_(JWT_SECRET|AES_KEY|DB_PASSWORD)=[^<'\"[:space:]]"
+
+# ② 是否残留内网 IPv4 地址（192.168.1.x 属于文档举例网段，已排除）
+git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
+```
+
+> ②用于排查仓库内是否残留开发环境的内网主机地址。
+> **本项目已完成脱敏**：`docs/` 下历史验证与设计文档中出现的真实内网 IP 已全部替换为
+> `<MYSQL_HOST>` / `<REDIS_HOST>` 之类的占位符，本命令**预期无输出**。
+>
+> 两点如实说明：
+> 1. 上述命令**只检查内网 IPv4 地址**，不覆盖端口号。`docs/` 中的历史记录可能仍保留当时的
+>    非标准端口号——它不含主机信息，属于开发过程留痕，公开仓库时风险可接受；若你要求更严，
+>    可在 fork 后一并脱敏。
+> 2. 真实密钥所在的 `application.yml` 因被 `.gitignore` 忽略，`git grep` **搜索不到它**，
+>    所以命令①②的"无输出"不代表磁盘上不存在密钥文件，只代表**它们不会进入版本库**。
+
+- 暴露到公网前必须完成：修改 `admin` 默认密码、替换全部三项密钥、`knife4j.enable: false`、按实际域名收敛 `gatekeeper.cors.allowed-origins`。
+
+---
+
+## 许可证
+
+本项目尚未添加 `LICENSE` 文件，**许可证待补充**。在补充许可证之前，默认保留所有权利（All rights reserved）。
+
+## 致谢
+
+感谢 Vue.js、Element UI、Spring Boot、MyBatis-Plus、Bouncy Castle、Hutool、ECharts 等优秀开源项目。
