@@ -79,9 +79,18 @@ spring:
 
   # ---- Jackson JSON 序列化配置 ----
   jackson:
-    date-format: yyyy-MM-dd HH:mm:ss      # 全局日期时间格式
+    # ⚠️ 本条对 JSR-310【不生效】：date-format 只作用于 java.util.Date / Calendar，
+    # LocalDateTime / LocalDate 仍按 ISO 输出（实测 2026-09-10T14:11:04）。
+    # 前端 el-date-picker 因此必须用 value-format="yyyy-MM-ddTHH:mm:ss" 与其对齐
+    # （CrudDialog 的字段支持 valueFormat 覆盖）；不要以为改这里能改全局日期格式。
+    date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai              # 序列化/反序列化使用的时区
-    default-property-inclusion: non_null  # 序列化时忽略 null 字段
+    # 序列化时【保留】null 字段。原为 non_null，会把 null 字段整个从响应里省略，
+    # 前端于是拿到 undefined，被 CrudDialog.onOpen 补成空串；而 MyBatis-Plus 的默认
+    # 字段策略 NOT_NULL 只忽略 null、不忽略空串 ⇒ 编辑一次就把库里的 NULL 写成 ''
+    # （值被变更）。改为 always 后 null 原样下发，前端提交 null 会被 NOT_NULL 忽略，
+    # 库中 NULL 得以保持。
+    default-property-inclusion: always
 
 # ==================== MyBatis-Plus 配置 ====================
 mybatis-plus:
