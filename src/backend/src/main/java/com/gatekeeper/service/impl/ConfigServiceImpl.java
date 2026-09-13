@@ -143,7 +143,15 @@ public class ConfigServiceImpl extends ServiceImpl<SysConfigMapper, SysConfig> i
         if (StringUtils.hasText(dto.getConfigKey())) {
             existing.setConfigKey(dto.getConfigKey());
         }
-        existing.setConfigValue(dto.getConfigValue());
+        // 🔴 掩码回写防线（2026-09-13 补，照抄 NotifyChannelServiceImpl.mergeAndEncryptConfig 的既有范式）：
+        // applyMask() 会把 sensitive=1 的 config_value 在【响应】中就地替换为 "******"，
+        // 而前端 SysConfig.vue:209 的 onEdit 用列表行做表单初值（{...row}），"******" 被原样回显；
+        // 用户若只改备注/名称、没有重新输入明文，提交回来的就是这个字面量。
+        // 此处原先无条件写回 ⇒ 真实配置值被 "******" 覆盖且【不可逆】。
+        // 故：入参恰为掩码时保留库中原值（"主动把值改成 ******" 这一诉求现实上不存在）。
+        if (!MASKED_VALUE.equals(dto.getConfigValue())) {
+            existing.setConfigValue(dto.getConfigValue());
+        }
         existing.setConfigGroup(dto.getConfigGroup());
         existing.setConfigName(dto.getConfigName());
         existing.setSensitive(dto.getSensitive());

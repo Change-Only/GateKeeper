@@ -74,7 +74,7 @@
       <template #extra="{form}">
         <el-form-item v-if="form.sensitive === 1" label="敏感提示">
           <el-alert type="warning" :closable="false" show-icon>
-            <template #title>该配置标记为敏感，写入后列表展示脱敏为 ******，但明文仍按入参落库。</template>
+            <template #title>该配置标记为敏感：列表展示脱敏为 ******。若保持此值不变（未重新输入明文），后端会保留库中原值；如需替换，请完整输入新的明文再保存。</template>
           </el-alert>
         </el-form-item>
         <el-form-item v-if="form.builtIn === 1" label="内置保护">
