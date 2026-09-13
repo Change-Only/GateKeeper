@@ -10,12 +10,6 @@
         <el-form-item label="关键字">
           <el-input v-model="query.keyword" placeholder="配置键 / 名称" clearable style="width:220px" @keyup.enter.native="reload" />
         </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部" clearable style="width:140px">
-            <el-option :value="1" label="启用" />
-            <el-option :value="0" label="停用" />
-          </el-select>
-        </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="el-icon-search" @click="reload">查询</el-button>
           <el-button icon="el-icon-refresh-left" @click="resetQuery">重置</el-button>
@@ -33,6 +27,15 @@
       <PermButton perm="sys:config:update" type="primary" icon="el-icon-plus" size="small" @click="onCreate">新建配置</PermButton>
     </div>
 
+    <!--
+      🔴 不存在 #status 插槽 / 「状态」列（2026-09-13 移除）：
+      sys_config 表**没有 status 列**（实测 SHOW COLUMNS：id/config_key/config_value/config_group/
+      config_name/sensitive/built_in/remark/created_at/updated_at）；后端 ConfigServiceImpl.pageQuery
+      也注明「status 入参不参与过滤（前端兼容保留）」。
+      原先前端既留了「状态」筛选下拉（选了没任何效果）、又留了「状态」列 + StatusTag，
+      实际渲染结果是整列字面量 "undefined"（getStatusMeta 对 undefined 走 String(value) 兜底）。
+      这类「原型遗留但真实 schema 没有」的字段一律以前端对齐真实字段处理，不新增后端列。
+    -->
     <CrudTable
       ref="table"
       :columns="columns"
@@ -40,9 +43,6 @@
       :query="query"
       :actions-width="200"
     >
-      <template #status="{row}">
-        <StatusTag :entity="'sysConfig'" :value="row.status" />
-      </template>
       <template #sensitive="{row}">
         <el-tag :type="row.sensitive === 1 ? 'danger' : 'info'" size="small" effect="plain">{{ row.sensitive === 1 ? '是' : '否' }}</el-tag>
       </template>
@@ -106,7 +106,7 @@ export default {
     return {
       groups: GROUP_OPTIONS,
       activeGroup: 'SECURITY',
-      query: { keyword: '', status: undefined, configGroup: 'SECURITY' },
+      query: { keyword: '', configGroup: 'SECURITY' },
       total: 0,
       columns: [
         { prop: 'configName', label: '配置名称', minWidth: 160 },
@@ -126,7 +126,6 @@ export default {
         { prop: 'sensitive', label: '敏感', width: 70, slot: 'sensitive' },
         { prop: 'builtIn', label: '内置', width: 70, slot: 'builtIn' },
         { prop: 'remark', label: '备注', minWidth: 160, showOverflowTooltip: true },
-        { prop: 'status', label: '状态', width: 80, slot: 'status' },
         { prop: 'createdAt', label: '创建时间', width: 170, formatter: (v) => v || '—' }
       ],
       dialogVisible: false,
@@ -145,25 +144,22 @@ export default {
     }
   },
   methods: {
+    async fetchData(params) {
+      // CrudTable sends {page, size, ...query}; backend expects pageNum/pageSize
+      const { page, size, ...rest } = params
+      const res = await getConfigList({
+        pageNum: page,
+        pageSize: size,
+        ...rest
+      })
+      const data = (res && res.data) || {}
+      this.total = data.total || 0
+      return { list: data.records || [], total: data.total || 0 }
+    },
     onGroupChange(tab) {
       this.query.configGroup = tab.name
       this.reload()
     },
-    fetchData: function() {
-      const self = this
-      return async(params) => {
-        // CrudTable sends {page, size, ...query}; backend expects pageNum/pageSize
-        const { page, size, ...rest } = params
-        const res = await getConfigList({
-          pageNum: page,
-          pageSize: size,
-          ...rest
-        })
-        const data = (res && res.data) || {}
-        self.total = data.total || 0
-        return { list: data.records || [], total: data.total || 0 }
-      }
-    }(),
     reload() {
       this.$nextTick(() => {
         if (this.$refs.table && this.$refs.table.reload) this.$refs.table.reload()
@@ -171,7 +167,6 @@ export default {
     },
     resetQuery() {
       this.query.keyword = ''
-      this.query.status = undefined
       this.reload()
     },
     buildFields() {

@@ -144,6 +144,19 @@ export default {
     }
   },
   methods: {
+    async fetchBans(params) {
+      const { page, size } = params
+      const res = await getBanList({ current: page, size })
+      const data = (res && res.data) || {}
+      this.banTotal = data.total || 0
+      return { list: data.records || [], total: data.total || 0 }
+    },
+    async fetchRules() {
+      const res = await getBlockRuleList()
+      const list = (res && res.data) || []
+      this.ruleTotal = list.length
+      return { list, total: list.length }
+    },
     scopeLabel(s) {
       return s === 'APP' ? '应用/AppKey' : 'IP'
     },
@@ -157,25 +170,6 @@ export default {
       if (sec < 3600) return Math.round(sec / 60) + ' 分钟'
       return Math.round(sec / 3600) + ' 小时'
     },
-    fetchRules: function() {
-      const self = this
-      return async() => {
-        const res = await getBlockRuleList()
-        const list = (res && res.data) || []
-        self.ruleTotal = list.length
-        return { list, total: list.length }
-      }
-    }(),
-    fetchBans: function() {
-      const self = this
-      return async(params) => {
-        const { page, size } = params
-        const res = await getBanList({ current: page, size })
-        const data = (res && res.data) || {}
-        self.banTotal = data.total || 0
-        return { list: data.records || [], total: data.total || 0 }
-      }
-    }(),
     reloadRules() {
       this.$nextTick(() => {
         if (this.$refs.ruleTable && this.$refs.ruleTable.reload) this.$refs.ruleTable.reload()

@@ -115,23 +115,20 @@ export default {
     }
   },
   methods: {
+    async fetchData(params) {
+      const { page, size, ...rest } = params
+      const res = await getEnvList({
+        pageNum: page,
+        pageSize: size,
+        ...rest
+      })
+      const data = (res && res.data) || {}
+      this.total = data.total || 0
+      return { list: data.records || [], total: data.total || 0 }
+    },
     envCodeTagType(code) {
       return ENV_CODE_TAG_TYPES[code] || 'info'
     },
-    fetchData: function() {
-      const self = this
-      return async(params) => {
-        const { page, size, ...rest } = params
-        const res = await getEnvList({
-          pageNum: page,
-          pageSize: size,
-          ...rest
-        })
-        const data = (res && res.data) || {}
-        self.total = data.total || 0
-        return { list: data.records || [], total: data.total || 0 }
-      }
-    }(),
     reload() {
       this.$nextTick(() => {
         if (this.$refs.table && this.$refs.table.reload) this.$refs.table.reload()

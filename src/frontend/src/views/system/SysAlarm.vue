@@ -99,6 +99,13 @@ export default {
     this.loadChannels()
   },
   methods: {
+    async fetchData(params) {
+      const { status } = params
+      const res = await getAlarmRuleList({ status })
+      const list = (res && res.data) || []
+      this.total = list.length
+      return { list, total: list.length }
+    },
     alarmTypeLabel(t) {
       return ALARM_TYPE[t] || t
     },
@@ -118,16 +125,6 @@ export default {
         this.channelOptions = []
       }
     },
-    fetchData: function() {
-      const self = this
-      return async(params) => {
-        const { status } = params
-        const res = await getAlarmRuleList({ status })
-        const list = (res && res.data) || []
-        self.total = list.length
-        return { list, total: list.length }
-      }
-    }(),
     reload() {
       this.$nextTick(() => {
         if (this.$refs.table && this.$refs.table.reload) this.$refs.table.reload()

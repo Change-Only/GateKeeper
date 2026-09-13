@@ -131,6 +131,13 @@ export default {
     }
   },
   methods: {
+    async fetchData(params) {
+      const { page, size, ...rest } = params
+      const res = await getLogList({ current: page, size, ...rest })
+      const data = (res && res.data) || {}
+      this.total = data.total || 0
+      return { list: data.records || [], total: data.total || 0 }
+    },
     statusTag(code) {
       if (code == null) return 'info'
       if (code >= 200 && code < 300) return 'success'
@@ -141,16 +148,6 @@ export default {
     taskStatusTag(s) {
       return TASK_TAG[s] || 'info'
     },
-    fetchData: function() {
-      const self = this
-      return async(params) => {
-        const { page, size, ...rest } = params
-        const res = await getLogList({ current: page, size, ...rest })
-        const data = (res && res.data) || {}
-        self.total = data.total || 0
-        return { list: data.records || [], total: data.total || 0 }
-      }
-    }(),
     reload() {
       this.$nextTick(() => {
         if (this.$refs.table && this.$refs.table.reload) this.$refs.table.reload()

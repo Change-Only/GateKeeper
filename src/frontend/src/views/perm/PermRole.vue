@@ -92,15 +92,12 @@ export default {
     }
   },
   methods: {
-    fetchData: function() {
-      const self = this
-      return async() => {
-        const res = await getRoleList()
-        const list = (res && res.data) || []
-        self.total = list.length
-        return { list, total: list.length }
-      }
-    }(),
+    async fetchData() {
+      const res = await getRoleList()
+      const list = (res && res.data) || []
+      this.total = list.length
+      return { list, total: list.length }
+    },
     reload() {
       this.$nextTick(() => {
         if (this.$refs.table && this.$refs.table.reload) this.$refs.table.reload()

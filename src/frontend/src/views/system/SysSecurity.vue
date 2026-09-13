@@ -123,6 +123,19 @@ export default {
     }
   },
   methods: {
+    async fetchEvents(params) {
+      const { page, size, ...rest } = params
+      const res = await getEventList({ current: page, size, ...rest })
+      const data = (res && res.data) || {}
+      this.eventTotal = data.total || 0
+      return { list: data.records || [], total: data.total || 0 }
+    },
+    async fetchRules() {
+      const res = await getRuleList()
+      const list = (res && res.data) || []
+      this.ruleTotal = list.length
+      return { list, total: list.length }
+    },
     typeTag(t) {
       return TYPE_TAG[t] || 'info'
     },
@@ -141,25 +154,6 @@ export default {
     eventStatusLabel(s) {
       return (EVENT_STATUS[s] || {}).label || s
     },
-    fetchRules: function() {
-      const self = this
-      return async() => {
-        const res = await getRuleList()
-        const list = (res && res.data) || []
-        self.ruleTotal = list.length
-        return { list, total: list.length }
-      }
-    }(),
-    fetchEvents: function() {
-      const self = this
-      return async(params) => {
-        const { page, size, ...rest } = params
-        const res = await getEventList({ current: page, size, ...rest })
-        const data = (res && res.data) || {}
-        self.eventTotal = data.total || 0
-        return { list: data.records || [], total: data.total || 0 }
-      }
-    }(),
     reloadRules() {
       this.$nextTick(() => {
         if (this.$refs.ruleTable && this.$refs.ruleTable.reload) this.$refs.ruleTable.reload()

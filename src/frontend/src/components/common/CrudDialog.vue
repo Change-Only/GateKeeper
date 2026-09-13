@@ -13,6 +13,7 @@
       :rules="formRules"
       :label-width="labelWidth"
       :disabled="loading"
+      :validate-on-rule-change="false"
     >
       <el-row :gutter="16">
         <el-col v-for="f in fields" :key="f.prop" :span="f.span || 24">

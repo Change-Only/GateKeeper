@@ -68,6 +68,11 @@
         实现「类型切换清空动态散字段」（§4.3），共享组件 CrudDialog 零改动（方案 R7）。
       - channelType 与动态字段的校验经父级 rules 通道传入（CrudDialog 的 rules prop
         会按 prop 合并进 formRules，extra 插槽内带 prop 的 el-form-item 同样参与校验）。
+
+      尺寸口径（2026-09-13 实测）：width 600px + 默认 label-width 110px 时「Webhook 地址」
+      这个 8 字标签会折成两行（label 高 = 40px → 72px），且 SMTP 各输入框仅剩 162px；
+      故提到 width=720px 且表单级 label-width=120px（120-12 内边距 = 108px > 标签实测宽的
+      ≈99px，含必填星号）。
     -->
     <CrudDialog
       :visible.sync="dialog.visible"
@@ -75,7 +80,8 @@
       :model="dialog.form"
       :fields="dialog.fields"
       :rules="dialog.rules"
-      :width="'600px'"
+      :width="'720px'"
+      label-width="120px"
       :loading="dialog.loading"
       @submit="onSubmit"
     >
@@ -98,7 +104,17 @@
             </el-col>
           </template>
 
-          <!-- EMAIL：SMTP 完整配置（Schema v1：smtpHost/smtpPort/ssl/username/password/from/to） -->
+          <!--
+            EMAIL：SMTP 完整配置（Schema v1：smtpHost/smtpPort/ssl/username/password/from/to）
+
+            布局口径（2026-09-13 实测反推，勿随意改动 span / label-width）：
+            弹窗 720px ⇒ 表单内容宽 680px，el-col 各带 8px 内边距 ⇒
+              span 12 = 324px 可用、span 10 = 267px、span 6 = 154px。
+            表单级 label-width=120px（见 CrudDialog 处注释：110px 会让「Webhook 地址」折行）：
+              span 12 控件 = 204px（收发件人等长文本足够）；
+            端口 / SSL 用 60px 短标签，控件仍有 94px（端口号 5 位数 + 步进按钮足够）。
+            🔴 不可把端口所在的列降到 span 6 而沿用 120px 标签：控件宽度会退化为 34px不可用。
+          -->
           <template v-else-if="form.channelType === 'EMAIL'">
             <el-col :span="12">
               <el-form-item label="SMTP 服务器" prop="smtpHost">
@@ -111,7 +127,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="6">
-              <el-form-item label="SSL" prop="ssl" label-width="50px">
+              <el-form-item label="SSL" prop="ssl" label-width="60px">
                 <el-switch v-model="form.ssl" />
               </el-form-item>
             </el-col>
@@ -228,19 +244,16 @@ export default {
     }
   },
   methods: {
-    fetchData: function() {
-      const self = this
-      return async(params) => {
-        // 后端 GET /notify-channel/list 返回 Result<List<NotifyChannel>>：data 是**裸数组**，
-        // 无 {records,total} 分页信封（该端点也不分页）。若按信封解析，data.records 恒 undefined
-        // ⇒ 列表恒空且不报错。此处与 SysAlarm/MonBlock 的既有写法保持一致。
-        const { page, size, ...rest } = params
-        const res = await getNotifyChannelList(rest)
-        const list = (res && res.data) || []
-        self.total = list.length
-        return { list, total: list.length }
-      }
-    }(),
+    async fetchData(params) {
+      // 后端 GET /notify-channel/list 返回 Result<List<NotifyChannel>>：data 是**裸数组**，
+      // 无 {records,total} 分页信封（该端点也不分页）。若按信封解析，data.records 恒 undefined
+      // ⇒ 列表恒空且不报错。此处与 SysAlarm/MonBlock 的既有写法保持一致。
+      const { page, size, ...rest } = params
+      const res = await getNotifyChannelList(rest)
+      const list = (res && res.data) || []
+      this.total = list.length
+      return { list, total: list.length }
+    },
     reload() {
       this.$nextTick(() => {
         if (this.$refs.table && this.$refs.table.reload) this.$refs.table.reload()

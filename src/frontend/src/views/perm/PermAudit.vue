@@ -71,19 +71,16 @@ export default {
     }
   },
   methods: {
+    async fetchData(params) {
+      const { page, size, ...rest } = params
+      const res = await getOperationLogList({ current: page, size, ...rest })
+      const data = (res && res.data) || {}
+      this.total = data.total || 0
+      return { list: data.records || [], total: data.total || 0 }
+    },
     typeTag(t) {
       return TYPE_TAG[t] || 'info'
     },
-    fetchData: function() {
-      const self = this
-      return async(params) => {
-        const { page, size, ...rest } = params
-        const res = await getOperationLogList({ current: page, size, ...rest })
-        const data = (res && res.data) || {}
-        self.total = data.total || 0
-        return { list: data.records || [], total: data.total || 0 }
-      }
-    }(),
     reload() {
       this.$nextTick(() => {
         if (this.$refs.table && this.$refs.table.reload) this.$refs.table.reload()

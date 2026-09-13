@@ -13,7 +13,7 @@
       :size="size"
       :border="border"
       :stripe="stripe"
-      :height="height"
+      :height="height || undefined"
       :default-expand-all="defaultExpandAll"
       @selection-change="onSelectionChange"
     >
@@ -21,8 +21,18 @@
       <el-table-column v-if="showIndex" type="index" label="#" width="50" />
 
       <template v-for="col in columns">
+        <!--
+          🔴 必须拆成「插槽列 / 普通列」两个 el-table-column 分支，**不可**合并为
+          「一个列 + 用 v-if 包住 slot-scope 模板」的写法：
+          Vue 只要解析到带 slot-scope 的 <template>，就会注册 $scopedSlots.default —— 即使 v-if 为假，
+          该函数依然存在（只是返回 undefined）。而 Element 的 TableColumn 只要检测到 default 作用域插槽，
+          就改走「自定义渲染」路径、不再渲染 prop 值 ⇒ **所有普通列单元格集体空白**
+          （实测：应用列表的「应用名称/描述/过期时间/创建时间」全为空 div，
+           仅带 slot 的 AppKey/状态 正常；formatter 也因此失效）。
+        -->
         <el-table-column
-          :key="col.prop || col.label"
+          v-if="col.slot"
+          :key="(col.prop || col.label) + '-slot'"
           :prop="col.prop"
           :label="col.label"
           :width="col.width"
@@ -34,15 +44,38 @@
           :formatter="col.formatter ? fmtBridge(col) : undefined"
         >
           <!-- 列作用域插槽：父组件通过具名插槽（slot 名 = col.slot）自定义渲染 -->
-          <template v-if="col.slot" slot-scope="scope">
+          <template slot-scope="scope">
             <slot :name="col.slot" :row="scope.row" :$index="scope.$index" :value="scope.row[col.prop]" />
           </template>
         </el-table-column>
+        <!-- 普通列：不提供任何作用域插槽，交回 Element 默认渲染（prop 值 + formatter 均生效） -->
+        <el-table-column
+          v-else
+          :key="(col.prop || col.label) + '-def'"
+          :prop="col.prop"
+          :label="col.label"
+          :width="col.width"
+          :min-width="col.minWidth"
+          :fixed="col.fixed"
+          :align="col.align || 'left'"
+          :sortable="col.sortable"
+          :show-overflow-tooltip="col.showOverflowTooltip !== false"
+          :formatter="col.formatter ? fmtBridge(col) : undefined"
+        />
       </template>
 
-      <!-- 操作列（可选） -->
+      <!--
+        操作列（可选）
+        🔴 判定必须用 $scopedSlots，不可写成 $slots：
+        各页面传的是**带作用域**的插槽 `<template #actions="{ row }">`，Vue 2 只把它注册进
+        $scopedSlots，$slots 里根本没有 actions 这个键（实测：CrudTable 实例
+        $slots=["toolbar"]、$scopedSlots=["toolbar","appKey","status","actions"]）。
+        原写法导致操作列被整个 v-if 掉 ⇒ **全站列表页都没有「详情/编辑/停用/删除」按钮**
+        （实测 rowBtnCount=0，表格 th 里也没有「操作」表头）。
+        $scopedSlots 在有作用域与无作用域两种写法下都成立，故统一用它判定。
+      -->
       <el-table-column
-        v-if="$slots.actions"
+        v-if="$scopedSlots.actions"
         label="操作"
         :width="actionsWidth"
         :fixed="actionsFixed"
@@ -179,7 +212,14 @@ export default {
         this.total = total
         this.$emit('loaded', { list, total })
       } catch (e) {
-        // fetch 异常由调用方 / 拦截器处理，这里仅保证表格不卡死
+        // 🔴 这里必须留下 console.error，不能静默：
+        // fetch 抛错时把列表清空是对的（保证表格不卡死），但**静默**会让整类缺陷隐形——
+        // 2026-09-13 实测：14 个页面把 fetch 写成 `function(){ const self=this; ... }()` 的
+        // 立即执行函数，严格模式下 this 是 undefined（不是组件实例），于是 `self.total = ...`
+        // 抛 TypeError；该异常被此处吞掉后，表现为「接口明明返回数据、页面却恒显『共 0 条』
+        // 且控制台一片安静」，排查成本极高。保留错误输出，让此类问题一眼可见。
+        // eslint-disable-next-line no-console
+        console.error('[CrudTable] fetch 失败：', e)
         this.list = []
         this.total = 0
       } finally {

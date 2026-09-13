@@ -88,16 +88,13 @@ export default {
     }
   },
   methods: {
-    fetchData: function() {
-      const self = this
-      return async(params) => {
-        const { page, size, username } = params
-        const res = await getUserList({ current: page, size, username })
-        const data = (res && res.data) || {}
-        self.total = data.total || 0
-        return { list: data.records || [], total: data.total || 0 }
-      }
-    }(),
+    async fetchData(params) {
+      const { page, size, username } = params
+      const res = await getUserList({ current: page, size, username })
+      const data = (res && res.data) || {}
+      this.total = data.total || 0
+      return { list: data.records || [], total: data.total || 0 }
+    },
     reload() {
       this.$nextTick(() => {
         if (this.$refs.table && this.$refs.table.reload) this.$refs.table.reload()

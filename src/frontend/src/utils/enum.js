@@ -147,9 +147,13 @@ export const STATUS_MAP = {
  */
 export function getStatusMeta(entity, value) {
   const map = STATUS_MAP[entity]
-  if (!map) return { label: String(value), type: 'info' }
+  // 🔴 兜底不可用 String(value)：值为 undefined 时 String(undefined) 会得到**字面量 "undefined"**
+  //    并直接渲染到表格单元格里（2026-09-13 实测：参数配置页「状态」列整列显示 undefined）。
+  //    空值一律渲染为占位符 '—'。
+  const fallback = () => ({ label: value == null || value === '' ? '—' : String(value), type: 'info' })
+  if (!map) return fallback()
   const meta = map[value]
-  if (!meta) return { label: String(value), type: 'info' }
+  if (!meta) return fallback()
   return meta
 }
 

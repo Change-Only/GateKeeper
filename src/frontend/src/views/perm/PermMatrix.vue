@@ -118,21 +118,18 @@ export default {
     }
   },
   methods: {
+    async fetchData(params) {
+      const { page, size, pendingOnly, ...rest } = params
+      const res = pendingOnly
+        ? await getGrantPending({ envCode: rest.envCode })
+        : await getGrantList(rest)
+      const list = (res && res.data) || []
+      this.total = list.length
+      return { list, total: list.length }
+    },
     envTagType(code) {
       return ENV_TAG_TYPES[code] || 'info'
     },
-    fetchData: function() {
-      const self = this
-      return async(params) => {
-        const { page, size, pendingOnly, ...rest } = params
-        const res = pendingOnly
-          ? await getGrantPending({ envCode: rest.envCode })
-          : await getGrantList(rest)
-        const list = (res && res.data) || []
-        self.total = list.length
-        return { list, total: list.length }
-      }
-    }(),
     reload() {
       this.$nextTick(() => {
         if (this.$refs.table && this.$refs.table.reload) this.$refs.table.reload()
