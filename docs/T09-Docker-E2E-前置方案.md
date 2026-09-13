@@ -23,11 +23,11 @@ Docker 化资产**不是从零开始**，以下三件已在仓库中（HEAD@7a2b
 - 4 服务：`mysql:8.0`（utf8mb4）+ `redis:7-alpine` + `backend`（build ./src/backend）+ `frontend`（build ./src/frontend，端口 `8081:80`）。
 - 健康检查：mysql `mysqladmin ping`（`$$` 转义防 `docker inspect` 泄口令）、redis `redis-cli ping`；`depends_on: condition: service_healthy`（backend 等 mysql+redis 健康）。
 - 卷：`mysql-data` / `redis-data` / `export-data`（挂 `/app/data/exports` 对应 `GATEKEEPER_EXPORT_DIR`，`application.yml:103`）。
-- ⚠️ **既有缺陷（P0，见 §3.2）**：mysql 初始化只挂载 `./src/backend/src/main/resources/sql/init.sql`（`:22`）——该文件是 **T01 时代旧 schema**。
+- ✅ **已根治（原 P0，见 §3.2）**：mysql 初始化挂载 `./src/backend/src/main/resources/sql/init.sql`（`:22`）——该文件已由 eng-db-init **重建为线上库忠实基线**（1513 行 / **36 张表** / 自带 9 张基线种子表），不再是 T01 旧 schema。
 
 ### 1.4 配套文件（实测均存在）
 - `.env.example`（根目录，23 行）：3 必填密钥 + 选填（DB_NAME/DB_USERNAME/CORS_ORIGINS）；`.gitignore:34-36` 忽略 `.env*`（保留 example）。
-- `src/backend/src/main/resources/sql/init.sql`：存在，但内容过时（§3.2）。
+- `src/backend/src/main/resources/sql/init.sql`：**已重建为线上库忠实基线**（1513 行 / 36 表 / 9 基线种子表）—— 原「内容过时」描述作废，见 §3.2。
 
 ---
 
@@ -62,7 +62,7 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 
 ---
 
-## 3. 🔴 两大执行阻塞（本方案核心产出）
+## 3. 执行阻塞与架构结论变更（本方案核心产出）
 
 ### 3.1 阻塞 A：本机无 Docker（lead 07:35 实测）
 
@@ -75,16 +75,30 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 
 **不得**为「验证」目的在本机伪造 docker 命令或跳过起栈只验编译——那属于 T07/T08 已定性的「绿灯漏检」。
 
-### 3.2 阻塞 B（新发现，P0）：init.sql 是 T01 旧 schema，E2E 栈起不来业务
+### 3.2 阻塞 B（原 P0，**已根治**）：init.sql 基线重建 + 挂载链退化为「历史回放」
 
-**实测**（`grep CREATE TABLE|INSERT INTO` 于 `src/backend/src/main/resources/sql/init.sql`）：
-- 仅建 **15 张 T01 表**（app / app_ip_whitelist / app_rate_limit / api_group / api_interface / api_encryption_config / app_encryption_config / app_api_permission / api_call_log / ip_ban / security_event / security_rule / sys_user / sys_role / sys_user_role / sys_operation_log / alert / export_task）+ 少量种子（admin 用户 bcrypt、1 角色、1 安全规则）。
-- **缺全部 v2 演进表**：`notify_channel`、`alarm_rule`、`sys_menu`、`sys_role_menu`、`sys_dict`、`sys_dict_item`、`sys_config`、`block_rule`、授权域表、数据权限表等（18 表 vs 15 表差额）。
-- **缺全部权限种子**（sys_menu type=3 的 80 码 + sys_role_menu 授权）。
+> **存档口径（务必区分，勿混）**：阻塞 B 的处置经**两个性质不同**的阶段 —— **v1.0** 用「11 文件挂载链」**绕过**旧 init.sql（**workaround**）；**v1.2** 由 eng-db-init **重建 init.sql 本身**（**根治**）。归档时必须分开，否则后人会误以为 init.sql 仍是坏的。
 
-**后果链**：compose 起栈 → mysql 只建 T01 表 → backend 起来、登录可用（`POST /api/auth/login` admin/admin123 200，init.sql:297-298 bcrypt 种子）→ **但**：①`PermissionInterceptor` 精确集合匹配、无超管通配 ⇒ perm 缓存空 ⇒ **所有挂注解端点 403**（应用 CRUD、接口管理全灭）；②告警/通知/授权/字典/配置域**表不存在 ⇒ SQL 报错 500**。**E2E 冒烟清单（§4）按现状一项都过不了。**
+#### 3.2.1 根治结果（eng-db-init，lead 实测 + 本文档复核）
 
-**修复方案（幂等、不动源文件名）**：compose mysql 的 initdb 挂载由单文件改为**有序多文件**（`docker-entrypoint-initdb.d` 按文件名字典序执行，用挂载 target 名排序，`docs/sql/` 源文件名不动）：
+- `init.sql`：416 行 → **1513 行 / 36 张表**（本文档复核：行首 `CREATE TABLE` 计数 = **36**）；按 FK 拓扑排序、`ON DUPLICATE KEY UPDATE` 幂等。
+- **自带 9 张基线种子表**（本文档复核 `INSERT INTO` 目标表 = 9：`sys_user` / `sys_role` / `sys_menu` / `sys_user_role` / `sys_role_menu` / `sys_role_datascope` / `sys_dict` / `sys_dict_item` / `sys_config`），逐项与线上库吻合（lead 实测：`sys_menu`=112 / `sys_role_menu`=409 / `sys_role`=9 / `sys_user`=1 / `sys_dict`=6 / `sys_dict_item`=22 / `sys_config`=19 / `sys_role_datascope`=2 / `sys_user_role`=2）。
+- `AUTO_INCREMENT=` 残留 **0** 处、`CREATE PROCEDURE` **0**（本文档复核）。已用 `zzck_` 前缀临时表在活库做等价导入校验，**结构 diff 为空**。
+- ⚠️ **`security_rule` 无 INSERT**（本文档复核 `INSERT INTO` 列表不含该表）—— 与线上一致，见 §3.2.3 裁定 **A2**。
+
+**原 v1.0 描述（已不成立，作废留档）**：「init.sql 仅建 15 张 T01 表、缺 18 张 v2 演进表与全部权限种子 ⇒ 刷栈后挂注解端点全 403、告警/授权/字典域 500」——该结论**对 T01 旧版成立、对重建版不成立**，**勿再引用**。原 v1.0 曾据此给的「后果链」（登录可用但权限空 ⇒ 403/500）亦随之消解。
+
+#### 3.2.2 挂载链现状：`01–10` 退化为「历史回放」（裁定：本轮不动）
+
+**11 文件挂载链仍保留**（T10-D 已落地，勘误见 §3.2.4），但 **init.sql 重建后，它由「T01 基础表」升格为「唯一权威 bootstrap」**，其下 `01–10` 的语义随之由「补缺」变为**冗余回放**。lead 核定其与 init.sql 的相互作用**无破坏**，论证：
+
+- **过程定义自洽**：init.sql **0 个 `CREATE PROCEDURE`**（本文档复核）⇒ `schema-v2.sql:29/45` 定义的 `gk_add_column`/`gk_add_index`（**不带 IF NOT EXISTS**）在 `01` 空卷首跑时**不报错**（因过程尚不存在），到 `02` 才创建并复用 —— 顺序恰好自洽。
+- **冗余种子全 no-op、不覆盖权威值**：`03–09` 的基线数据 init.sql 已全含，且 7 个 seed **全为 `INSERT IGNORE`（本文档实测 **48** 处；`ON DUPLICATE KEY UPDATE` **0** 处）** ⇒ 全 **no-op**，**不会覆盖** init.sql 的权威值（这是链条「无害」的**安全性论据**）。
+- **终值一致**：`t03a-seed-permissions.sql:33` 仍插 `sys_menu.id=221`、`t09-hygiene.sql` 仍删它 ⇒ `sys_menu` 终值 **112**，U2b 断言（§3.2.4）仍成立。
+
+**▶ T11 候选（记档）**：init.sql 现为**唯一权威 bootstrap**、`01–10` 为**冗余回放** ⇒ **链条简化**（去冗余 seed 挂载）应作为 **T11** 议题。**理由**：冗余种子携带的历史数据长期有与 init.sql **漂移**的风险 —— 现靠 `INSERT IGNORE` 兜住，**一旦有人把 seed 改成 `ON DUPLICATE KEY UPDATE` 就会静默覆盖** init.sql 的权威值。
+
+**挂载链（compose mysql initdb；`docker-entrypoint-initdb.d` 按 target 名字典序执行，源文件名不动）**：
 
 ```yaml
     volumes:
@@ -104,12 +118,17 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 ```
 
 依据与注意：
-- 顺序链基于「schema-v2.sql 在 T01 表基础上 CREATE 8 新表（IF NOT EXISTS）+ ALTER 10 表」（`schema-v2.sql:710-713` 注释实测）⇒ **00 基础表必须先行**；
+- 顺序链基于「`schema-v2.sql` 新建 **18** 表（`CREATE TABLE IF NOT EXISTS`）+ ALTER **10** 存量表」（`schema-v2.sql:61 / :447` 实测）⇒ **00 基础表必须先行**。⚠️ 注：init.sql 重建后**已含全部 18 表** ⇒ `01` 的**新建部分亦为 no-op**（IF NOT EXISTS 跳过），仅 ALTER 部分经 `gk_add_column` 过程幂等生效 —— 同属「历史回放」（呼应 §3.2.2）；
 - 种子按批次 T02→T03a→T03b→T05→T07a→T08→T09 排序（各文件内部已幂等：`INSERT IGNORE` + uk 约束，T05/T08 契约已定）；
 - initdb **仅在 mysql 数据卷为空时执行** ⇒ E2E 必须 `docker compose down -v` 全清后再起（§4 U0/U7 强制）；
 - 该 compose 改动本身**可在无 Docker 环境下静态 review**（YAML 语法 + 挂载路径存在性），执行验证待阻塞 A 解除。
 
-**📋 方案 v1.1 勘误 + T10-D 施工核对（本节由 architect-2 于 T10-D 后认领）**
+#### 3.2.3 裁定归档（本轮 A1/A2，显式留档防下一轮重复）
+
+- **A1 · `api_call_log` 索引**：**取线上 9 个二级索引，不塞原先想要的 5 个组合索引**。**有意偏离 + 丢失理由**：硬约束是「线上库 = 唯一事实来源 + diff 必须为空」，且那 5 个组合索引**无任何真实查询模式依据**（在 25 列日志表上凭猜加索引 = 纯写入放大）；真需要时凭 `EXPLAIN` 实测再补。⚠️ **下一轮勿当「漏了 5 个」再补一遍**。
+- **A2 · `security_rule` 默认规则**：**不加回 init.sql**（本文档复核 `INSERT INTO security_rule` = 0，与线上一致）。开源版若想要默认安全规则，属**发布包装决策** —— 另开可选种子文件走产品评审，**不夹带进基线**。
+
+#### 3.2.4 方案 v1.1 勘误 + T10-D 施工核对（本节由 architect-2 于 T10-D 后认领）
 
 > **存档口径（性质区分，勿混）**：本节记录的是**本方案自身的实质遗漏**（v1.0 写错），**不是**施工方偏离原文——两类问题归档时必须分开。
 
@@ -149,7 +168,7 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 | U0 | 全清起栈 | `docker compose down -v 2>/dev/null; docker compose up -d --build` | 4（+可选 mock）容器 Up；**首次必须 down -v 保证 initdb 执行** |
 | U1 | 基础设施健康 | `docker compose ps` | mysql/redis `healthy`；backend/frontend Up |
 | U2 | 后端探活 | `curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/doc.html`（knife4j enable=true，application.yml:63-66） | **200**（探活不依赖业务表） |
-| U3 | 登录 | `curl -X POST http://localhost:8081/api/auth/login -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin123"}'` | code=0 + token；**若 403/500 ⇒ §3.2 初始化链未生效，先修阻塞 B** |
+| U3 | 登录 | `curl -X POST http://localhost:8081/api/auth/login -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin123"}'` | **code=200**（`Result.success()` 置 200，非 0；承 T10-E C1）+ `data.token`；**若 403/500 ⇒ 初始化链异常（init.sql 基线或 01–10 回放，见 §3.2）** |
 | U4 | 应用 CRUD 冒烟 | 带 token：`POST /api/app`（app:create，admin=ADMIN 角色全量种子）→ `GET /api/app/list` → `PUT` → `DELETE` | 全 200/204，list 可见新建（验证权限种子 + 表结构双链路） |
 | U5 | 网关转发 + 日志落库 | 配接口/版本/环境（upstreamUrl=`http://mock-upstream:80`，走 set-current 切生产）→ 用应用凭证调网关转发端点 → `GET /api/log/list?appId=N` | 转发返回 mock JSON；`total>=1`（**带数据的正面断言**，承 Class G 铁律：不验「不报错」） |
 | U6 | 异步导出 | `POST /api/log/export` → taskId → 轮询 `GET /api/log/export/tasks` 至 SUCCESS → `GET /api/log/export/{taskId}/download` | 200 + CSV 文件（Content-Disposition） |
@@ -181,11 +200,11 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 |---|---|---|
 | S1 Dockerfile ×2 review | ✅ 本轮已完成 | §1.1/§1.2，结论：无需改动 |
 | S2 compose 密钥面 review | ✅ 本轮已完成 | §2.1，零明文、`:?` 强制、healthcheck 防泄露 |
-| S3 初始化 SQL 链组装 | 📝 方案已给（§3.2），**待施工** | 改 compose volumes（10 行挂载）+ 静态核对每个文件存在性与幂等性；可在无 Docker 环境 review YAML |
+| S3 初始化 SQL 链组装 | ✅ 已施工（T10-D，静态验证） | compose volumes 11 文件挂载已落地（T10-D `7349f7f`）；**init.sql 另已根治**（v1.2）⇒ 链退化为历史回放，见 §3.2 |
 | S4 Redis 口令对齐（第 4 密钥） | 🟢 **已裁定：不做**（lead，2026-09-12） | §2.2：现状 3 密钥保持；compose 加 requirepass 反而断连，内网隔离风险不成立 |
 | S5 mock-upstream 服务 | 📝 方案已给（§3.3），待施工 | 复用 nginx 镜像，零新增下载 |
 | S6 E2E 脚本 | 📝 剧本已给（§4），待环境 | 解除阻塞 A 后落地执行 |
-| S7 远程库快赢 2 核对 | ✅ 已满足（lead 实测） | `api_call_log` 10 个组合索引已存在、表 0 行——E2E 落库即有索引可用，无需补 DDL |
+| S7 `api_call_log` 索引口径 | 🟢 已裁定 | **取线上 9 个二级索引**，**有意不塞** 5 个组合索引（无查询模式依据，凭猜加索引=写入放大）+ 丢失理由见 §3.2.3 A1 |
 
 ---
 
@@ -194,9 +213,9 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 | # | 项 | 级别 | 处置 |
 |---|---|---|---|
 | R1 | 本机无 Docker ⇒ E2E 无法执行 | 🔴 P0 | §3.1/§5，三选一解除；不得伪造验证 |
-| R2 | init.sql 旧 schema ⇒ 栈起不来业务 | 🔴 P0 | §3.2 初始化链（本方案核心增量） |
+| R2 | init.sql 旧 schema ⇒ 栈起不来业务 | 🟢 **已关闭（根治）** | §3.2：init.sql 已重建为 **36 表线上基线**（**根治**，非 workaround）；风险已消解 |
 | R3 | initdb 仅空卷执行 ⇒ 脏卷导致「改了没生效」 | 🟠 P1 | U0/U7 强制 `down -v`；剧本写死 |
-| R4 | 种子文件间顺序/幂等缺陷（如 t09-hygiene 未终稿） | 🟠 P1 | S3 静态逐一核对；hygiene 挂载前 lead 确认 |
+| R4 | 种子文件间顺序/幂等缺陷 | 🟢 已核对（T10-D） | hygiene 终稿 `7349f7f`；01–10 全 `INSERT IGNORE`（48 处，ON DUP 0）⇒ 不覆盖 init.sql 权威值，链条无害 |
 | R5 | Redis 无口令与 lead 口径不一致 | 🟢 **已裁定闭环** | §2.2：保持现状 3 密钥（lead，2026-09-12）；加 requirepass 会断连，内网隔离风险不成立 |
 | R6 | application.yml 默认值含真钥（裸 jar 路径） | 🟡 P2 | §2.3 留档；容器路径已有双保险 |
 | R7 | 无外联环境拉不到新镜像 | 🟢 已规避 | mock-upstream 复用既有 nginx 镜像（§3.3） |
@@ -207,6 +226,8 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 ## 9. 关联文档
 
 - `docs/sql/t03b-e2e.sh`（11 步 curl E2E 既有范式、admin/admin123 登录样板）
-- `docs/T08-权限执行缺口-契约记录.md`（无超管通配、未播种=全员 403 —— §3.2 后果链依据）
-- `docs/sql/schema-v2.sql` / `migrate-v2.sql`（18 表 + ALTER 10 表，初始化链 01/02 号位）
+- `docs/T08-权限执行缺口-契约记录.md`（无超管通配、未播种=全员 403 —— 权限执行缺口的背景依据，非本链结论）
+- `docs/sql/schema-v2.sql` / `migrate-v2.sql`（schema-v2 新建 18 表 + ALTER 10 表，初始化链 01/02 号位）
+  - ⚠️ **勘误**：`schema-v2.sql:4` 头部仍写「执行前提：已执行 init.sql（**18 张存量表**）」——该描述对应 **T01 时点**状态、**已过期**（init.sql 现为 **36 表**）。按项目惯例**不追改历史迁移脚本**，仅此说明；引用时勿以其为当前基线。
+- `docs/T10-D-初始化链幂等性核对与T11候选.md`（幂等性两维核对、C1–C8 修正、U2b 断言、T11 候选）
 - `docs/路线图-RICE优先级评分.md`（Docker E2E=Now 主线 4.8；告警渠道 3.6 / ESLint 3.0 / 监控指标 2.8 为 Next）
