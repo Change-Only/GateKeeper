@@ -66,14 +66,46 @@ public class InterfaceListVo {
     private LocalDateTime updatedAt;
 
     /*
-     * 🔴 以下三个字段是 2026-09-13 补的「前端列契约」缺口，勿删：
+     * 🔴 以下字段是 2026-09-13 补的「列表 VO ⊇ 实体」契约缺口，勿删：
+     *
      * T03b 把 /interface/list 的返回从 ApiInterface 实体换成 InterfaceListVo 时，
-     * 前端 ApiList.vue 的列定义（T05 Phase 1 时代）仍按实体字段取名，于是
-     * 「后端地址 / 超时(ms) / 创建时间」三列**永远空白**（实测：接口有数据、单元格为空）。
-     * 三个名字与 ApiInterface 实体属性同名，故 toListVo 里现成的
+     * VO 只挑了「展示用」字段，与实体存在差集。这带来两类缺陷：
+     *
+     * ① 列表列空白：前端 ApiList.vue 的列定义仍按实体字段取名，
+     *    「后端地址 / 超时(ms) / 创建时间」三列**永远空白**（实测：接口有数据、单元格为空）。
+     *
+     * ② 编辑静默清空字段（更严重，2026-09-13 实测复现）：
+     *    ApiList.openEdit(row) 直接以列表行做编辑表单初值，CrudDialog 对 fields 中
+     *    「初值为 undefined」的项补空串，提交时把空串写回——MyBatis-Plus updateById 的
+     *    默认策略 NOT_NULL 只忽略 null、**不忽略空串**，于是
+     *    「打开编辑 → 什么都不改 → 点确定」就会把 requestParamType / description 清成 ''。
+     *    实测：DB 由 request_param_type='JSON' / description='CDP 复现用…' 变为两列皆 ''。
+     *
+     * 因此口径修正为：**列表 VO 必须覆盖实体的全部可编辑字段**（只加不减），
+     * 编辑回填才不会缺项。所有新增字段名与 ApiInterface 属性同名，故 toListVo 里现成的
      * BeanUtils.copyProperties(r, vo) 会自动填充，服务层零改动。
-     * 按项目铁律「只加不减」，此处只补字段、不动既有字段。
      */
+
+    /** 入参类型（JSON/FORM/QUERY）—— 编辑表单必填项，缺则被清空 */
+    private String requestParamType;
+
+    /** 接口描述 —— 编辑表单可填项，缺则被清空 */
+    private String description;
+
+    /** 负责人ID */
+    private Long ownerId;
+
+    /** 是否鉴权：1=需要 0=不需要 */
+    private Integer authRequired;
+
+    /** SLA 等级说明 */
+    private String sla;
+
+    /** 标签（逗号分隔） */
+    private String tags;
+
+    /** 已授权应用数 */
+    private Integer grantCount;
 
     /** 后端真实服务地址（网关转发目标） */
     private String backendUrl;

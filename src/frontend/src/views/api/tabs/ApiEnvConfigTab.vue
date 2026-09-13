@@ -123,7 +123,15 @@ export default {
       return e ? e.label : code
     },
     async fetchEnvConfigs() {
-      const res = await getApiEnvConfigList({ apiId: this.apiId })
+      // 🔴 这里必须传「apiId 标量」，不能传对象：
+      // modules.js 的 getApiEnvConfigList(apiId) 内部写的是 { params: { apiId } }，
+      // 若传 { apiId: this.apiId } 就会变成 { params: { apiId: { apiId: 1 } } }，
+      // axios 把对象值 JSON.stringify 后拼成 ?apiId={"apiId":1}，
+      // 后端 @RequestParam Long apiId 类型转换失败 ⇒ HTTP 500。
+      // 实测（2026-09-13）：500 /api/api-env-config/list?apiId=%7B%22apiId%22:1%7D，
+      // 表现为详情抽屉「环境配置」Tab 永远加载失败、控制台 [CrudTable] fetch 失败。
+      // 同一函数的另一调用点 RoutePreview.vue:103 传的就是标量，此处与之对齐。
+      const res = await getApiEnvConfigList(this.apiId)
       const list = res.data || []
       return { list, total: list.length }
     },

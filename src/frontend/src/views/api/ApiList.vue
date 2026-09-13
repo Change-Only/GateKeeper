@@ -34,7 +34,9 @@
         <code class="mono">{{ row.interfacePath }}</code>
       </template>
       <template #groupName="{ row }">
-        <span>{{ row.groupId ? (groupNameMap[row.groupId] || '—') : '—' }}</span>
+        <!-- 优先用后端 JOIN 出的 groupName（列表 VO 已带），前端 map 仅作兜底：
+             loadGroups 失败时不会整列退化成 '—' -->
+        <span>{{ row.groupName || groupNameMap[row.groupId] || '—' }}</span>
       </template>
       <template #status="{ row }">
         <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">{{ row.status === 1 ? '启用' : '停用' }}</el-tag>
@@ -159,7 +161,16 @@ export default {
         this.groupOptions = list.map((g) => ({ value: g.id, label: g.groupName }))
         this.groupNameMap = {}
         list.forEach((g) => { this.groupNameMap[g.id] = g.groupName })
+        // 🔴 必须把分组选项注入 fields，否则「新建/编辑接口」弹窗的「所属分组」下拉恒为空：
+        // fields 是在 data() 里静态定义的，其 options 写的是 []，若不在数据到达后回填，
+        // 用户永远选不到分组；更糟的是编辑时 form.groupId 落成空串，提交会把既有分组清掉
+        // （2026-09-13 实测：未做任何修改点「确定」，payload 带 groupId:"" 覆盖原分组）。
+        this.buildGroupOptions()
       } catch (e) { /* 拦截器已提示 */ }
+    },
+    /** 把已加载的分组选项注入 fields（沿用 ApiParamTab.buildParentOptions 的同款写法） */
+    buildGroupOptions() {
+      this.fields = this.fields.map((f) => f.prop === 'groupId' ? { ...f, options: this.groupOptions } : f)
     },
     reload() {
       if (this.$refs.table) this.$refs.table.reload()
@@ -185,23 +196,28 @@ export default {
         interfacePath: '',
         requestMethod: 'GET',
         requestParamType: 'JSON',
-        groupId: '',
+        groupId: null,
         status: 1,
         backendUrl: '',
         timeoutMs: 5000,
         description: ''
       }
+      this.buildGroupOptions()
       this.dialogVisible = true
     },
     openEdit(row) {
       this.dialogTitle = '编辑接口'
-      this.form = { ...row, groupId: row.groupId || '' }
+      this.form = { ...row, groupId: row.groupId || null }
+      this.buildGroupOptions()
       this.dialogVisible = true
     },
     async submit(form) {
       this.submitting = true
       try {
         const payload = { ...form }
+        // 空串归一为 null：el-select 清空后会置 ''，而 '' 传到后端 Long 字段虽能被 Jackson
+        // 转成 null，但语义上是「非法值」；统一在提交前收敛，避免把分组清成脏值。
+        if (payload.groupId === '') payload.groupId = null
         if (payload.id) {
           await updateInterface(payload.id, payload)
           this.$message.success('接口已更新')
