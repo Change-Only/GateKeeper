@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Pre-commit hook: 阻止 application*.yml/yaml/properties 中
+# secret-keyed 字段使用 ${ENV_VAR:非空默认值} 这种"默认即密钥"的形式。
+#
+# 触发规则：staged 文件名匹配 application*.yml|yaml|properties，
+# 且行首 key 命中 secret-like 命名（password/secret/key/token/credential/aes/jwt 等），
+# 且值含 ${VAR:VALUE} 且 VALUE 非空/非纯空白。
+#
+# 允许：${ENV_VAR}（无默认）、${ENV_VAR:}（空默认）、非密钥字段（url/host 等）。
+# 退出码：0 通过；1 阻断并打印命中行。
+#
+# ---------------------------------------------------------------------------
+# 【安装】本文件是 .git/hooks/pre-commit 的版本化备份。
+#   .git/ 不在版本控制内，历史上曾因 .git 目录被清空而丢失本钩子，
+#   故在此留存，恢复方式二选一：
+#     cp githooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#     git config core.hooksPath githooks        # 或直接改用该目录
+# 【改动记录】
+#   2026-09-11 修正 VAL 正则末位 [^[:space:]] -> [^[:space:]}]：
+#     原写法把 `${VAR:}` 冒号后紧跟的 `}` 也视为"非空白字符"，
+#     于是注释里声明放行的「空默认」反而被判为命中，
+#     导致 application.example.yml 这类合法模板永远提交不了（实测误拦 3 处）。
+# ---------------------------------------------------------------------------
+
+set -e
+PATTERN='application(-[a-z0-9]+)?\.(yml|yaml|properties)$'
+STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E "$PATTERN" || true)
+[ -z "$STAGED" ] && exit 0
+
+# 密钥类 key（不区分大小写）
+KEY='(password|passwd|pwd|secret|api[_-]?key|access[_-]?key|secret[_-]?key|jwt[_-]?(secret|key)|token|auth[_-]?token|credential|aes[_-]?key|signing[_-]?key)'
+# 值：${VAR:非空默认} —— 容忍冒号后的可选双引号（application.yml 习惯加引号）
+# 末位排除 `}`：只有冒号后是实打实的字符才算密钥泄漏，`${VAR:}` 属合法空默认。
+VAL='"?\$\{[A-Za-z_][A-Za-z0-9_]*:[[:space:]]*[^[:space:]}]'
+
+FOUND=0
+for f in $STAGED; do
+  HITS=$(grep -niE "^[[:space:]]*${KEY}[[:space:]]*:[[:space:]]*${VAL}" "$f" 2>/dev/null || true)
+  if [ -n "$HITS" ]; then
+    echo "❌ Pre-commit blocked: $f 包含 secret-keyed 字段的 \${ENV:非空默认值}"
+    echo "$HITS" | sed 's/^/   /'
+    echo "   → 修复：将默认值清空，或改用纯 \${ENV_VAR}（无默认）"
+    FOUND=1
+  fi
+done
+exit $FOUND
