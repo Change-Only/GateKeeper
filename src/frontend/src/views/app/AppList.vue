@@ -98,7 +98,7 @@ export default {
         { prop: 'appKey', label: 'AppKey', minWidth: 200, slot: 'appKey' },
         { prop: 'status', label: '状态', width: 90, slot: 'status' },
         { prop: 'description', label: '描述', minWidth: 180, showOverflowTooltip: true },
-        { prop: 'expireTime', label: '过期时间', width: 150, formatter: (v) => v || '永不过期' },
+        { prop: 'expireTime', label: '过期时间', width: 160, formatter: (v) => (v ? this.fmtTime(v) : '永不过期') },
         { prop: 'createdAt', label: '创建时间', width: 160, formatter: (v) => this.fmtTime(v) }
       ],
       drawerVisible: false,
@@ -111,7 +111,10 @@ export default {
       fields: [
         { prop: 'appName', label: '应用名称', type: 'input', required: true, maxlength: 64, span: 24 },
         { prop: 'status', label: '状态', type: 'select', required: true, options: [{ value: 1, label: '已启用' }, { value: 0, label: '已停用' }, { value: 2, label: '已过期' }], span: 12 },
-        { prop: 'expireTime', label: '过期时间', type: 'date', span: 12 },
+        // expireTime 后端是 LocalDateTime（ISO 输出 2026-09-10T14:11:04）。
+        // 原 type:'date' 会送出 yyyy-MM-dd，后端反序列化失败 ⇒ 一旦填了过期时间就 500，
+        // 且回填时 el-date-picker 无法按 yyyy-MM-dd 解析 ISO 串，控件显示为空。
+        { prop: 'expireTime', label: '过期时间', type: 'datetime', valueFormat: 'yyyy-MM-ddTHH:mm:ss', span: 12 },
         { prop: 'description', label: '描述', type: 'textarea', span: 24, maxlength: 200 }
       ]
     }

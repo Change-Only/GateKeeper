@@ -84,8 +84,10 @@ export default {
         { prop: 'appKey', label: 'AppKey', minWidth: 160, showOverflowTooltip: true, formatter: (v) => v || '—' },
         { prop: 'status', label: '状态', width: 90, slot: 'status' },
         { prop: 'rotateFlag', label: '轮换', width: 80, slot: 'rotateFlag' },
-        { prop: 'expireTime', label: '过期时间', width: 150, formatter: (v) => v || '永不过期' },
-        { prop: 'lastUsedTime', label: '最近使用', width: 150, formatter: (v) => v || '—' }
+        // expireTime / lastUsedTime 后端是 LocalDateTime，按 ISO 输出（2026-09-10T14:11:04），
+        // 直接展示会带 T，故统一走 fmtTime 转成可读形式
+        { prop: 'expireTime', label: '过期时间', width: 150, formatter: (v) => (v ? this.fmtTime(v) : '永不过期') },
+        { prop: 'lastUsedTime', label: '最近使用', width: 150, formatter: (v) => (v ? this.fmtTime(v) : '—') }
       ],
       dialogVisible: false,
       dialogTitle: '创建凭证',
@@ -104,6 +106,10 @@ export default {
       const e = ENV_LIST.find((x) => x.code === code)
       return e ? e.label : code
     },
+    fmtTime(v) {
+      if (!v) return '—'
+      return String(v).replace('T', ' ')
+    },
     async fetchCredentials() {
       const res = await getAppCredentialList({ appId: this.appId })
       const list = res.data || []
@@ -116,13 +122,15 @@ export default {
       if (isEdit) {
         return [
           { prop: 'alias', label: '别名', type: 'input', required: true, maxlength: 128, span: 24 },
-          { prop: 'expireTime', label: '过期时间', type: 'date', span: 24 }
+          { prop: 'expireTime', label: '过期时间', type: 'datetime', valueFormat: 'yyyy-MM-ddTHH:mm:ss', span: 24 }
         ]
       }
       return [
         { prop: 'alias', label: '别名', type: 'input', required: true, maxlength: 128, span: 24, placeholder: '如「生产-主密钥」' },
         { prop: 'envCode', label: '环境', type: 'select', required: true, options: ENV_LIST.map((e) => ({ value: e.code, label: e.label })), span: 24 },
-        { prop: 'expireTime', label: '过期时间', type: 'date', span: 24 }
+        // expireTime 后端是 LocalDateTime（ISO），值格式必须带 T：
+        // 原 type:'date' 会送出 yyyy-MM-dd，后端反序列化失败 ⇒ 填了过期时间就 500
+        { prop: 'expireTime', label: '过期时间', type: 'datetime', valueFormat: 'yyyy-MM-ddTHH:mm:ss', span: 24 }
       ]
     },
     openCreate() {

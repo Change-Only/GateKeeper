@@ -81,7 +81,7 @@
               v-else-if="f.type === 'date'"
               v-model="form[f.prop]"
               type="date"
-              value-format="yyyy-MM-dd"
+              :value-format="f.valueFormat || 'yyyy-MM-dd'"
               :placeholder="f.placeholder || '选择日期'"
               style="width: 100%"
             />
@@ -89,7 +89,7 @@
               v-else-if="f.type === 'datetime'"
               v-model="form[f.prop]"
               type="datetime"
-              value-format="yyyy-MM-dd HH:mm:ss"
+              :value-format="f.valueFormat || 'yyyy-MM-dd HH:mm:ss'"
               :placeholder="f.placeholder || '选择时间'"
               style="width: 100%"
             />
