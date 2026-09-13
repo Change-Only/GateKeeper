@@ -1,0 +1,168 @@
+# ============================================================================
+#  GateKeeper 后端配置模板 —— application.example.yml
+# ============================================================================
+#  ⚠ 本文件是【模板】，不是可直接运行的配置，请勿直接使用。
+#
+#  使用方式：
+#      cd src/backend/src/main/resources
+#      cp application.example.yml application.yml
+#      然后填写下方三个【必填密钥】：DB 密码 / JWT 密钥 / AES 密钥
+#
+#  为什么仓库里没有 application.yml：
+#      真实配置包含数据库口令与加解密密钥，已在 .gitignore 中被显式忽略
+#      （见「环境变量 / 敏感配置」段），永不入库。
+#
+#  本文件本身【不含任何真实密钥】，可以安全提交到公开仓库。
+#
+#  填值方式二选一（推荐方式 B，便于容器化部署与密钥轮换）：
+#      方式 A：直接修改本文件中 "${...:}" 冒号后面的默认值（仅本地开发图方便）
+#      方式 B：保持默认值为空，改由环境变量注入（推荐，变量名见根目录 .env.example）
+#          export GATEKEEPER_DB_PASSWORD='你的数据库密码'
+#          export GATEKEEPER_JWT_SECRET="$(openssl rand -base64 32)"
+#          export GATEKEEPER_AES_KEY="$(openssl rand -base64 32)"
+#
+#  生成至少 32 位的随机密钥：
+#      openssl rand -base64 32                      # Linux / macOS / Git Bash
+#      # Windows PowerShell 无 openssl 时可用：
+#      # [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+#
+#  ⚠ 启动强校验：com.gatekeeper.config.SecurityStartupCheck 在 Bean 初始化阶段
+#    （早于 Web 端口监听）就会校验上述三项密钥。出现【缺失 / 长度 < 32 位 /
+#    等于历史默认值或常见弱口令】任一情况，进程直接抛异常拒绝启动（fail-fast）。
+#    这是刻意设计的"激进密钥策略"——杜绝默认密钥入库后可伪造管理员令牌的风险。
+#    详见 README「常见问题 Q1」。
+# ============================================================================
+
+# ==================== 服务端配置 ====================
+server:
+  port: 8080             # 服务监听端口
+  servlet:
+    # 全局请求路径前缀：所有接口均以 /api 开头
+    # ⚠ 前端 devServer(vue.config.js) 与生产 Nginx(nginx.conf) 都把 /api 原样转发到本服务，
+    #   修改此处需同步修改前端 src/frontend/src/api/index.js 的 baseURL
+    context-path: /api
+
+# ==================== Spring 核心配置 ====================
+spring:
+  # ---- 数据源（MySQL 8）----
+  # 主机/端口/库名/账号/密码均支持环境变量覆盖；生产环境请只通过环境变量注入真实值
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 【需按环境修改】数据库连接地址
+    #   GATEKEEPER_DB_HOST  默认 localhost
+    #   GATEKEEPER_DB_PORT  默认 3306（若实例使用非标准端口，请显式覆盖）
+    #   GATEKEEPER_DB_NAME  默认 gatekeeper
+    url: jdbc:mysql://${GATEKEEPER_DB_HOST:localhost}:${GATEKEEPER_DB_PORT:3306}/${GATEKEEPER_DB_NAME:gatekeeper}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: ${GATEKEEPER_DB_USERNAME:root}
+    # 🔴【必填】数据库密码：留空则启动自检失败，进程拒绝启动。
+    #    生产环境请勿把真实口令写进本文件（本文件会被 git 跟踪），改用环境变量注入。
+    password: "${GATEKEEPER_DB_PASSWORD:}"
+    hikari:
+      maximum-pool-size: 20      # 连接池最大连接数（需结合 DB max_connections 与实例副本数评估）
+      minimum-idle: 5            # 连接池最小空闲连接数
+      connection-timeout: 30000  # 获取连接超时时间(ms)
+      idle-timeout: 600000       # 空闲连接回收时间(ms)
+      max-lifetime: 1800000      # 连接最大存活时间(ms)，必须小于 MySQL wait_timeout
+
+  # ---- Redis 配置（限流计数 / IP 封禁 / Nonce 防重放 / 权限缓存）----
+  # 未启用密码；如你的 Redis 设了密码，请自行补一行 password: ${GATEKEEPER_REDIS_PASSWORD:}
+  redis:
+    host: ${GATEKEEPER_REDIS_HOST:localhost}
+    port: ${GATEKEEPER_REDIS_PORT:6379}
+    database: ${GATEKEEPER_REDIS_DATABASE:0}   # 逻辑库编号，多环境共用同一实例时用它隔离
+    timeout: 3000                              # 连接超时时间(ms)
+    lettuce:
+      pool:
+        max-active: 16   # 连接池最大连接数
+        max-idle: 8      # 最大空闲连接数
+        min-idle: 2      # 最小空闲连接数
+
+  # ---- Jackson JSON 序列化配置 ----
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss      # 全局日期时间格式
+    time-zone: Asia/Shanghai              # 序列化/反序列化使用的时区
+    default-property-inclusion: non_null  # 序列化时忽略 null 字段
+
+# ==================== MyBatis-Plus 配置 ====================
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml  # 预留目录；当前 Mapper 全部基于 MyBatis-Plus 注解实现，目录可为空
+  type-aliases-package: com.gatekeeper.entity
+  global-config:
+    db-config:
+      id-type: auto              # 主键自增策略
+      logic-delete-field: deleted # 逻辑删除字段名
+      logic-delete-value: 1       # 已删除标识
+      logic-not-delete-value: 0   # 未删除标识
+  configuration:
+    map-underscore-to-camel-case: true  # 下划线字段自动映射驼峰属性
+    # SQL 日志走 Slf4j；生产环境把 com.gatekeeper.mapper 日志级别调到 WARN 即可关闭
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+# ==================== Knife4j 接口文档配置 ====================
+# 文档地址：http://localhost:8080/api/doc.html
+# ⚠ 生产环境建议置 enable: false，避免对外暴露完整接口清单
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+# ==================== GateKeeper 业务自定义配置 ====================
+gatekeeper:
+  # 网关默认环境码；单个请求可用请求头 X-Gk-Env 覆盖（用于多环境路由）
+  env: ${GATEKEEPER_ENV:prod}
+
+  crypto:
+    # 🔴【必填】落库密钥的加密密钥（AES-256，用于加密 AppSecret 等敏感数据）。
+    #    ⚠ 一旦轮换，历史已加密数据将无法解密，必须配套数据重加密方案，切勿随意更换。
+    aes-key: "${GATEKEEPER_AES_KEY:}"
+
+  jwt:
+    # 🔴【必填】JWT 签名密钥：泄露 = 任何人可伪造管理员令牌，务必使用随机值
+    secret: "${GATEKEEPER_JWT_SECRET:}"
+    expire-minutes: 120   # 登录令牌有效期(分钟)
+
+  cors:
+    # 允许跨域来源（逗号分隔）；生产环境改成实际访问域名
+    allowed-origins: ${GATEKEEPER_CORS_ORIGINS:http://localhost:8081}
+
+  redis:
+    # Redis 故障降级策略：
+    #   true = 限流/封禁/防重放等防护组件降级放行，业务主链路不中断（默认）
+    #   false = Redis 故障时防护组件抛错、网关整体拒绝（强合规场景可改 fail-closed）
+    fail-open: ${GATEKEEPER_REDIS_FAIL_OPEN:true}
+
+  gateway:
+    default-timeout: 5000     # 网关转发默认超时时间(ms)
+    log-async: true           # 是否异步记录调用日志
+    pool-max-total: 500       # 转发 HTTP 连接池最大连接数
+    pool-max-per-route: 100   # 转发 HTTP 连接池单路由最大连接数
+
+  security:
+    # 是否信任 X-Forwarded-For：仅在可信反向代理之后才可置 true，否则来源 IP 可被伪造绕过 IP 封禁
+    trust-xff: false
+    auth-fail-window-min: 5           # 鉴权失败统计窗口(分钟)
+    auth-fail-threshold: 10           # 窗口内鉴权失败次数阈值 → 触发自动封禁
+    auto-ban-duration-min: 60         # 触发后自动封禁时长(分钟)
+    login-fail-threshold: 5           # 管理后台登录失败锁定阈值(次)
+    login-lock-minutes: 10            # 登录失败锁定时长(分钟)
+    high-freq-qps: 100                # 高频调用检测：平均 QPS 阈值
+    high-freq-window-sec: 30          # 高频调用检测：统计窗口(秒)
+    off-hours-start: 23               # 异常时段检测：起始小时(0-23)
+    off-hours-end: 6                  # 异常时段检测：结束小时(0-23)
+    max-payload-bytes: 1048576        # 异常入参检测：最大请求体字节数(1MB)
+    perm-breach-window-min: 10        # 权限越界检测：统计窗口(分钟)
+    perm-breach-threshold: 20         # 权限越界检测：越界次数阈值
+    perm-breach-auto-ban: false       # 权限越界是否自动封禁来源 IP（默认关，避免误封）
+    perm-breach-ban-duration-min: 60  # 权限越界自动封禁时长(分钟)
+
+  async:
+    core-pool-size: 4    # 异步线程池核心线程数（调用日志落库 / 导出任务）
+    max-pool-size: 8     # 异步线程池最大线程数
+    queue-capacity: 2000 # 有界队列容量，队列满即触发背压，避免 OOM
+
+  log:
+    retention-days: 90   # 调用日志保留天数，超期由定时清理任务删除
+
+  export:
+    # 异步导出 CSV 的落盘目录；Docker 部署需挂载持久卷，否则容器重建后导出文件丢失
+    dir: ${GATEKEEPER_EXPORT_DIR:./data/exports}
