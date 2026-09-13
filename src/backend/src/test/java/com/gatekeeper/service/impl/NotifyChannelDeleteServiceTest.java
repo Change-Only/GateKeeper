@@ -48,11 +48,17 @@ class NotifyChannelDeleteServiceTest {
     @Mock
     private NotifySender notifySender;
 
+    @Mock
+    private com.gatekeeper.crypto.CryptoService cryptoService;
+
     private NotifyChannelServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new NotifyChannelServiceImpl(notifySender);
+        // T09-N1 起构造函数增加 CryptoService（配置加密链路）
+        service = new NotifyChannelServiceImpl(notifySender, cryptoService);
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                service, "aesDbKey", "TEST_32_BYTES_LONG_KEY_FOR_AES_256");
         try {
             Field baseMapperField = com.baomidou.mybatisplus.extension.service.impl.ServiceImpl.class
                     .getDeclaredField("baseMapper");

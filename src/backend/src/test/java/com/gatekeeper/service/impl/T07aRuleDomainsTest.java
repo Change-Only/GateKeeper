@@ -58,6 +58,9 @@ class T07aRuleDomainsTest {
     private NotifyChannelMapper notifyChannelMapper;
 
     @Mock
+    private com.gatekeeper.crypto.CryptoService cryptoService;
+
+    @Mock
     private NotifySender notifySender;
 
     private NotifyChannelController notifyChannelController;
@@ -66,7 +69,10 @@ class T07aRuleDomainsTest {
     @BeforeEach
     void setUp() throws Exception {
         notifyChannelController = new NotifyChannelController(notifyChannelService);
-        notifyChannelServiceImpl = new NotifyChannelServiceImpl(notifySender);
+        // T09-N1 起构造函数增加 CryptoService（配置加密链路）
+        notifyChannelServiceImpl = new NotifyChannelServiceImpl(notifySender, cryptoService);
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                notifyChannelServiceImpl, "aesDbKey", "TEST_32_BYTES_LONG_KEY_FOR_AES_256");
         // MyBatis-Plus ServiceImpl 的 baseMapper 由容器注入，单测需显式反射塞入
         Field baseMapperField = com.baomidou.mybatisplus.extension.service.impl.ServiceImpl.class
                 .getDeclaredField("baseMapper");
