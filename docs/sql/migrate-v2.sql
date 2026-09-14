@@ -279,15 +279,20 @@ INSERT IGNORE INTO notify_channel (id, channel_name, channel_type, status, last_
 
 -- ---------------------------------------------------------------------------
 -- 1.10 告警规则（alarm_rule）—— 原型 MOCK.alarmRules
+--      T11 增量：补 target_type / target_ids（评估对象绑定）
+--        · target_type：APP=按应用 / API=按接口（scope_type=1 必填；=2 平台全局时为 NULL）
+--        · target_ids ：NULL = 该维度下全部对象（与 channel_ids/receiver_ids 的逗号串约定一致）
+--      同一批种子在 src/backend/src/main/resources/sql/init.sql 也有一份（全新初始化主入口），
+--      链式执行时 00 脚本先落库、本段 INSERT IGNORE 自然跳过；两处数值需保持一致。
 -- ---------------------------------------------------------------------------
-INSERT IGNORE INTO alarm_rule (id, rule_name, alarm_type, scope_type, threshold, time_window, alarm_level, silence_period, channel_ids, receiver_scope, receiver_ids, receiver_desc, status) VALUES
-(1, '调用失败率告警', 'FAIL_RATE',    1, '>5',          5,     3, 30,    '1,3', 'ASSIGNEE', NULL, '各接口负责人', 1),
-(2, '鉴权失败告警',   'AUTH_FAIL',    1, '>10',         5,     3, 10,    '1,3', 'USER',     NULL, '张三、周八',   1),
-(3, '配额使用率告警', 'QUOTA_USAGE',  1, '>80',         60,    2, 120,   '1',   'ASSIGNEE', NULL, '各应用负责人', 1),
-(4, '后端超时告警',   'AVG_LATENCY',  1, '>10000',      5,     2, 30,    '1',   'ASSIGNEE', NULL, '各接口负责人', 1),
-(5, '密钥即将过期',   'KEY_EXPIRE',   1, '提前30天',    1440,  2, 1440,  '3,1', 'ASSIGNEE', NULL, '各应用负责人', 1),
-(6, '僵尸接口告警',   'ZOMBIE_API',   1, '30天无调用',  43200, 1, 10080, '3',   'ASSIGNEE', NULL, '各接口负责人', 1),
-(7, 'QPS 突增告警',   'QPS_SURGE',    2, '>200%基线',   5,     2, 30,    '1',   'USER',     NULL, '张三',         0);
+INSERT IGNORE INTO alarm_rule (id, rule_name, alarm_type, scope_type, target_type, target_ids, threshold, time_window, alarm_level, silence_period, channel_ids, receiver_scope, receiver_ids, receiver_desc, status) VALUES
+(1, '调用失败率告警', 'FAIL_RATE',    1, 'API', NULL, '>5',          5,     3, 30,    '1,3', 'ASSIGNEE', NULL, '各接口负责人', 1),
+(2, '鉴权失败告警',   'AUTH_FAIL',    1, 'APP', NULL, '>10',         5,     3, 10,    '1,3', 'USER',     NULL, '张三、周八',   1),
+(3, '配额使用率告警', 'QUOTA_USAGE',  1, 'APP', NULL, '>80',         60,    2, 120,   '1',   'ASSIGNEE', NULL, '各应用负责人', 1),
+(4, '后端超时告警',   'AVG_LATENCY',  1, 'API', NULL, '>10000',      5,     2, 30,    '1',   'ASSIGNEE', NULL, '各接口负责人', 1),
+(5, '密钥即将过期',   'KEY_EXPIRE',   1, 'APP', NULL, '提前30天',    1440,  2, 1440,  '3,1', 'ASSIGNEE', NULL, '各应用负责人', 1),
+(6, '僵尸接口告警',   'ZOMBIE_API',   1, 'API', NULL, '30天无调用',  43200, 1, 10080, '3',   'ASSIGNEE', NULL, '各接口负责人', 1),
+(7, 'QPS 突增告警',   'QPS_SURGE',    2, NULL,  NULL, '>200%基线',   5,     2, 30,    '1',   'USER',     NULL, '张三',         0);
 
 -- ---------------------------------------------------------------------------
 -- 1.11 动态封禁规则（block_rule）—— 原型 MOCK.blockRules

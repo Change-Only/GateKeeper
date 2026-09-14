@@ -34,6 +34,23 @@ public class AlarmRule {
     /** 1=按对象(应用/接口), 2=平台全局（原型 scopeType） */
     private Integer scopeType;
 
+    /**
+     * 评估对象维度：APP=按应用 / API=按接口（T11 新增，把 scopeType=1「按对象」落到实处）。
+     *
+     * <p>仅 scopeType=1 时有意义且必填；scopeType=2（平台全局）时后端统一归一为 NULL。
+     * 取值用 {@code AlarmRuleService.TARGET_TYPE_APP / TARGET_TYPE_API}。</p>
+     */
+    private String targetType;
+
+    /**
+     * 评估对象ID，逗号分隔（T11 新增）。
+     *
+     * <p>与 channelIds / receiverIds 同款约定（逗号串，不引关联表）。
+     * <b>NULL 或空串 = 该维度下的全部对象</b> —— 因此种子规则可挂"全部接口"而不必枚举 ID。
+     * 长度上限见 DDL（varchar(512)）。</p>
+     */
+    private String targetIds;
+
     /** 阈值表达式，如 >5 / >200%基线 / 提前30天（原型 threshold） */
     private String threshold;
 

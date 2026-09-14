@@ -697,6 +697,21 @@ CALL gk_add_index('sys_operation_log', 'idx_oplog_risk_time',
 
 
 -- ============================================================================
+-- A11. alarm_rule（告警规则表）        —— T11 增量：评估对象绑定
+--      背景：scope_type=1「按对象」此前没有对象字段，评估时 scopeKey 直接拿规则ID
+--            当占位（AlarmRuleServiceImpl#evaluateRealtime），"按对象"形同空转。
+--      T11 补 target_type（APP/API）+ target_ids（逗号分隔，空=全部对象），
+--      让按对象评估真正展开，静默粒度也随之细化为「规则 × 对象」。
+--      注：init.sql 的 CREATE TABLE 已含这两列（全新初始化走 00 脚本即可）；
+--          本段是为「已建库」的存量环境补列，幂等。
+-- ============================================================================
+CALL gk_add_column('alarm_rule', 'target_type',
+    'target_type VARCHAR(16) DEFAULT NULL COMMENT ''T11：评估对象维度 APP=按应用 / API=按接口；scope_type=1 时必填，scope_type=2 时为 NULL'' AFTER `scope_type`');
+CALL gk_add_column('alarm_rule', 'target_ids',
+    'target_ids VARCHAR(512) DEFAULT NULL COMMENT ''T11：评估对象ID，逗号分隔（同 channel_ids 约定）；NULL/空=该维度下全部对象'' AFTER `target_type`');
+
+
+-- ============================================================================
 -- 清理辅助存储过程
 -- ============================================================================
 DROP PROCEDURE IF EXISTS gk_add_column;
@@ -711,6 +726,7 @@ DROP PROCEDURE IF EXISTS gk_add_index;
 --                block_rule
 --   ALTER  10 张：app, app_ip_whitelist, api_group, api_interface, api_call_log,
 --                ip_ban, alert, sys_user, sys_role, sys_operation_log
+--   ALTER（T11 增量）1 张：alarm_rule（+target_type / +target_ids，评估对象绑定）
 --   保持不变 8 张：app_rate_limit（降级回退源）, app_api_permission（回滚快照）,
 --                api_encryption_config, app_encryption_config,
 --                security_rule, security_event, export_task, sys_user_role

@@ -7,14 +7,16 @@
 --
 -- 说明：
 --   1. 本脚本用于【全新初始化】：建库 + 建表 + 写入基础种子数据。
---      仅含基础种子数据（系统用户/角色/菜单权限/字典/系统配置），
---      不含任何应用、接口、日志、告警等业务/运行数据。
+--      含基础种子数据（系统用户/角色/菜单权限/字典/系统配置/数据权限）
+--      以及 PRD 指定的 7 条初始化告警规则（alarm_rule，T11 起随本脚本落地）；
+--      不含任何应用、接口、调用日志等业务/运行数据。
 --   2. 表结构以线上库为唯一事实来源（SHOW CREATE TABLE 逐字导出），
 --      共 36 张表；表顺序按外键依赖拓扑排列（父表在前）。
 --   3. 可重复执行（幂等）：
 --      - 建表：CREATE TABLE IF NOT EXISTS；
---      - 种子：INSERT ... ON DUPLICATE KEY UPDATE（按主键/唯一键覆盖），
---        重复执行不报错且结果一致；不使用 DELETE，避免级联误伤关联数据。
+--      - 系统类种子：INSERT ... ON DUPLICATE KEY UPDATE（按主键/唯一键覆盖），
+--        重复执行不报错且结果一致；不使用 DELETE，避免级联误伤关联数据；
+--      - 业务类种子（告警规则）：INSERT IGNORE —— 不覆盖运营在页面上的修改。
 --   4. 如需彻底重置，请手动取消下面 DROP DATABASE 的注释后执行：
 --      -- DROP DATABASE IF EXISTS `gatekeeper`;
 --
@@ -40,6 +42,8 @@ CREATE TABLE IF NOT EXISTS `alarm_rule` (
   `rule_name` varchar(128) NOT NULL COMMENT '规则名称（原型 ruleName）',
   `alarm_type` varchar(32) NOT NULL COMMENT 'FAIL_RATE/AUTH_FAIL/QUOTA_USAGE/AVG_LATENCY/KEY_EXPIRE/ZOMBIE_API/QPS_SURGE（原型 alarmType）',
   `scope_type` tinyint NOT NULL DEFAULT '1' COMMENT '1=按对象(应用/接口),2=平台全局（原型 scopeType，语义为推断）',
+  `target_type` varchar(16) DEFAULT NULL COMMENT 'T11：评估对象维度 APP=按应用 / API=按接口；scope_type=1 时必填，scope_type=2 时为 NULL',
+  `target_ids` varchar(512) DEFAULT NULL COMMENT 'T11：评估对象ID，逗号分隔（同 channel_ids 约定）；NULL/空=该维度下全部对象',
   `threshold` varchar(64) NOT NULL COMMENT '阈值表达式 如 >5 / >200%基线 / 提前30天（原型 threshold）',
   `time_window` int NOT NULL DEFAULT '5' COMMENT '统计窗口(分钟)（原型 timeWindow）',
   `alarm_level` tinyint NOT NULL DEFAULT '2' COMMENT '1=提示,2=警告,3=严重（原型 alarmLevel / dict alarm_level）',
@@ -1501,6 +1505,19 @@ INSERT INTO `sys_config` (`id`,`config_key`,`config_value`,`config_group`,`confi
 (18,'export.max.rows','50000','DEFAULT','单次导出最大行数',0,1,'','2026-09-10 14:08:21','2026-09-10 14:08:21'),
 (1000,'gk.schema.version','v2','DEFAULT','数据模型版本',0,1,'由 migrate-v2.sql 写入，用于应用启动自检','2026-09-10 14:11:37','2026-09-10 14:11:37')
 ON DUPLICATE KEY UPDATE `id`=VALUES(`id`),`config_key`=VALUES(`config_key`),`config_value`=VALUES(`config_value`),`config_group`=VALUES(`config_group`),`config_name`=VALUES(`config_name`),`sensitive`=VALUES(`sensitive`),`built_in`=VALUES(`built_in`),`remark`=VALUES(`remark`),`created_at`=VALUES(`created_at`),`updated_at`=VALUES(`updated_at`);
+
+-- ---- alarm_rule（7 行，PRD「7 条初始化规则」；幂等用 INSERT IGNORE —— 不覆盖运营在页面上的修改）----
+-- target_type 为 T11 新增的「评估对象维度」：APP=按应用 / API=按接口（scope_type=1 必填，=2 时为 NULL）；
+-- target_ids 为 NULL 表示"该维度下全部对象"（与 channel_ids/receiver_ids 的逗号串约定一致）。
+-- 与 docs/sql/migrate-v2.sql §1.10 的同一批种子保持数值一致（本脚本为全新初始化主入口）。
+INSERT IGNORE INTO `alarm_rule` (`id`,`rule_name`,`alarm_type`,`scope_type`,`target_type`,`target_ids`,`threshold`,`time_window`,`alarm_level`,`silence_period`,`channel_ids`,`receiver_scope`,`receiver_ids`,`receiver_desc`,`status`) VALUES
+(1,'调用失败率告警','FAIL_RATE',   1,'API',NULL,'>5',        5,    3,30,   '1,3','ASSIGNEE',NULL,'各接口负责人',1),
+(2,'鉴权失败告警',  'AUTH_FAIL',   1,'APP',NULL,'>10',       5,    3,10,   '1,3','USER',     NULL,'张三、周八',  1),
+(3,'配额使用率告警','QUOTA_USAGE', 1,'APP',NULL,'>80',       60,   2,120,  '1',  'ASSIGNEE',NULL,'各应用负责人',1),
+(4,'后端超时告警',  'AVG_LATENCY', 1,'API',NULL,'>10000',    5,    2,30,   '1',  'ASSIGNEE',NULL,'各接口负责人',1),
+(5,'密钥即将过期',  'KEY_EXPIRE',  1,'APP',NULL,'提前30天',  1440, 2,1440, '3,1','ASSIGNEE',NULL,'各应用负责人',1),
+(6,'僵尸接口告警',  'ZOMBIE_API',  1,'API',NULL,'30天无调用',43200,1,10080,'3',  'ASSIGNEE',NULL,'各接口负责人',1),
+(7,'QPS 突增告警',  'QPS_SURGE',   2,NULL, NULL,'>200%基线', 5,    2,30,   '1',  'USER',     NULL,'张三',        0);
 
 SET FOREIGN_KEY_CHECKS = 1;
 

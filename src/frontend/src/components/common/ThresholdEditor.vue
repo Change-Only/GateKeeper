@@ -6,6 +6,33 @@
     label-width="110px"
     :disabled="disabled"
   >
+    <!-- T11：评估对象绑定（仅 scopeType=1「按对象」时出现；scopeType=2 平台全局不展开对象） -->
+    <el-form-item v-if="scopeType === 1" label="评估对象">
+      <div class="te-target">
+        <el-select
+          v-model="form.targetType"
+          placeholder="对象维度"
+          style="width: 130px"
+          @change="onTargetTypeChange"
+        >
+          <el-option value="API" label="按接口" />
+          <el-option value="APP" label="按应用" />
+        </el-select>
+        <el-select
+          v-model="form.targetIds"
+          multiple
+          filterable
+          collapse-tags
+          style="flex: 1"
+          :placeholder="targetPlaceholder"
+          :disabled="!form.targetType || !currentTargetOptions.length"
+        >
+          <el-option v-for="t in currentTargetOptions" :key="t.value" :label="t.label" :value="t.value" />
+        </el-select>
+      </div>
+      <div class="te-tip">{{ targetTip }}</div>
+    </el-form-item>
+
     <!-- 按 alarmType 动态渲染的阈值输入 -->
     <el-form-item :label="meta.label">
       <el-input-number
@@ -72,15 +99,21 @@
 
 <script>
 /**
- * ThresholdEditor —— 告警规则阈值编辑器（T05 §4）
+ * ThresholdEditor —— 告警规则阈值编辑器（T05 §4；T11 增补「评估对象」）
  * ------------------------------------------------------------------
- * 按 alarmType 动态渲染阈值 / 窗口 / 级别 / 静默期 / 渠道 / 接收人，供 sys-alarm 页复用。
- * 组件本身不依赖任何具体后端接口，纯前端表单构件。
+ * 按 alarmType 动态渲染阈值 / 窗口 / 级别 / 静默期 / 渠道 / 接收人，
+ * 并在 scopeType=1（按对象）时渲染「评估对象」= 维度(APP/API) + 具体对象多选（空=全部），
+ * 供 sys-alarm 页复用。组件本身不依赖任何具体后端接口，纯前端表单构件
+ * （候选对象由父组件通过 targetOptions 传入）。
  *
  * Props
  *  - value        Object  (v-model) 阈值配置对象：
- *                  { threshold, timeWindow, alarmLevel, silencePeriod, channelNames[], receiverNames[] }
+ *                  { targetType, targetIds[], threshold, timeWindow, alarmLevel, silencePeriod, channelNames[], receiverNames[] }
+ *                  · targetType: 'APP' | 'API' | ''（scopeType=1 必填，后端会校验）
+ *                  · targetIds : 对象ID字符串数组（由父组件 join 成逗号串提交）；空 = 全部对象
  *  - alarmType    String  告警类型（FAIL_RATE|AUTH_FAIL|QUOTA_USAGE|AVG_LATENCY|KEY_EXPIRE|ZOMBIE_API|QPS_SURGE）
+ *  - scopeType    Number  1=按对象（渲染「评估对象」）, 2=平台全局（不渲染），默认 1
+ *  - targetOptions Object 评估对象候选 { APP: [{value,label}], API: [{value,label}] }，默认空
  *  - disabled     Boolean
  *  - channelOptions  Array  通知渠道选项 [{value,label}]（由父组件从 /notify-channel 提供，默认空）
  *  - receiverOptions Array 接收人选项 [{value,label}]，默认空（允许手动输入）
@@ -118,6 +151,8 @@ export default {
   props: {
     value: { type: Object, default: () => ({}) },
     alarmType: { type: String, required: true },
+    scopeType: { type: Number, default: 1 },
+    targetOptions: { type: Object, default: () => ({ APP: [], API: [] }) },
     disabled: { type: Boolean, default: false },
     channelOptions: { type: Array, default: () => [] },
     receiverOptions: { type: Array, default: () => [] }
@@ -135,6 +170,30 @@ export default {
     },
     typeLabel() {
       return ALARM_TYPE[this.alarmType] || this.alarmType
+    },
+    /** 当前维度下的候选对象 */
+    currentTargetOptions() {
+      const t = this.form.targetType
+      if (!t) return []
+      return (this.targetOptions && this.targetOptions[t]) || []
+    },
+    targetPlaceholder() {
+      if (!this.form.targetType) return '请先选择对象维度'
+      if (!this.currentTargetOptions.length) return '该维度下暂无对象'
+      return '不选 = 该维度下全部对象'
+    },
+    targetTip() {
+      if (!this.form.targetType) {
+        return '「按对象」必须指定维度：按接口 / 按应用（未选将无法保存）'
+      }
+      if (!this.currentTargetOptions.length) {
+        const dim = this.form.targetType === 'API' ? '接口' : '应用'
+        return `当前平台上暂无${dim}，规则保存后不会产生告警；可先去「${dim === '接口' ? '接口列表' : '应用列表'}」创建`
+      }
+      if (!this.form.targetIds.length) {
+        return '未选择具体对象 = 该维度下全部对象；每个对象独立评估、独立静默'
+      }
+      return `已选 ${this.form.targetIds.length} 个对象；每个对象独立评估、独立静默`
     }
   },
   watch: {
@@ -154,8 +213,20 @@ export default {
     }
   },
   methods: {
+    /**
+     * 切换对象维度时清空已选对象。
+     *
+     * ⚠ 必须挂在 el-select 的 @change 上（只由用户操作触发），不能用 watch('form.targetType')：
+     * 后者在父组件回填（编辑弹窗打开）时也会触发，会把已有序号清掉
+     * —— 与本项目「列表 VO 子集 + CrudDialog 补空串」同类的静默清空坑。
+     */
+    onTargetTypeChange() {
+      this.form.targetIds = []
+    },
     clone(obj) {
       const base = {
+        targetType: '',
+        targetIds: [],
         threshold: undefined,
         timeWindow: '5m',
         alarmLevel: 2,
@@ -177,4 +248,5 @@ export default {
 .threshold-editor { width: 100%; }
 .te-unit { margin-left: 8px; color: #5c6b8a; font-size: 12px; }
 .te-tip { font-size: 12px; color: #9aa7bf; margin-top: 4px; }
+.te-target { display: flex; align-items: center; gap: 8px; width: 100%; }
 </style>

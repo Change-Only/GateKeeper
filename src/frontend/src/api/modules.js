@@ -626,6 +626,10 @@ export function getMenuPermPoints() {
 }
 
 // ============ 告警规则 alarm-rule（T04-C · sys-alarm 复用 · T05 Phase 4） ============
+// 评估对象候选（T11 新增）：targetType = APP(按应用) / API(按接口)；返回裸数组 [{id,label,extra}]
+export function getAlarmTargetOptions(targetType) {
+  return request.get('/alarm-rule/target-options', { params: { targetType } })
+}
 // 规则详情
 export function getAlarmRuleDetail(id) {
   return request.get(`/alarm-rule/${id}`)

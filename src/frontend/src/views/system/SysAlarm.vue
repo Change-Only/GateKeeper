@@ -20,7 +20,7 @@
         <el-tag size="small" effect="plain" type="warning">{{ alarmTypeLabel(row.alarmType) }}</el-tag>
       </template>
       <template #scopeType="{row}">
-        <span>{{ row.scopeType === 2 ? '平台全局' : '按对象' }}</span>
+        <span :title="scopeTitle(row)">{{ scopeLabel(row) }}</span>
       </template>
       <template #alarmLevel="{row}">
         <el-tag size="small" :type="levelTag(row.alarmLevel)" effect="plain">{{ levelLabel(row.alarmLevel) }}</el-tag>
@@ -50,7 +50,9 @@
         <ThresholdEditor
           :value="alarmDraft"
           :alarm-type="form.alarmType || 'FAIL_RATE'"
+          :scope-type="form.scopeType || 1"
           :channel-options="channelOptions"
+          :target-options="targetOptions"
           @input="onDraftChange"
         />
       </template>
@@ -65,13 +67,26 @@ import {
   updateAlarmRule,
   toggleAlarmRule,
   testAlarmRule,
-  getNotifyChannelList
+  getNotifyChannelList,
+  getAlarmTargetOptions
 } from '@/api/modules'
 import { ALARM_TYPE, ALARM_LEVEL } from '@/utils/enum'
 
 const ALARM_TYPES = ['FAIL_RATE', 'AUTH_FAIL', 'QUOTA_USAGE', 'AVG_LATENCY', 'KEY_EXPIRE', 'ZOMBIE_API', 'QPS_SURGE']
 const WINDOW_TO_MIN = { '1m': 1, '5m': 5, '15m': 15, '1h': 60 }
 const MIN_TO_WINDOW = { 1: '1m', 5: '5m', 15: '15m', 60: '1h' }
+const TARGET_DIM_LABEL = { APP: '按应用', API: '按接口' }
+/** ThresholdEditor 草案默认值（T11 起含评估对象绑定） */
+const EMPTY_DRAFT = () => ({
+  targetType: '',
+  targetIds: [],
+  threshold: undefined,
+  timeWindow: '5m',
+  alarmLevel: 2,
+  silencePeriod: 30,
+  channelNames: [],
+  receiverNames: []
+})
 
 export default {
   name: 'SysAlarm',
@@ -80,11 +95,13 @@ export default {
       query: { status: undefined },
       total: 0,
       channelOptions: [],
-      alarmDraft: { threshold: undefined, timeWindow: '5m', alarmLevel: 2, silencePeriod: 30, channelNames: [], receiverNames: [] },
+      // T11：评估对象候选，形如 { APP: [{value,label}], API: [{value,label}] }
+      targetOptions: { APP: [], API: [] },
+      alarmDraft: EMPTY_DRAFT(),
       columns: [
         { prop: 'ruleName', label: '规则名称', minWidth: 150, showOverflowTooltip: true },
         { prop: 'alarmType', label: '告警类型', width: 140, slot: 'alarmType' },
-        { prop: 'scopeType', label: '评估范围', width: 100, slot: 'scopeType' },
+        { prop: 'scopeType', label: '评估对象', width: 140, slot: 'scopeType' },
         { prop: 'threshold', label: '阈值', width: 110, formatter: (v) => (v == null || v === '' ? '—' : v) },
         { prop: 'timeWindow', label: '窗口(分)', width: 90, align: 'right', formatter: (v) => (v == null ? '—' : v) },
         { prop: 'alarmLevel', label: '级别', width: 100, slot: 'alarmLevel' },
@@ -97,6 +114,7 @@ export default {
   },
   created() {
     this.loadChannels()
+    this.loadTargetOptions()
   },
   methods: {
     async fetchData(params) {
@@ -114,6 +132,39 @@ export default {
     },
     levelTag(l) {
       return (ALARM_LEVEL[l] || {}).type || 'info'
+    },
+    /** 评估对象列文案：平台全局 / 按接口·全部 / 按应用·2 项 */
+    scopeLabel(row) {
+      if (row.scopeType === 2) return '平台全局'
+      const dim = TARGET_DIM_LABEL[row.targetType] || '未指定维度'
+      const n = row.targetIds ? String(row.targetIds).split(',').filter(Boolean).length : 0
+      return n ? `${dim} · ${n} 项` : `${dim} · 全部`
+    },
+    /** 评估对象列 tooltip：列出已绑定的对象 ID（名称需另查，列表接口不带名称） */
+    scopeTitle(row) {
+      if (row.scopeType === 2) return '平台全局评估（不按对象展开）'
+      if (!row.targetType) return '未指定对象维度 —— 该规则按单次评估处理，请在编辑中补选维度'
+      const n = row.targetIds ? String(row.targetIds).split(',').filter(Boolean).length : 0
+      return n ? `按${row.targetType === 'APP' ? '应用' : '接口'}评估，已绑定 ID：${row.targetIds}` : `按${row.targetType === 'APP' ? '应用' : '接口'}评估，覆盖全部对象`
+    },
+    /**
+     * 加载评估对象候选（两个维度并行）。
+     *
+     * 失败只降级为空选项，不阻断页面 —— 与 loadChannels 同策略。
+     */
+    async loadTargetOptions() {
+      try {
+        const [apiRes, appRes] = await Promise.all([
+          getAlarmTargetOptions('API'),
+          getAlarmTargetOptions('APP')
+        ])
+        this.targetOptions = {
+          API: ((apiRes && apiRes.data) || []).map((o) => ({ value: String(o.id), label: o.extra ? `${o.label}（${o.extra}）` : o.label })),
+          APP: ((appRes && appRes.data) || []).map((o) => ({ value: String(o.id), label: o.extra ? `${o.label}（${o.extra}）` : o.label }))
+        }
+      } catch (e) {
+        this.targetOptions = { APP: [], API: [] }
+      }
     },
     async loadChannels() {
       try {
@@ -151,7 +202,7 @@ export default {
       }
     },
     resetDraft() {
-      this.alarmDraft = { threshold: undefined, timeWindow: '5m', alarmLevel: 2, silencePeriod: 30, channelNames: [], receiverNames: [] }
+      this.alarmDraft = EMPTY_DRAFT()
     },
     onCreate() {
       this.dialog.form = { ruleName: '', alarmType: 'FAIL_RATE', scopeType: 1, receiverScope: 'ASSIGNEE', receiverDesc: '', status: 1 }
@@ -165,6 +216,9 @@ export default {
       this.dialog.fields = this.buildFields()
       this.dialog.rules = this.buildRules()
       this.alarmDraft = {
+        // T11：回填评估对象绑定（targetIds 为逗号串 → 转数组供多选框使用）
+        targetType: row.targetType || '',
+        targetIds: row.targetIds ? String(row.targetIds).split(',').filter(Boolean) : [],
         threshold: row.threshold != null && row.threshold !== '' ? Number(row.threshold) : undefined,
         timeWindow: MIN_TO_WINDOW[row.timeWindow] || '5m',
         alarmLevel: row.alarmLevel || 2,
@@ -175,8 +229,17 @@ export default {
       this.dialog.visible = true
     },
     async onSubmit(form) {
+      // T11 前置校验：按对象必须指定维度。放在这里而不是 CrudDialog 的 rules 里，
+      // 是因为「评估对象」渲染在 extra 插槽（ThresholdEditor 内部），CrudDialog 不校验插槽内容。
+      if (Number(form.scopeType) === 1 && !this.alarmDraft.targetType) {
+        this.$message.warning('「按对象」必须指定评估对象维度：按接口 / 按应用')
+        return
+      }
       const payload = {
         ...form,
+        targetType: Number(form.scopeType) === 1 ? this.alarmDraft.targetType : null,
+        // scopeType=1 时对象的空数组 ⇒ 空串提交（后端语义：空 = 该维度下全部对象）
+        targetIds: Number(form.scopeType) === 1 ? (this.alarmDraft.targetIds || []).join(',') : null,
         threshold: this.alarmDraft.threshold != null ? String(this.alarmDraft.threshold) : null,
         timeWindow: WINDOW_TO_MIN[this.alarmDraft.timeWindow] || 5,
         alarmLevel: this.alarmDraft.alarmLevel,

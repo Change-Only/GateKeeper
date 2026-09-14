@@ -114,7 +114,16 @@ class AlarmRuleControllerTest {
     }
 
     @Test
-    @DisplayName("6 个接口全部存在（端到端路由核查）")
+    @DisplayName("target-options 调用 service.targetOptions（T11 评估对象候选）")
+    void targetOptions_callsService() {
+        when(alarmRuleService.targetOptions("API")).thenReturn(Collections.emptyList());
+        Result<List<com.gatekeeper.dto.AlarmTargetVo>> r = controller.targetOptions("API");
+        assertEquals(200, r.getCode());
+        verify(alarmRuleService, times(1)).targetOptions("API");
+    }
+
+    @Test
+    @DisplayName("7 个接口全部存在（端到端路由核查）")
     void allEndpointsExist() throws NoSuchMethodException {
         Class<?> c = AlarmRuleController.class;
         assertNotNull(c.getMethod("list", Integer.class));
@@ -123,6 +132,8 @@ class AlarmRuleControllerTest {
         assertNotNull(c.getMethod("update", Long.class, AlarmRule.class));
         assertNotNull(c.getMethod("toggle", Long.class, Integer.class));
         assertNotNull(c.getMethod("test", Long.class));
+        // T11 新增：评估对象候选
+        assertNotNull(c.getMethod("targetOptions", String.class));
     }
 
     private static void assertTrue(boolean b) {

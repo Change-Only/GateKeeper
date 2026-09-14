@@ -1,13 +1,19 @@
 package com.gatekeeper.alarm.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gatekeeper.alarm.AlarmRuleService;
 import com.gatekeeper.alarm.NotifySender;
+import com.gatekeeper.dto.AlarmTargetVo;
 import com.gatekeeper.entity.AlarmRule;
+import com.gatekeeper.entity.ApiInterface;
+import com.gatekeeper.entity.App;
 import com.gatekeeper.entity.NotifyChannel;
 import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.mapper.AlarmRuleMapper;
+import com.gatekeeper.mapper.ApiInterfaceMapper;
+import com.gatekeeper.mapper.AppMapper;
 import com.gatekeeper.service.AlertService;
 import com.gatekeeper.alarm.NotifyChannelService;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +25,13 @@ import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 告警规则服务实现 — T04-C 告警域核心
@@ -27,15 +39,17 @@ import java.util.List;
  * <h3>评估模型</h3>
  * <ul>
  *   <li>实时评估：遍历 scopeType=1（按对象）且 status=1（启用）的规则，
- *       读取 Redis 滑动窗口计数 {@code gk:alarm:win:{ruleId}}（缺失时派生确定性样本值兜底），
- *       与阈值表达式比较；突破且静默键 {@code gk:alarm:silence:{ruleId}:{scopeKey}} 不存在时，
- *       通过 {@link AlertService#publish} 落库告警并通过 {@link NotifySender} 发送，
- *       随后写入静默键（TTL = silencePeriod 分钟）。</li>
- *   <li>离线评估：同上，但仅针对 scopeType=2（平台全局）规则，scopeKey 固定为 {@code global}。</li>
+ *       <b>逐对象</b>展开评估（T11 起）：先按 {@code targetType}（APP/API）取出该维度下
+ *       全部对象，再用 {@code targetIds} 收窄（空=全部）；每个对象独立比较阈值、
+ *       独立静默（静默键 {@code gk:alarm:silence:{ruleId}:{targetType}:{targetId}}）——
+ *       修掉了 T11 之前"scopeKey 直接拿规则ID当占位、按对象形同空转"的问题。</li>
+ *   <li>指标读取：优先 Redis 滑动窗口计数 {@code gk:alarm:win:{ruleId}:{scopeKey}}（按对象），
+ *       回退 {@code gk:alarm:win:{ruleId}}（规则级，兼容既有写入方），再回退派生样本值（确定性兜底）。</li>
+ *   <li>离线评估：仅针对 scopeType=2（平台全局）规则，scopeKey 固定为 {@code global}，不做对象展开。</li>
  * </ul></p>
  *
  * @author GateKeeper
- * @since T04-C (APIM V2)
+ * @since T04-C (APIM V2)，T11 起支持评估对象绑定
  */
 @Slf4j
 @Service
@@ -47,6 +61,8 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
     private static final String ALARM_WIN_PREFIX = "gk:alarm:win:";
     /** Redis 静默键前缀 */
     private static final String ALARM_SILENCE_PREFIX = "gk:alarm:silence:";
+    /** 平台全局规则的 scopeKey（scopeType=2） */
+    private static final String GLOBAL_SCOPE_KEY = "global";
     /** 默认静默期（分钟） */
     private static final int DEFAULT_SILENCE_MIN = 10;
 
@@ -54,6 +70,8 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
     private final AlertService alertService;
     private final NotifySender notifySender;
     private final NotifyChannelService notifyChannelService;
+    private final AppMapper appMapper;
+    private final ApiInterfaceMapper apiInterfaceMapper;
 
     // =====================================================================
     // 主数据接口
@@ -82,6 +100,12 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
     }
 
     @Override
+    public List<AlarmTargetVo> targetOptions(String targetType) {
+        String type = normalizeTargetType(requireTargetType(targetType));
+        return listAllTargets(type);
+    }
+
+    @Override
     public AlarmRule create(AlarmRule rule) {
         if (rule == null) {
             throw GatewayException.badRequest("请求体不能为空");
@@ -95,15 +119,33 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
         if (!StringUtils.hasText(rule.getThreshold())) {
             throw GatewayException.badRequest("阈值表达式不能为空");
         }
+        // scopeType 缺省 = 1（与 DDL DEFAULT 1 对齐），便于"按对象/按全局"的归一判断
+        int scopeType = rule.getScopeType() == null ? 1 : rule.getScopeType();
+        if (scopeType != 1 && scopeType != 2) {
+            throw GatewayException.badRequest("scopeType 必须为 1(按对象) 或 2(平台全局)");
+        }
         AlarmRule entity = new AlarmRule();
         BeanUtils.copyProperties(rule, entity);
         entity.setId(null);
+        entity.setScopeType(scopeType);
+        // T11: scopeType=1 必须指明对象维度，否则"按对象"无从展开（此前该字段不存在，规则空转）
+        if (scopeType == 1) {
+            if (!StringUtils.hasText(rule.getTargetType())) {
+                throw GatewayException.badRequest("scopeType=1（按对象）时必须指定评估对象维度：APP/API");
+            }
+            entity.setTargetType(requireTargetType(rule.getTargetType()));
+            entity.setTargetIds(normalizeIdCsv(rule.getTargetIds()));
+        } else {
+            entity.setTargetType(null);
+            entity.setTargetIds(null);
+        }
         entity.setStatus(rule.getStatus() == null ? 1 : rule.getStatus());
         entity.setCreatedAt(LocalDateTime.now());
         entity.setUpdatedAt(LocalDateTime.now());
         baseMapper.insert(entity);
-        log.info("AlarmRule created: id={}, ruleName={}, alarmType={}",
-                entity.getId(), entity.getRuleName(), entity.getAlarmType());
+        log.info("AlarmRule created: id={}, ruleName={}, alarmType={}, scopeType={}, targetType={}, targetIds={}",
+                entity.getId(), entity.getRuleName(), entity.getAlarmType(),
+                entity.getScopeType(), entity.getTargetType(), entity.getTargetIds());
         return entity;
     }
 
@@ -128,6 +170,48 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
         if (rule.getScopeType() != null) {
             existing.setScopeType(rule.getScopeType());
         }
+
+        // ---- T11: 评估对象绑定 ----
+        // 语义：不传（null）= 保持原值；传空串 = 清空；传值 = 采纳（targetType 仅 APP/API）。
+        // ⚠ 注意 MyBatis-Plus 默认字段策略是 NOT_NULL —— updateById 不会把 null 写进 SET，
+        //   所以"清空"必须额外走显式 UpdateWrapper（否则字段清不掉，与 app.expire_time 是同一类坑）。
+        boolean clearType = false;
+        boolean clearIds = false;
+        if (rule.getScopeType() != null && rule.getScopeType() == 2) {
+            // 切到平台全局：不按对象展开，绑定一律清空，避免残留脏值
+            clearType = true;
+            clearIds = true;
+        }
+        if (!clearType && rule.getTargetType() != null) {
+            if (StringUtils.hasText(rule.getTargetType())) {
+                existing.setTargetType(normalizeTargetType(requireTargetType(rule.getTargetType())));
+            } else {
+                clearType = true;
+            }
+        }
+        if (!clearIds && rule.getTargetIds() != null) {
+            String normalized = normalizeIdCsv(rule.getTargetIds());
+            if (normalized == null) {
+                clearIds = true;
+            } else {
+                existing.setTargetIds(normalized);
+            }
+        }
+        // 不变式：scopeType=1 必须有对象维度，否则规则会静默空转（这正是 T11 要修的问题）。
+        // 仅在本次请求确实在改绑定相关字段时才强制 —— 避免把 T11 之前的历史规则"顺手"卡死。
+        boolean touchesBinding = rule.getScopeType() != null
+                || rule.getTargetType() != null || rule.getTargetIds() != null;
+        boolean scope1 = existing.getScopeType() == null || existing.getScopeType() == 1;
+        if (touchesBinding && scope1 && (clearType || !StringUtils.hasText(existing.getTargetType()))) {
+            throw GatewayException.badRequest("scopeType=1（按对象）时必须指定评估对象维度：APP/API");
+        }
+        if (clearType) {
+            existing.setTargetType(null);
+        }
+        if (clearIds) {
+            existing.setTargetIds(null);
+        }
+
         if (StringUtils.hasText(rule.getThreshold())) {
             existing.setThreshold(rule.getThreshold());
         }
@@ -157,7 +241,34 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
         }
         existing.setUpdatedAt(LocalDateTime.now());
         baseMapper.updateById(existing);
-        log.info("AlarmRule updated: id={}", id);
+        if (clearType || clearIds) {
+            clearTargetColumns(id, clearType, clearIds);
+        }
+        log.info("AlarmRule updated: id={}, scopeType={}, targetType={}, targetIds={}",
+                id, existing.getScopeType(), existing.getTargetType(), existing.getTargetIds());
+    }
+
+    /**
+     * 显式清空评估对象绑定字段（T11）。
+     *
+     * <p>MyBatis-Plus 默认字段策略 {@code NOT_NULL} 不会把 null 写进 UPDATE 的 SET 子句，
+     * 因此 {@code updateById} 是"清不掉"字段的 —— 必须用 {@code UpdateWrapper.set(col, null)}
+     * 生成显式 SET NULL。与存量 {@code app.expire_time} 清不掉的成因相同。</p>
+     *
+     * @param id        规则 ID
+     * @param clearType 是否清空 target_type
+     * @param clearIds  是否清空 target_ids
+     */
+    private void clearTargetColumns(Long id, boolean clearType, boolean clearIds) {
+        UpdateWrapper<AlarmRule> wrapper = new UpdateWrapper<>();
+        wrapper.eq("id", id);
+        if (clearType) {
+            wrapper.set("target_type", null);
+        }
+        if (clearIds) {
+            wrapper.set("target_ids", null);
+        }
+        baseMapper.update(null, wrapper);
     }
 
     @Override
@@ -210,26 +321,144 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
 
     @Override
     public void evaluateRealtime() {
-        List<AlarmRule> rules = listEnabled(1);
-        for (AlarmRule rule : rules) {
-            try {
-                evaluateRule(rule, String.valueOf(rule.getId()));
-            } catch (Exception e) {
-                log.error("[AlarmRule] realtime eval error ruleId={}", rule.getId(), e);
+        // 一轮评估内缓存"维度 → 全部对象"，避免每条规则都全表扫一次 app/api_interface（10s 周期任务）
+        Map<String, List<AlarmTargetVo>> targetCache = new HashMap<>();
+        for (AlarmRule rule : listEnabled(1)) {
+            // T11：scopeType=1 逐对象展开评估，静默按对象隔离
+            if (!hasTargetBinding(rule)) {
+                // 历史规则（T11 之前创建、无 targetType）：保持"单次评估"行为，不退化为静默空转
+                log.debug("AlarmRule {} 未绑定评估对象维度，按单次评估处理", rule.getId());
+                evaluateQuietly(rule, null);
+                continue;
+            }
+            List<AlarmTargetVo> targets = resolveTargets(rule, targetCache);
+            if (targets.isEmpty()) {
+                log.debug("AlarmRule {} 维度 {} 下无对象，跳过评估", rule.getId(), rule.getTargetType());
+                continue;
+            }
+            for (AlarmTargetVo target : targets) {
+                evaluateQuietly(rule, target);
             }
         }
     }
 
     @Override
     public void evaluateOffline() {
-        List<AlarmRule> rules = listEnabled(2);
-        for (AlarmRule rule : rules) {
-            try {
-                evaluateRule(rule, "global");
-            } catch (Exception e) {
-                log.error("[AlarmRule] offline eval error ruleId={}", rule.getId(), e);
+        // scopeType=2（平台全局）不按对象展开，固定单次评估
+        for (AlarmRule rule : listEnabled(2)) {
+            evaluateQuietly(rule, null);
+        }
+    }
+
+    /** 单对象评估 + 异常隔离：任一对象评估出错不影响同规则其它对象，也不影响后续规则（fail-open）。 */
+    private void evaluateQuietly(AlarmRule rule, AlarmTargetVo target) {
+        try {
+            evaluateRule(rule, target);
+        } catch (Exception e) {
+            log.error("[AlarmRule] eval error ruleId={} target={}", rule.getId(),
+                    target == null ? GLOBAL_SCOPE_KEY : target.getId(), e);
+        }
+    }
+
+    // =====================================================================
+    // 评估对象解析（T11）
+    // =====================================================================
+
+    /**
+     * 规则是否绑定了评估对象维度（scopeType=1 的正常态）。
+     */
+    private boolean hasTargetBinding(AlarmRule rule) {
+        return normalizeTargetType(rule.getTargetType()) != null;
+    }
+
+    /**
+     * 解析规则本次要评估的对象集合。
+     *
+     * <p>targetIds 为空 ⇒ 该维度下全部对象（与 channelIds/receiverIds 的"空即全部"约定一致）。</p>
+     *
+     * @param rule  规则
+     * @param cache 一轮评估内的「维度 → 全部对象」缓存（可为 null，表示不缓存）
+     * @return 命中的对象列表（可能为空）；维度非法时返回空列表并告警
+     */
+    private List<AlarmTargetVo> resolveTargets(AlarmRule rule, Map<String, List<AlarmTargetVo>> cache) {
+        String type = normalizeTargetType(rule.getTargetType());
+        if (type == null) {
+            return Collections.emptyList();
+        }
+        if (!TARGET_TYPE_APP.equals(type) && !TARGET_TYPE_API.equals(type)) {
+            log.warn("AlarmRule {} 评估对象维度非法，跳过: {}", rule.getId(), rule.getTargetType());
+            return Collections.emptyList();
+        }
+        List<AlarmTargetVo> all = cache == null
+                ? listAllTargets(type)
+                : cache.computeIfAbsent(type, this::listAllTargets);
+        Set<Long> picked = parseIdCsv(rule.getTargetIds());
+        if (picked.isEmpty()) {
+            return all;
+        }
+        List<AlarmTargetVo> hit = new ArrayList<>();
+        for (AlarmTargetVo t : all) {
+            if (t.getId() != null && picked.contains(t.getId())) {
+                hit.add(t);
             }
         }
+        return hit;
+    }
+
+    /**
+     * 列出某维度下的全部对象（候选选择器与实际评估共用同一取数口径，避免两处漂移）。
+     *
+     * @param type {@code APP} 或 {@code API}
+     */
+    private List<AlarmTargetVo> listAllTargets(String type) {
+        List<AlarmTargetVo> out = new ArrayList<>();
+        if (TARGET_TYPE_API.equals(type)) {
+            List<ApiInterface> list = apiInterfaceMapper.selectList(
+                    new QueryWrapper<ApiInterface>().orderByAsc("id"));
+            for (ApiInterface it : list) {
+                AlarmTargetVo vo = new AlarmTargetVo();
+                vo.setId(it.getId());
+                vo.setLabel(it.getInterfaceName());
+                vo.setExtra(describeApi(it));
+                out.add(vo);
+            }
+        } else {
+            List<App> list = appMapper.selectList(new QueryWrapper<App>().orderByAsc("id"));
+            for (App app : list) {
+                AlarmTargetVo vo = new AlarmTargetVo();
+                vo.setId(app.getId());
+                vo.setLabel(app.getAppName());
+                vo.setExtra(app.getDescription());
+                out.add(vo);
+            }
+        }
+        return out;
+    }
+
+    /** 接口的次要说明：请求方法 + 路径，如 {@code GET /order/{id}}。 */
+    private String describeApi(ApiInterface it) {
+        String method = it.getRequestMethod() == null ? "" : it.getRequestMethod().trim();
+        String path = it.getInterfacePath() == null ? "" : it.getInterfacePath().trim();
+        String s = (method + " " + path).trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    /** 评估对象的可读描述，用于告警正文（如 {@code 接口#12(用户查询)} / {@code 平台全局}）。 */
+    private String describeTarget(AlarmRule rule, AlarmTargetVo target) {
+        if (target == null) {
+            return "平台全局";
+        }
+        String dim = TARGET_TYPE_API.equals(normalizeTargetType(rule.getTargetType())) ? "接口" : "应用";
+        String label = StringUtils.hasText(target.getLabel()) ? ("(" + target.getLabel() + ")") : "";
+        return dim + "#" + target.getId() + label;
+    }
+
+    /** scopeKey：对象级 {@code {APP|API}:{id}}，全局为 {@code global}。 */
+    private String scopeKeyOf(AlarmRule rule, AlarmTargetVo target) {
+        if (target == null) {
+            return GLOBAL_SCOPE_KEY;
+        }
+        return normalizeTargetType(rule.getTargetType()) + ":" + target.getId();
     }
 
     // =====================================================================
@@ -237,22 +466,25 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
     // =====================================================================
 
     /**
-     * 单条规则评估：读取指标 → 比较阈值 → 静默判定 → 落库 + 发送 + 写静默键。
+     * 单条规则对单个对象的评估：读取指标 → 比较阈值 → 静默判定 → 落库 + 发送 + 写静默键。
+     *
+     * @param target 评估对象；{@code null} 表示平台全局（scopeType=2 或未绑定的历史规则）
      */
-    private void evaluateRule(AlarmRule rule, String scopeKey) {
+    private void evaluateRule(AlarmRule rule, AlarmTargetVo target) {
         Breach breach = parseThreshold(rule.getThreshold());
         if (breach == null) {
             log.warn("AlarmRule {} 阈值无法解析，跳过: {}", rule.getId(), rule.getThreshold());
             return;
         }
-        double metric = readMetric(rule);
+        String scopeKey = scopeKeyOf(rule, target);
+        double metric = readMetric(rule, scopeKey);
         if (!breach.breached(metric)) {
             return;
         }
         String silenceKey = ALARM_SILENCE_PREFIX + rule.getId() + ":" + scopeKey;
         try {
             if (Boolean.TRUE.equals(redisTemplate.hasKey(silenceKey))) {
-                return; // 静默期内，不重复告警
+                return; // 静默期内，不重复告警（静默粒度 = 规则 × 对象）
             }
         } catch (Exception e) {
             log.warn("check silence failed ruleId={}: {}", rule.getId(), e.getMessage());
@@ -262,12 +494,20 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
         String level = mapLevel(rule.getAlarmLevel());
         String source = mapSource(rule.getAlarmType());
         String title = "[告警] " + name;
-        String content = String.format("告警规则 %s 触发：类型=%s，当前指标=%.2f，阈值=%s",
-                name, rule.getAlarmType(), metric, rule.getThreshold());
+        String content = String.format("告警规则 %s 触发：对象=%s，类型=%s，当前指标=%.2f，阈值=%s",
+                name, describeTarget(rule, target), rule.getAlarmType(), metric, rule.getThreshold());
+
+        // 关联应用：按应用维度评估时把对象写进告警，便于告警记录页溯源（接口维度无对应列，仅体现在正文）
+        Long relatedAppId = null;
+        String relatedAppName = null;
+        if (target != null && TARGET_TYPE_APP.equals(normalizeTargetType(rule.getTargetType()))) {
+            relatedAppId = target.getId();
+            relatedAppName = target.getLabel();
+        }
 
         // 1) 落库告警（失败不影响后续流程）
         try {
-            alertService.publish(level, source, title, content, null, null, null);
+            alertService.publish(level, source, title, content, relatedAppId, relatedAppName, null);
         } catch (Exception e) {
             log.error("publish alert failed ruleId={}", rule.getId(), e);
         }
@@ -284,7 +524,7 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
             }
         }
 
-        // 3) 写入静默键
+        // 3) 写入静默键（键含 scopeKey ⇒ 每个对象独立静默，不再"一个对象告警后整条规则静默"）
         int silenceMin = (rule.getSilencePeriod() == null || rule.getSilencePeriod() <= 0)
                 ? DEFAULT_SILENCE_MIN : rule.getSilencePeriod();
         try {
@@ -295,20 +535,92 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
     }
 
     /**
-     * 读取规则滑动窗口指标：
-     * 优先读取 Redis 计数器 {@code gk:alarm:win:{ruleId}}，缺失/异常时派生确定性样本值兜底（功能完整性）。
+     * 读取规则在给定对象上的滑动窗口指标：
+     * <ol>
+     *   <li>{@code gk:alarm:win:{ruleId}:{scopeKey}} —— 按对象计数（T11 新增口径）</li>
+     *   <li>{@code gk:alarm:win:{ruleId}} —— 规则级计数（T11 之前口径，保持兼容）</li>
+     *   <li>确定性派生样本值兜底（功能完整性，使链路可自证）</li>
+     * </ol>
      */
-    private double readMetric(AlarmRule rule) {
-        String winKey = ALARM_WIN_PREFIX + rule.getId();
+    private double readMetric(AlarmRule rule, String scopeKey) {
+        Double byTarget = readCounter(ALARM_WIN_PREFIX + rule.getId() + ":" + scopeKey);
+        if (byTarget != null) {
+            return byTarget;
+        }
+        Double byRule = readCounter(ALARM_WIN_PREFIX + rule.getId());
+        if (byRule != null) {
+            return byRule;
+        }
+        return deriveSampleMetric(rule);
+    }
+
+    /** 读取 Redis 计数，缺失/异常返回 null。 */
+    private Double readCounter(String key) {
         try {
-            String raw = redisTemplate.opsForValue().get(winKey);
+            String raw = redisTemplate.opsForValue().get(key);
             if (StringUtils.hasText(raw)) {
                 return Double.parseDouble(raw.trim());
             }
         } catch (Exception e) {
-            log.warn("read metric failed ruleId={}: {}", rule.getId(), e.getMessage());
+            log.warn("read metric {} failed: {}", key, e.getMessage());
         }
-        return deriveSampleMetric(rule);
+        return null;
+    }
+
+    // =====================================================================
+    // targetType / targetIds 归一化工具（T11）
+    // =====================================================================
+
+    /** 归一：trim + 大写；空返回 null（不抛异常，供读取路径安全使用）。 */
+    private String normalizeTargetType(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        return raw.trim().toUpperCase();
+    }
+
+    /** 校验并归一 targetType：非法值抛 400（供写入路径使用）。 */
+    private String requireTargetType(String raw) {
+        String t = normalizeTargetType(raw);
+        if (!TARGET_TYPE_APP.equals(t) && !TARGET_TYPE_API.equals(t)) {
+            throw GatewayException.badRequest("评估对象维度必须为 APP(按应用) 或 API(按接口)");
+        }
+        return t;
+    }
+
+    /** 解析逗号分隔 ID 串为有序去重集合；空/非法返回空集合。 */
+    private Set<Long> parseIdCsv(String csv) {
+        Set<Long> ids = new LinkedHashSet<>();
+        if (!StringUtils.hasText(csv)) {
+            return ids;
+        }
+        for (String part : csv.split(",")) {
+            if (!StringUtils.hasText(part)) {
+                continue;
+            }
+            try {
+                ids.add(Long.parseLong(part.trim()));
+            } catch (NumberFormatException ignore) {
+                log.warn("忽略非法评估对象ID: {}", part);
+            }
+        }
+        return ids;
+    }
+
+    /** 归一逗号 ID 串：空/无有效 ID 返回 null（= 全部对象），否则返回去重后的规范串。 */
+    private String normalizeIdCsv(String csv) {
+        Set<Long> ids = parseIdCsv(csv);
+        if (ids.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Long id : ids) {
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(id);
+        }
+        return sb.toString();
     }
 
     /**

@@ -242,6 +242,9 @@ class T07aRuleDomainsTest {
                 .getAnnotation(RequirePerm.class));
         assertNull(AlarmRuleController.class.getMethod("toggle", Long.class, Integer.class)
                 .getAnnotation(RequirePerm.class));
+        // T11 新增的评估对象候选（只读，沿用不加权限点的策略）
+        assertNull(AlarmRuleController.class.getMethod("targetOptions", String.class)
+                .getAnnotation(RequirePerm.class));
 
         // 阻断规则：toggle 参数名为 enabled（与告警域的 status 不同，此处只校验方法签名存在且无权限点）
         assertNull(BlockRuleController.class.getMethod("list")

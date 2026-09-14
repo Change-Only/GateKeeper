@@ -1,6 +1,7 @@
 package com.gatekeeper.alarm;
 
 import com.gatekeeper.common.Result;
+import com.gatekeeper.dto.AlarmTargetVo;
 import com.gatekeeper.entity.AlarmRule;
 import com.gatekeeper.security.RequirePerm;
 import io.swagger.v3.oas.annotations.Operation;
@@ -23,6 +24,7 @@ import java.util.List;
  * <p>接口路径：
  * <ul>
  *   <li>GET    /alarm-rule/list                      按 status 筛选规则列表</li>
+ *   <li>GET    /alarm-rule/target-options            评估对象候选（T11 新增：APP=应用 / API=接口）</li>
  *   <li>GET    /alarm-rule/{id}                      规则详情</li>
  *   <li>POST   /alarm-rule/create                    创建规则（{@code alarm_rule:create} 高危）</li>
  *   <li>PUT    /alarm-rule/{id}/update               修改规则</li>
@@ -48,6 +50,20 @@ public class AlarmRuleController {
     @GetMapping("/list")
     public Result<List<AlarmRule>> list(@RequestParam(required = false) Integer status) {
         return Result.success(alarmRuleService.list(status));
+    }
+
+    /**
+     * 查询某维度下的候选评估对象（T11 新增，供「评估对象」选择器）。
+     *
+     * <p>只读且仅返回 id/名称/次要说明，与 list 同策略**不加**权限点
+     * （T07-A 对告警规则 list/detail/update/toggle 的"不加权限点"裁定保持一致）。</p>
+     *
+     * @param targetType {@code APP}=按应用 / {@code API}=按接口
+     */
+    @Operation(summary = "查询评估对象候选（APP=应用 / API=接口）")
+    @GetMapping("/target-options")
+    public Result<List<AlarmTargetVo>> targetOptions(@RequestParam String targetType) {
+        return Result.success(alarmRuleService.targetOptions(targetType));
     }
 
     /**
