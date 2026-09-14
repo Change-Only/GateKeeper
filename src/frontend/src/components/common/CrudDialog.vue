@@ -61,6 +61,21 @@
                 :value="o.value"
               />
             </el-select>
+            <!-- 树形下拉（层级数据，如「所属分组」）：el-cascader 而非 el-select ——
+                 Element UI 2.x 没有 el-tree-select，cascader 是原生可用的树形选择控件。
+                 配 emitPath:false 后 v-model 直接是节点 id（单值契约与 el-select 完全一致），
+                 调用方的 form / 提交逻辑无需任何改造。 -->
+            <el-cascader
+              v-else-if="f.type === 'tree-select'"
+              v-model="form[f.prop]"
+              :options="f.options || []"
+              :props="treeProps(f)"
+              :placeholder="f.placeholder || '请选择'"
+              :clearable="f.clearable !== false"
+              :show-all-levels="f.showAllLevels !== false"
+              style="width: 100%"
+              @change="onFieldChange(f)"
+            />
             <DictSelect
               v-else-if="f.type === 'dict'"
               v-model="form[f.prop]"
@@ -127,7 +142,10 @@
  * FieldDef:
  *  { prop, label, type, options?, dictCode?, placeholder?, required?, rules?,
  *    span?, multiple?, min?, max?, step?, ... }
- *  - type: 'input' | 'textarea' | 'number' | 'select' | 'dict' | 'switch' | 'date' | 'datetime'
+ *  - type: 'input' | 'textarea' | 'number' | 'select' | 'tree-select' | 'dict' | 'switch' | 'date' | 'datetime'
+ *  - tree-select: 层级数据下拉（内部用 el-cascader）。options 传树（children 嵌套），
+ *    labelKey / valueKey / childrenKey 指定字段名（默认 label / id / children）；
+ *    默认 checkStrictly=true 即任意层级可选，v-model 为节点 id（单值，非路径数组）
  *  - required: true 时自动生成必填校验；更精细规则用 field.rules
  *
  * Events
@@ -165,7 +183,7 @@ export default {
           rs.push({
             required: true,
             message: `请填写${f.label}`,
-            trigger: f.type === 'select' || f.type === 'dict' || f.type === 'switch' || f.type === 'date' || f.type === 'datetime' ? 'change' : 'blur'
+            trigger: ['select', 'tree-select', 'dict', 'switch', 'date', 'datetime'].indexOf(f.type) >= 0 ? 'change' : 'blur'
           })
         }
         if (f.rules) rs.push(...(Array.isArray(f.rules) ? f.rules : [f.rules]))
@@ -188,15 +206,36 @@ export default {
       // 确保每个字段 key 存在，便于 v-model 双向绑定
       this.fields.forEach((f) => {
         if (this.form[f.prop] === undefined) {
-          const def = f.type === 'switch'
-            ? (f.inactiveValue !== undefined ? f.inactiveValue : 0)
-            : (f.multiple ? [] : '')
+          let def = f.multiple ? [] : ''
+          if (f.type === 'switch') {
+            def = f.inactiveValue !== undefined ? f.inactiveValue : 0
+          } else if (f.type === 'tree-select') {
+            // el-cascader 的「未选中」是 null，不是 ''（'' 会被当作无效值、不显示占位符）
+            def = f.multiple ? [] : null
+          }
           this.$set(this.form, f.prop, def)
         }
       })
       this.$nextTick(() => {
         if (this.$refs.form) this.$refs.form.clearValidate()
       })
+    },
+    /**
+     * tree-select 的 el-cascader 配置。
+     *  - checkStrictly 默认 true：允许选中**任意层级**的节点。父分组本身也是合法的归属目标，
+     *    若为 false 则只有叶子节点可选，父分组下的数据将永远无法归类。
+     *  - emitPath 恒为 false：v-model 绑定节点自身的值，而不是从根到该节点的路径数组。
+     * 字段名可用 labelKey / valueKey / childrenKey 简写覆盖，也可整体传 treeProps。
+     */
+    treeProps(f) {
+      return {
+        value: f.valueKey || 'id',
+        label: f.labelKey || 'label',
+        children: f.childrenKey || 'children',
+        checkStrictly: f.checkStrictly !== false,
+        emitPath: false,
+        ...(f.treeProps || {})
+      }
     },
     onFieldChange() {
       // 预留：字段联动钩子（父组件可监听 submit 内读取最新 form）

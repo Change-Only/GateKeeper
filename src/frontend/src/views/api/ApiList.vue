@@ -18,9 +18,17 @@
           @keyup.enter.native="reload"
           @clear="reload"
         />
-        <el-select v-model="query.groupId" placeholder="所属分组" clearable style="width: 160px" @change="reload">
-          <el-option v-for="g in groupOptions" :key="g.value" :label="g.label" :value="g.value" />
-        </el-select>
+        <!-- 所属分组：按分组的层级结构树形展示，任意层级均可选。
+             这里**刻意不写 @change="reload"** —— CrudTable 对 query 有 deep watcher，
+             query.groupId 一变即自动回第 1 页重载；再绑 @change 会让每次选择发两次列表请求。 -->
+        <el-cascader
+          v-model="query.groupId"
+          :options="groupTree"
+          :props="groupCascaderProps"
+          placeholder="所属分组"
+          clearable
+          style="width: 200px"
+        />
         <el-select v-model="query.status" placeholder="状态" clearable style="width: 120px" @change="reload">
           <el-option :value="1" label="启用" />
           <el-option :value="0" label="停用" />
@@ -86,7 +94,7 @@
  *       等字段不同，表单以真实后端字段为准。
  */
 import {
-  getInterfaceList, createInterface, updateInterface, updateInterfaceStatus, deleteInterface, publishInterface, getGroupList
+  getInterfaceList, createInterface, updateInterface, updateInterfaceStatus, deleteInterface, publishInterface, getGroupList, getGroupTree
 } from '@/api/modules'
 import ApiParamTab from './tabs/ApiParamTab.vue'
 import ApiVersionTab from './tabs/ApiVersionTab.vue'
@@ -110,7 +118,11 @@ export default {
   components: { ApiParamTab, ApiVersionTab, ApiEnvConfigTab, ApiChangeLogTab },
   data() {
     return {
-      groupOptions: [],
+      groupTree: [],
+      // el-cascader 配置：值/标签/子节点字段名对齐后端 /group/tree 的返回形状；
+      // emitPath:false ⇒ v-model 直接是分组 id（单值），与 el-select 契约一致，提交逻辑无需改造；
+      // checkStrictly:true ⇒ 任意层级都可选（父分组本身也是合法的归属目标）。
+      groupCascaderProps: { value: 'id', label: 'groupName', children: 'children', checkStrictly: true, emitPath: false },
       groupNameMap: {},
       query: { kw: '', groupId: '', status: '' },
       columns: [
@@ -134,7 +146,7 @@ export default {
         { prop: 'interfacePath', label: '网关路径', type: 'input', required: true, placeholder: '/gateway/xxx', maxlength: 128, span: 12 },
         { prop: 'requestMethod', label: '请求方法', type: 'select', required: true, options: METHOD_OPTIONS, span: 12 },
         { prop: 'requestParamType', label: '入参类型', type: 'select', options: PARAM_TYPE_OPTIONS, span: 12 },
-        { prop: 'groupId', label: '所属分组', type: 'select', options: [], span: 12 },
+        { prop: 'groupId', label: '所属分组', type: 'tree-select', labelKey: 'groupName', options: [], span: 12, placeholder: '不选则不归入任何分组' },
         { prop: 'status', label: '状态', type: 'select', required: true, options: [{ value: 1, label: '启用' }, { value: 0, label: '停用' }], span: 12 },
         { prop: 'backendUrl', label: '后端服务地址', type: 'input', span: 24, maxlength: 200 },
         { prop: 'timeoutMs', label: '转发超时(ms)', type: 'number', min: 0, max: 60000, span: 12 },
@@ -156,21 +168,23 @@ export default {
     },
     async loadGroups() {
       try {
-        const res = await getGroupList()
-        const list = res.data || []
-        this.groupOptions = list.map((g) => ({ value: g.id, label: g.groupName }))
+        // 树（/group/tree，带 children）供「查询 + 新增/编辑」的树形选择器使用；
+        // 扁平列表（/group/list）只用于列表单元格的名称兜底 map —— 两者职责不同，不可互相替代。
+        const [treeRes, listRes] = await Promise.all([getGroupTree(), getGroupList()])
+        this.groupTree = treeRes.data || []
+        const list = listRes.data || []
         this.groupNameMap = {}
         list.forEach((g) => { this.groupNameMap[g.id] = g.groupName })
-        // 🔴 必须把分组选项注入 fields，否则「新建/编辑接口」弹窗的「所属分组」下拉恒为空：
+        // 🔴 必须把分组树注入 fields，否则「新建/编辑接口」弹窗的「所属分组」恒为空：
         // fields 是在 data() 里静态定义的，其 options 写的是 []，若不在数据到达后回填，
         // 用户永远选不到分组；更糟的是编辑时 form.groupId 落成空串，提交会把既有分组清掉
         // （2026-09-13 实测：未做任何修改点「确定」，payload 带 groupId:"" 覆盖原分组）。
         this.buildGroupOptions()
       } catch (e) { /* 拦截器已提示 */ }
     },
-    /** 把已加载的分组选项注入 fields（沿用 ApiParamTab.buildParentOptions 的同款写法） */
+    /** 把已加载的分组树注入 fields（沿用 ApiParamTab.buildParentOptions 的同款写法） */
     buildGroupOptions() {
-      this.fields = this.fields.map((f) => f.prop === 'groupId' ? { ...f, options: this.groupOptions } : f)
+      this.fields = this.fields.map((f) => f.prop === 'groupId' ? { ...f, options: this.groupTree } : f)
     },
     reload() {
       if (this.$refs.table) this.$refs.table.reload()
@@ -215,9 +229,10 @@ export default {
       this.submitting = true
       try {
         const payload = { ...form }
-        // 空串归一为 null：el-select 清空后会置 ''，而 '' 传到后端 Long 字段虽能被 Jackson
-        // 转成 null，但语义上是「非法值」；统一在提交前收敛，避免把分组清成脏值。
-        if (payload.groupId === '') payload.groupId = null
+        // 空串归一为 null：控件清空后可能置 ''（旧 el-select）或 []（多选 cascader），
+        // 传到后端 Long 字段虽能被 Jackson 转成 null，但语义上是「非法值」；
+        // 单选 cascader（emitPath:false）清空本就置 null，这里只是把三种形态统一收敛。
+        if (payload.groupId === '' || (Array.isArray(payload.groupId) && payload.groupId.length === 0)) payload.groupId = null
         if (payload.id) {
           await updateInterface(payload.id, payload)
           this.$message.success('接口已更新')
