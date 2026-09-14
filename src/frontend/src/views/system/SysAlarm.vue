@@ -73,20 +73,42 @@ import {
 import { ALARM_TYPE, ALARM_LEVEL } from '@/utils/enum'
 
 const ALARM_TYPES = ['FAIL_RATE', 'AUTH_FAIL', 'QUOTA_USAGE', 'AVG_LATENCY', 'KEY_EXPIRE', 'ZOMBIE_API', 'QPS_SURGE']
-const WINDOW_TO_MIN = { '1m': 1, '5m': 5, '15m': 15, '1h': 60 }
-const MIN_TO_WINDOW = { 1: '1m', 5: '5m', 15: '15m', 60: '1h' }
 const TARGET_DIM_LABEL = { APP: '按应用', API: '按接口' }
-/** ThresholdEditor 草案默认值（T11 起含评估对象绑定） */
+/**
+ * ThresholdEditor 草案默认值（T11 起含评估对象绑定）。
+ *
+ * ⚠ timeWindow 用**分钟数字**而不是 '5m' 这种字符串键：
+ *   旧实现维护了 WINDOW_TO_MIN / MIN_TO_WINDOW 双向映射表，而种子里存在 1440（1 天）/
+ *   43200（30 天）这类不在映射表里的值 —— 回填时 `|| '5m'` 兜底，
+ *   一次 no-op 编辑往返就把窗口静默改成 5 分钟。以分钟为唯一表示可根除该映射层。
+ */
 const EMPTY_DRAFT = () => ({
   targetType: '',
   targetIds: [],
   threshold: undefined,
-  timeWindow: '5m',
+  timeWindow: 5,
   alarmLevel: 2,
   silencePeriod: 30,
   channelNames: [],
   receiverNames: []
 })
+
+/**
+ * 阈值回填：**无损**保留 threshold 的两种形态（纯数字 / 表达式字符串）。
+ *
+ * threshold 的后端契约是表达式字符串（AlarmRuleService.parseThreshold 认
+ * `>` `>=` `<` `<=` + 数字），种子里就有 `>5` / `>10000` / `提前30天` / `30天无调用`。
+ *
+ * 🔴 旧实现直接 `Number(row.threshold)`：表达式 → NaN → ThresholdEditor 的 JSON 深拷贝
+ *    把 NaN 变 null → el-input-number 的 `Number(null) === 0` 再被 `<= min` 钳到 min
+ *    ⇒ 「打开编辑弹窗、什么都没改、点确定」就把阈值写坏（实测 `>10000`→`0`、`提前30天`→`1`）。
+ *    现在表达式一律原样透传为字符串，由 ThresholdEditor 用文本控件呈现。
+ */
+function toDraftThreshold(raw) {
+  if (raw === null || raw === undefined || raw === '') return undefined
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : String(raw)
+}
 
 export default {
   name: 'SysAlarm',
@@ -219,8 +241,8 @@ export default {
         // T11：回填评估对象绑定（targetIds 为逗号串 → 转数组供多选框使用）
         targetType: row.targetType || '',
         targetIds: row.targetIds ? String(row.targetIds).split(',').filter(Boolean) : [],
-        threshold: row.threshold != null && row.threshold !== '' ? Number(row.threshold) : undefined,
-        timeWindow: MIN_TO_WINDOW[row.timeWindow] || '5m',
+        threshold: toDraftThreshold(row.threshold),
+        timeWindow: row.timeWindow != null ? row.timeWindow : 5,
         alarmLevel: row.alarmLevel || 2,
         silencePeriod: row.silencePeriod != null ? row.silencePeriod : 30,
         channelNames: row.channelIds ? String(row.channelIds).split(',').filter(Boolean) : [],
@@ -241,7 +263,7 @@ export default {
         // scopeType=1 时对象的空数组 ⇒ 空串提交（后端语义：空 = 该维度下全部对象）
         targetIds: Number(form.scopeType) === 1 ? (this.alarmDraft.targetIds || []).join(',') : null,
         threshold: this.alarmDraft.threshold != null ? String(this.alarmDraft.threshold) : null,
-        timeWindow: WINDOW_TO_MIN[this.alarmDraft.timeWindow] || 5,
+        timeWindow: this.alarmDraft.timeWindow,
         alarmLevel: this.alarmDraft.alarmLevel,
         silencePeriod: this.alarmDraft.silencePeriod,
         channelIds: (this.alarmDraft.channelNames || []).join(','),

@@ -33,9 +33,10 @@
       <div class="te-tip">{{ targetTip }}</div>
     </el-form-item>
 
-    <!-- 按 alarmType 动态渲染的阈值输入 -->
+    <!-- 按 alarmType 动态渲染的阈值输入（双模，见 thresholdIsNumber 的说明） -->
     <el-form-item :label="meta.label">
       <el-input-number
+        v-if="thresholdIsNumber"
         v-model="form.threshold"
         :min="meta.min"
         :max="meta.max"
@@ -43,14 +44,20 @@
         controls-position="right"
         style="width: 200px"
       />
-      <span class="te-unit">{{ meta.unit }}</span>
-      <div class="te-tip">{{ meta.tip }}</div>
+      <el-input
+        v-else
+        v-model="form.threshold"
+        placeholder="如 >10000"
+        style="width: 200px"
+      />
+      <span class="te-unit">{{ thresholdIsNumber ? meta.unit : '' }}</span>
+      <div class="te-tip">{{ thresholdIsNumber ? meta.tip : expressionTip }}</div>
     </el-form-item>
 
-    <!-- 通用字段：统计窗口 -->
+    <!-- 通用字段：统计窗口（单位=分钟，与后端 time_window 列一致） -->
     <el-form-item label="统计窗口">
       <el-select v-model="form.timeWindow" style="width: 200px">
-        <el-option v-for="w in WINDOWS" :key="w.value" :label="w.label" :value="w.value" />
+        <el-option v-for="w in windowOptions" :key="w.value" :label="w.label" :value="w.value" />
       </el-select>
     </el-form-item>
 
@@ -63,7 +70,7 @@
 
     <!-- 通用字段：静默期（分钟） -->
     <el-form-item label="静默期">
-      <el-input-number v-model="form.silencePeriod" :min="0" :max="1440" :step="5" controls-position="right" style="width: 200px" />
+      <el-input-number v-model="form.silencePeriod" :min="0" :max="SILENCE_MAX_MIN" :step="5" controls-position="right" style="width: 200px" />
       <span class="te-unit">分钟</span>
     </el-form-item>
 
@@ -111,6 +118,10 @@
  *                  { targetType, targetIds[], threshold, timeWindow, alarmLevel, silencePeriod, channelNames[], receiverNames[] }
  *                  · targetType: 'APP' | 'API' | ''（scopeType=1 必填，后端会校验）
  *                  · targetIds : 对象ID字符串数组（由父组件 join 成逗号串提交）；空 = 全部对象
+ *                  · threshold : Number | String —— 纯数字走步进控件；表达式字符串
+ *                                （'>10000' / '提前30天'）走文本控件原样往返（见 thresholdIsNumber）
+ *                  · timeWindow: Number 统计窗口，**单位=分钟**（与后端 time_window 列一致）；
+ *                                非预设值（1440/43200）会被自动补成选项，不会被兜底改写
  *  - alarmType    String  告警类型（FAIL_RATE|AUTH_FAIL|QUOTA_USAGE|AVG_LATENCY|KEY_EXPIRE|ZOMBIE_API|QPS_SURGE）
  *  - scopeType    Number  1=按对象（渲染「评估对象」）, 2=平台全局（不渲染），默认 1
  *  - targetOptions Object 评估对象候选 { APP: [{value,label}], API: [{value,label}] }，默认空
@@ -122,12 +133,36 @@
  */
 import { ALARM_TYPE } from '@/utils/enum'
 
+/**
+ * 统计窗口预设（**单位=分钟**，与后端 alarm_rule.time_window 列语义一致）。
+ *
+ * ⚠ 这里刻意不再用 '1m'/'5m' 这类字符串键 + 双向映射表：
+ *   旧实现把分钟映射成字符串键（MIN_TO_WINDOW），种子里 1440（1 天）/ 43200（30 天）
+ *   落不进映射表，回填时被 `|| '5m'` 兜底成 5 分钟 —— 即「打开编辑、什么都没改、
+ *   点确定，规则的时间窗口就从 1 天变成 5 分钟」。直接以分钟为唯一表示可根除该映射层。
+ */
 const WINDOWS = [
-  { value: '1m', label: '1 分钟' },
-  { value: '5m', label: '5 分钟' },
-  { value: '15m', label: '15 分钟' },
-  { value: '1h', label: '1 小时' }
+  { value: 1, label: '1 分钟' },
+  { value: 5, label: '5 分钟' },
+  { value: 15, label: '15 分钟' },
+  { value: 60, label: '1 小时' }
 ]
+
+/**
+ * 静默期上限（分钟）= 30 天。
+ *
+ * ⚠ 旧值 1440（=1 天）会把种子里「僵尸接口告警」的 10080（7 天）直接钳到 1440，
+ *   又是一次 no-op 往返里的静默改写。上限取 30 天，覆盖现有种子最长值并留足余量。
+ */
+const SILENCE_MAX_MIN = 43200
+
+/** 非预设窗口值的中文备注：1440 → '（1 天）'、43200 → '（30 天）'、120 → '（2 小时）' */
+function windowAlias(min) {
+  if (typeof min !== 'number' || !isFinite(min)) return ''
+  if (min >= 1440 && min % 1440 === 0) return `（${min / 1440} 天）`
+  if (min >= 60 && min % 60 === 0) return `（${min / 60} 小时）`
+  return ''
+}
 
 const LEVELS = [
   { value: 1, label: 'INFO' },
@@ -161,6 +196,7 @@ export default {
     return {
       WINDOWS,
       LEVELS,
+      SILENCE_MAX_MIN,
       form: this.clone(this.value)
     }
   },
@@ -194,6 +230,40 @@ export default {
         return '未选择具体对象 = 该维度下全部对象；每个对象独立评估、独立静默'
       }
       return `已选 ${this.form.targetIds.length} 个对象；每个对象独立评估、独立静默`
+    },
+    /**
+     * 阈值是否走「数字控件」—— 决定用 el-input-number 还是 el-input（文本）。
+     *
+     * threshold 的后端契约是**表达式字符串**（AlarmRuleService.parseThreshold 认
+     * `>` `>=` `<` `<=` + 数字，javadoc 示例 `>5` / `>200%` / `<10`；init.sql 的 7 条
+     * 种子规则里就有 `>10000` / `提前30天` / `30天无调用`）。
+     *
+     * 🔴 非数字表达式**绝不能**交给 el-input-number：它把入参 Number() 后 `<= min`
+     *    直接钳到 min（实测 `>10000` → `0`、`提前30天` → `1`），
+     *    于是「打开编辑弹窗、什么都没改、点确定」就能写坏一整条规则的阈值。
+     */
+    thresholdIsNumber() {
+      const t = this.form.threshold
+      if (t === undefined || t === null || t === '') return true
+      return typeof t === 'number' && !isNaN(t)
+    },
+    /** 文本模式下的提示：说清什么表达式后端真的会解析 */
+    expressionTip() {
+      return '表达式原样保存；后端按「比较符 + 数字」解析（如 >10000），其他描述式仅作备忘、不参与评估'
+    },
+    /**
+     * 统计窗口选项 = 预设 ∪ {库中当前值}。
+     *
+     * ⚠ 「补当前值」这一步是必须的：el-select 遇到「v-model 有值、但选项列表里没有该值」
+     *   时显示为空，用户会以为窗口已被清掉；而若此时点确定，
+     *   回填链会把空值兜底成默认 5 分钟 ⇒ 又是一次静默改写。
+     */
+    windowOptions() {
+      const cur = this.form.timeWindow
+      if (typeof cur === 'number' && !WINDOWS.some((w) => w.value === cur)) {
+        return WINDOWS.concat([{ value: cur, label: `${cur} 分钟${windowAlias(cur)}` }]).sort((a, b) => a.value - b.value)
+      }
+      return WINDOWS
     }
   },
   watch: {
@@ -223,21 +293,37 @@ export default {
     onTargetTypeChange() {
       this.form.targetIds = []
     },
+    /**
+     * 浅拷贝出表单副本（断开与父组件对象的引用，数组单独复制）。
+     *
+     * 🔴 这里**不能用** `JSON.parse(JSON.stringify(obj))` 做深拷贝：
+     *    JSON 没有 NaN 字面量，会把 `NaN` 静默转成 `null`，而 `null` 交给
+     *    el-input-number 后 `Number(null) === 0` 会被钳成 min ——
+     *    这正是「阈值 `>10000` 在编辑往返后变成 `0`」链条上的关键一跳。
+     *    本对象是扁平结构（标量 + 字符串数组），浅拷贝 + 数组复制已足够断开引用。
+     */
     clone(obj) {
+      const src = obj || {}
       const base = {
         targetType: '',
         targetIds: [],
         threshold: undefined,
-        timeWindow: '5m',
+        timeWindow: 5,
         alarmLevel: 2,
         silencePeriod: 30,
         channelNames: [],
         receiverNames: []
       }
       try {
-        return { ...base, ...JSON.parse(JSON.stringify(obj || {})) }
+        return {
+          ...base,
+          ...src,
+          targetIds: Array.isArray(src.targetIds) ? src.targetIds.slice() : [],
+          channelNames: Array.isArray(src.channelNames) ? src.channelNames.slice() : [],
+          receiverNames: Array.isArray(src.receiverNames) ? src.receiverNames.slice() : []
+        }
       } catch (e) {
-        return { ...base, ...(obj || {}) }
+        return { ...base }
       }
     }
   }
