@@ -47,7 +47,7 @@ public class InterfaceController {
      * @param current       当前页码（默认第 1 页）
      * @param size          每页条数（默认 10 条）
      * @param interfaceName 接口名称（可选，模糊匹配）
-     * @param groupId       所属分组 ID（可选，按分组筛选）
+     * @param groupId       所属分组 ID（可选；传父分组时返回其全部子孙分组的接口）
      * @return 分页结果
      */
     @Operation(summary = "分页查询接口列表")

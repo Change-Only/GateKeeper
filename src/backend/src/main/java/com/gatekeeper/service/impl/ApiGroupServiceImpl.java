@@ -66,7 +66,7 @@ public class ApiGroupServiceImpl extends ServiceImpl<ApiGroupMapper, ApiGroup> i
     }
 
     /**
-     * 查询指定分组及其所有子分组下已启用的接口列表
+     * 查询指定分组及其所有子孙分组下已启用的接口列表
      *
      * @param groupId 分组 ID
      * @return 接口列表

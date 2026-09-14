@@ -47,6 +47,9 @@ import java.util.Set;
  *
  * <p>T03b 扩展：列表带分组名/业务线名、详情聚合、删除前置校验（版本全下线）。</p>
  *
+ * <p>分组筛选语义：{@code groupId} 按「自身 + 全部子孙分组」展开（详见
+ * {@link #applyGroupScope}），选中父分组即可看到其下所有层级的接口。</p>
+ *
  * @author GateKeeper
  * @since T03b (APIM V2)
  */
@@ -81,9 +84,7 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
         if (interfaceName != null && !interfaceName.isEmpty()) {
             wrapper.like("interface_name", interfaceName); // 接口名称模糊匹配
         }
-        if (groupId != null) {
-            wrapper.eq("group_id", groupId); // 按分组精确筛选
-        }
+        applyGroupScope(wrapper, groupId); // 按分组筛选（含全部子孙分组）
         wrapper.orderByDesc("created_at"); // 按创建时间倒序
         baseMapper.selectPage(page, wrapper);
         return PageResult.of(page.getRecords(), page.getTotal(), page.getCurrent(), page.getSize());
@@ -99,9 +100,7 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
         if (StringUtils.hasText(interfaceName)) {
             wrapper.like("interface_name", interfaceName);
         }
-        if (groupId != null) {
-            wrapper.eq("group_id", groupId);
-        }
+        applyGroupScope(wrapper, groupId); // 按分组筛选（含全部子孙分组）
         wrapper.orderByDesc("created_at");
         baseMapper.selectPage(page, wrapper);
 
@@ -204,6 +203,60 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
     // =====================================================================
     // 内部工具
     // =====================================================================
+
+    /**
+     * 按分组筛选条件（含全部子孙分组）。
+     *
+     * <p>选中父分组时，需要看到它下面所有层级的接口，而不是只看到直接挂在该
+     * 分组上的接口。因此这里先把 groupId 展开成「自身 + 全部子孙分组」的 ID
+     * 集合，再以 IN 条件筛选。</p>
+     *
+     * <p>当集合只有 1 个元素（叶子分组，或该分组无任何子分组）时退化为
+     * {@code eq}，保持既有 SQL 形状不变，避免无谓地改变执行计划。</p>
+     *
+     * @param wrapper 查询条件构造器
+     * @param groupId 分组 ID，为 null 时不追加任何条件
+     */
+    private void applyGroupScope(QueryWrapper<ApiInterface> wrapper, Long groupId) {
+        if (groupId == null) {
+            return;
+        }
+        Set<Long> groupIds = groupIdWithDescendants(groupId);
+        if (groupIds.size() == 1) {
+            wrapper.eq("group_id", groupId); // 叶子分组 == 精确匹配
+        } else {
+            wrapper.in("group_id", groupIds); // 父分组 == 自身 + 全部子孙
+        }
+    }
+
+    /**
+     * 收集指定分组及其全部子孙分组的 ID。
+     *
+     * @param groupId 分组 ID
+     * @return 含自身的分组 ID 集合
+     */
+    private Set<Long> groupIdWithDescendants(Long groupId) {
+        Set<Long> ids = new HashSet<>();
+        collectGroupIds(groupId, ids);
+        return ids;
+    }
+
+    /**
+     * 递归收集分组 ID（含环路保护）。
+     *
+     * @param groupId 当前分组 ID
+     * @param ids     已收集的 ID 集合
+     */
+    private void collectGroupIds(Long groupId, Set<Long> ids) {
+        if (groupId == null || !ids.add(groupId)) {
+            return; // 为空或已收集过则停止，避免数据环路导致死递归
+        }
+        List<ApiGroup> children = apiGroupMapper.selectList(
+                new QueryWrapper<ApiGroup>().eq("parent_id", groupId));
+        for (ApiGroup child : children) {
+            collectGroupIds(child.getId(), ids);
+        }
+    }
 
     private Map<Long, String> loadGroupNames(List<ApiInterface> rows) {
         Set<Long> ids = new HashSet<>();

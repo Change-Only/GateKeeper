@@ -38,7 +38,7 @@ public interface InterfaceService extends IService<ApiInterface> {
      * @param current       当前页码
      * @param size          每页条数
      * @param interfaceName 接口名称（模糊查询，可为空）
-     * @param groupId       接口分组 ID（可为空）
+     * @param groupId       接口分组 ID（可为空；传父分组时含其全部子孙分组的接口）
      * @return 增强后的接口分页结果
      */
     PageResult<InterfaceListVo> pageQueryEnriched(int current, int size, String interfaceName, Long groupId);
