@@ -10,8 +10,8 @@ import java.time.LocalDateTime;
 /**
  * 通知渠道表（notify_channel）
  *
- * <p>channel_type: WECOM/DINGTALK/EMAIL/SMS/WEBHOOK。
- * channel_config 以 JSON 字符串存储渠道配置（webhook 地址 / SMTP 等）。
+ * <p>channel_type: WECOM/DINGTALK/EMAIL/SMS/WEBHOOK/HTTP。
+ * channel_config 以 JSON 字符串存储渠道配置（webhook 地址 / SMTP / 自定义接口等）。
  *
  * @author GateKeeper
  * @since T01 (APIM V2)
@@ -27,7 +27,7 @@ public class NotifyChannel {
     /** 渠道名称（原型 channelName） */
     private String channelName;
 
-    /** 渠道类型：WECOM/DINGTALK/EMAIL/SMS/WEBHOOK（原型 channelType） */
+    /** 渠道类型：WECOM/DINGTALK/EMAIL/SMS/WEBHOOK/HTTP（原型 channelType；HTTP=自定义外部接口，T12） */
     private String channelType;
 
     /** 渠道配置 JSON（webhook 地址/SMTP 等） */

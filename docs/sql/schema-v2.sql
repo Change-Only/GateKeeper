@@ -350,12 +350,12 @@ CREATE TABLE IF NOT EXISTS alarm_rule (
 
 -- ============================================================================
 -- 14. 通知渠道表（notify_channel）   —— 原型 MOCK.notifyChannels
---     channel_type: WECOM/DINGTALK/EMAIL/SMS/WEBHOOK
+--     channel_type: WECOM/DINGTALK/EMAIL/SMS/WEBHOOK/HTTP（HTTP=自定义外部接口，T12）
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS notify_channel (
     id                BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
     channel_name      VARCHAR(128)  NOT NULL                COMMENT '渠道名称（原型 channelName）',
-    channel_type      VARCHAR(32)   NOT NULL                COMMENT 'WECOM/DINGTALK/EMAIL/SMS/WEBHOOK（原型 channelType）',
+    channel_type      VARCHAR(32)   NOT NULL                COMMENT 'WECOM/DINGTALK/EMAIL/SMS/WEBHOOK/HTTP（原型 channelType；HTTP=自定义外部接口，T12）',
     channel_config    VARCHAR(1024) DEFAULT NULL            COMMENT '渠道配置JSON（webhook地址/SMTP等）（推断）',
     status            TINYINT       NOT NULL DEFAULT 1      COMMENT '1=启用,0=停用（原型 status）',
     last_test_time    DATETIME      DEFAULT NULL            COMMENT '最近测试时间（原型 lastTestTime）',

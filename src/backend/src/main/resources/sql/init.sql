@@ -480,7 +480,7 @@ CREATE TABLE IF NOT EXISTS `ip_ban` (
 CREATE TABLE IF NOT EXISTS `notify_channel` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
   `channel_name` varchar(128) NOT NULL COMMENT '渠道名称（原型 channelName）',
-  `channel_type` varchar(32) NOT NULL COMMENT 'WECOM/DINGTALK/EMAIL/SMS/WEBHOOK（原型 channelType）',
+  `channel_type` varchar(32) NOT NULL COMMENT 'WECOM/DINGTALK/EMAIL/SMS/WEBHOOK/HTTP（原型 channelType；HTTP=自定义外部接口，T12）',
   `channel_config` varchar(1024) DEFAULT NULL COMMENT '渠道配置JSON（webhook地址/SMTP等）（推断）',
   `status` tinyint NOT NULL DEFAULT '1' COMMENT '1=启用,0=停用（原型 status）',
   `last_test_time` datetime DEFAULT NULL COMMENT '最近测试时间（原型 lastTestTime）',

@@ -2,7 +2,7 @@
   <div class="page-container sys-notify">
     <div class="page-head">
       <h2>通知渠道</h2>
-      <span class="page-tag">配置告警通知投递渠道（企业微信/钉钉/邮件/Webhook）</span>
+      <span class="page-tag">配置告警通知投递渠道（企业微信/钉钉/邮件/Webhook/自定义接口）</span>
     </div>
 
     <el-card shadow="never" class="filter-card">
@@ -152,6 +152,75 @@
               </el-form-item>
             </el-col>
           </template>
+
+          <!--
+            HTTP（T12）：自定义外部接口 —— URL/方法/请求头/请求体模板/成功判定全可配置。
+            Schema v1（后端 HttpApiSender 读侧键名）：
+              url / method / contentType / headers / bodyTemplate / timeoutMs /
+              successJsonPath / successJsonValue / password
+            布局口径同上（弹窗 720px ⇒ 内容宽 680px）：span 8 短标签用 60px label-width，
+            控件仍 ≥150px；长标签（接口地址/请求体模板）用 span 24 + 120px 标签。
+          -->
+          <template v-else-if="form.channelType === 'HTTP'">
+            <el-col :span="24">
+              <el-form-item label="接口地址" prop="url">
+                <el-input v-model="form.url" placeholder="https://ops.example.com/api/v1/alarm（可用 ${title}/${content} 占位）" clearable />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="方法" prop="method" label-width="60px">
+                <el-select v-model="form.method" style="width:100%">
+                  <el-option value="POST" label="POST" />
+                  <el-option value="PUT" label="PUT" />
+                  <el-option value="GET" label="GET" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="格式" prop="contentType" label-width="60px">
+                <el-select v-model="form.contentType" style="width:100%">
+                  <el-option value="application/json" label="JSON" />
+                  <el-option value="application/x-www-form-urlencoded" label="表单" />
+                  <el-option value="text/plain" label="纯文本" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="超时" prop="timeoutMs" label-width="60px">
+                <el-input-number v-model="form.timeoutMs" :min="500" :max="60000" :step="500" controls-position="right" style="width:100%" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="接口密钥" prop="password">
+                <el-input v-model="form.password" show-password placeholder="供 ${password} 占位；未修改请保持原样" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="请求头" prop="headers">
+                <el-input v-model="form.headers" placeholder="JSON 对象，如 X-Token 与 ${password}" clearable />
+              </el-form-item>
+            </el-col>
+            <el-col :span="24">
+              <el-form-item label="请求体模板" prop="bodyTemplate">
+                <el-input
+                  v-model="form.bodyTemplate"
+                  type="textarea"
+                  :rows="3"
+                  placeholder="留空则用默认报文（source/channel/title/content/time）；可用 ${title} ${content} ${time} ${channelName} ${password}"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="成功判定字段" prop="successJsonPath">
+                <el-input v-model="form.successJsonPath" placeholder="如 code 或 data.ok；留空只看 HTTP 状态" clearable />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="成功取值" prop="successJsonValue">
+                <el-input v-model="form.successJsonValue" placeholder="默认 0" clearable />
+              </el-form-item>
+            </el-col>
+          </template>
         </el-row>
       </template>
     </CrudDialog>
@@ -169,7 +238,9 @@ import {
 import { ENUM_OPTIONS } from '@/utils/enum'
 
 const channelTypeOptions = ENUM_OPTIONS.channelType || []
-const channelTypeMetaRow = new Map(channelTypeOptions.map((o) => [o.value, o.value === 'EMAIL' ? 'warning' : 'primary']))
+/** 类型 → el-tag 配色（EMAIL 邮件=warning、HTTP 自定义接口=success，其余 primary） */
+const TYPE_TAG_COLOR = { EMAIL: 'warning', HTTP: 'success' }
+const channelTypeMetaRow = new Map(channelTypeOptions.map((o) => [o.value, TYPE_TAG_COLOR[o.value] || 'primary']))
 const channelTypeLabel = (v) => (channelTypeOptions.find((o) => o.value === v) || {}).label || v
 
 /**
@@ -184,7 +255,16 @@ const EMPTY_CONFIG_FIELDS = {
   username: '',
   password: '',
   from: '',
-  to: ''
+  to: '',
+  // HTTP（T12）：自定义外部接口
+  url: '',
+  method: 'POST',
+  contentType: 'application/json',
+  headers: '',
+  bodyTemplate: '',
+  timeoutMs: 5000,
+  successJsonPath: '',
+  successJsonValue: ''
 }
 
 /** 复用 { webhook } 形状的渠道类型（单一来源：isWebhookType 与 schemaForType 共用，防止两处字面量漂移） */
@@ -210,6 +290,12 @@ const CONFIG_SCHEMA = {
   EMAIL: {
     canonical: ['smtpHost', 'smtpPort', 'ssl', 'username', 'password', 'from', 'to'],
     aliases: { host: 'smtpHost', port: 'smtpPort' }
+  },
+  // HTTP（T12）：后端 HttpApiSender 以 url 优先、回退 webhook（见 HttpApiSender#send 的读侧别名）
+  HTTP: {
+    canonical: ['url', 'method', 'contentType', 'headers', 'bodyTemplate',
+      'timeoutMs', 'successJsonPath', 'successJsonValue', 'password'],
+    aliases: { webhook: 'url' }
   }
 }
 
@@ -273,6 +359,7 @@ export default {
     schemaForType(type) {
       if (this.isWebhookType(type)) return CONFIG_SCHEMA.WEBHOOK
       if (type === 'EMAIL') return CONFIG_SCHEMA.EMAIL
+      if (type === 'HTTP') return CONFIG_SCHEMA.HTTP
       return null
     },
     /** 该类型的「已知 key」全集（canonical ∪ aliases）—— analyzeConfig 判 lossy 的白名单 */
@@ -299,8 +386,33 @@ export default {
         rules.smtpHost = [{ required: true, message: '请填写 SMTP 服务器', trigger: 'blur' }]
         rules.from = [{ required: true, message: '请填写发件人地址', trigger: 'blur' }]
         rules.to = [{ required: true, message: '请填写收件人地址', trigger: 'blur' }]
+      } else if (type === 'HTTP') {
+        rules.url = [{ required: true, message: '请填写接口地址', trigger: 'blur' }]
+        // 请求头必须是 JSON 对象：后端对非法 JSON 只 warn 并**忽略**，
+        // 不校验会落成「配置了却没生效」的静默失败
+        rules.headers = [{ validator: this.validateJsonObject, trigger: 'blur' }]
       }
       return rules
+    },
+    /**
+     * 可选 JSON 对象校验（请求头）：空值放过；非 JSON 或非对象则拦截。
+     * 注意：请求体模板**不做** JSON 校验 —— 模板里可能出现未加引号的占位符（如 ${time} 作为数值），
+     * 严格 parse 会把合法用法判成错误。
+     */
+    validateJsonObject(rule, value, callback) {
+      if (value == null || String(value).trim() === '') {
+        return callback()
+      }
+      let parsed
+      try {
+        parsed = JSON.parse(value)
+      } catch (e) {
+        return callback(new Error('不是合法 JSON'))
+      }
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return callback()
+      }
+      return callback(new Error('需为 JSON 对象，例如 X-Token 键值对'))
     },
     /**
      * 分析库中原始配置串（**输入必须是 row.channelConfig 原串**，不能先 parse —— 否则丢失
@@ -354,10 +466,11 @@ export default {
       schema.canonical.forEach((k) => { out[k] = this.canonicalValue(k, form) })
       return JSON.stringify(out)
     },
-    /** 规范 key 的取值归一：smtpPort 数值化（空回退 465）、ssl 布尔化、password 不 trim，其余字符串 trim */
+    /** 规范 key 的取值归一：smtpPort/timeoutMs 数值化、ssl 布尔化、password 不 trim，其余字符串 trim */
     canonicalValue(key, form) {
       const v = form[key]
       if (key === 'smtpPort') return Number(v) || 465
+      if (key === 'timeoutMs') return Number(v) || 5000
       if (key === 'ssl') return v !== false
       if (key === 'password') return v || ''
       return (v == null ? '' : String(v)).trim()
@@ -419,7 +532,16 @@ export default {
         username: canonical.username != null ? String(canonical.username) : '',
         password: canonical.password != null ? String(canonical.password) : '',
         from: canonical.from != null ? String(canonical.from) : '',
-        to: canonical.to != null ? String(canonical.to) : ''
+        to: canonical.to != null ? String(canonical.to) : '',
+        // HTTP（T12）回显反填
+        url: canonical.url != null ? String(canonical.url) : '',
+        method: canonical.method != null ? String(canonical.method) : 'POST',
+        contentType: canonical.contentType != null ? String(canonical.contentType) : 'application/json',
+        headers: canonical.headers != null ? String(canonical.headers) : '',
+        bodyTemplate: canonical.bodyTemplate != null ? String(canonical.bodyTemplate) : '',
+        timeoutMs: canonical.timeoutMs != null ? Number(canonical.timeoutMs) : 5000,
+        successJsonPath: canonical.successJsonPath != null ? String(canonical.successJsonPath) : '',
+        successJsonValue: canonical.successJsonValue != null ? String(canonical.successJsonValue) : ''
       }
       // 静默覆盖防线标记（T10-N2b）：库中原配置无法解析 / 含未展示字段时置位，保存前弹确认
       this.dialog.configLossy = analysis.lossy

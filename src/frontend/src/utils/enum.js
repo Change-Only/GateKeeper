@@ -227,7 +227,11 @@ export const ENUM_OPTIONS = {
     { value: 'WECOM', label: '企业微信' },
     { value: 'DINGTALK', label: '钉钉' },
     { value: 'EMAIL', label: '邮件' },
-    { value: 'WEBHOOK', label: 'Webhook' }
+    { value: 'WEBHOOK', label: 'Webhook' },
+    // T12：自定义外部接口 —— 可调用任意外部 API 投递告警（URL/方法/请求头/请求体模板可配）。
+    // 加/改渠道类型必须同步后端 ChannelSender.supportTypes（alarm/sender/HttpApiSender）
+    // 与 SysNotify.vue 的 CONFIG_SCHEMA，否则前端配了却不发（后端桩发返回 true = 假成功）。
+    { value: 'HTTP', label: '自定义接口' }
   ],
   blockScope: [
     { value: 'IP', label: 'IP' },

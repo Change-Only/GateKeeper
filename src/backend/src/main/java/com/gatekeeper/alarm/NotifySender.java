@@ -22,6 +22,8 @@ import java.util.List;
  * <ul>
  *   <li>WECOM / DINGTALK / WEBHOOK → {@link WebhookSender}（errcode≠0 判失败，方案 R5）</li>
  *   <li>EMAIL → EmailSmtpSender（SMTP 真发，方案 §3.2）</li>
+ *   <li>HTTP → {@link com.gatekeeper.alarm.sender.HttpApiSender}（T12 新增：可调用任意外部接口，
+ *       URL/方法/请求头/请求体模板/成功判定全可配置 —— 面向本平台外的第三方告警接收端）</li>
  *   <li>SMS / 未知类型 → <strong>退化为现状桩发</strong>：log 意图返回 true
  *       （T08 兼容 —— 存量行为不变，待后续批次实装）。</li>
  * </ul>
@@ -92,7 +94,7 @@ public class NotifySender {
                 }
             }
             // 无匹配实现（SMS / 未知类型）：退化为现状桩发（T08 兼容）
-            // 注：WEBHOOK 已由 WebhookSender.supportTypes() 覆盖，走真发路径，不再落到此处
+            // 注：WEBHOOK 由 WebhookSender、HTTP 由 HttpApiSender 的 supportTypes() 覆盖，均走真发路径，不落到此处
             log.info("[stub] channel {} type={} 暂未实发，仅记录意图", channel.getId(), type);
             return true;
         } catch (Exception e) {

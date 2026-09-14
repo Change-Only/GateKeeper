@@ -1,5 +1,6 @@
 package com.gatekeeper.alarm;
 
+import com.gatekeeper.alarm.sender.HttpApiSender;
 import com.gatekeeper.entity.NotifyChannel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -8,7 +9,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
+
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -152,6 +158,24 @@ class NotifySenderTest {
         NotifyChannel c = channel("FUTURE_CHANNEL_TYPE", "{}", 1);
         assertTrue(sender.send(c, "t", "c"));
         verify(restTemplate, never()).postForObject(anyString(), any(), any());
+    }
+
+    /**
+     * T12：新增渠道类型「HTTP（自定义接口）」必须由 HttpApiSender 真发，**不得落回桩发**。
+     *
+     * <p>桩发分支恒返回 true ⇒ 若 supportTypes 漏注册，界面上「测试」会显示成功而实际未发出 ——
+     * 即本项目明确要消灭的「配置了却不发」假成功。本用例以 verify(exchange) 锚定真发路径。</p>
+     */
+    @Test
+    @DisplayName("T12：HTTP 渠道由 HttpApiSender 真发，不落回桩发")
+    void httpTypeActuallySends() {
+        when(restTemplate.exchange(anyString(), any(HttpMethod.class), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(new ResponseEntity<>("ok", HttpStatus.OK));
+        // 单测构造（注入 mock RestTemplate 的 HttpApiSender）；生产由 Spring 注入全部 ChannelSender
+        NotifySender routed = new NotifySender(Collections.singletonList(new HttpApiSender(restTemplate)));
+        NotifyChannel c = channel("HTTP", "{\"url\":\"https://example.com/api\"}", 1);
+        assertTrue(routed.send(c, "t", "c"));
+        verify(restTemplate).exchange(anyString(), any(HttpMethod.class), any(HttpEntity.class), eq(String.class));
     }
 
     /**
