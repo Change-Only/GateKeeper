@@ -58,18 +58,46 @@
       </template>
     </CrudTable>
 
-    <!-- 接口详情抽屉：参数 / 版本 / 环境配置 / 变更历史 4 Tab -->
+    <!-- 接口详情抽屉：顶部「概览区」（方法徽标 + 名称/路径 + 启停状态 + 关键字段栅格），
+         下方 参数 / 版本 / 环境配置 / 变更历史 4 Tab。
+         原实现只在头部平铺「接口名 + 路径」两行，method/分组/后端地址/超时/描述等
+         关键信息全部看不到，是「详情页单薄」的主因。 -->
     <el-drawer title="接口详情" :visible.sync="drawerVisible" direction="rtl" size="64%" @open="onDrawerOpen">
-      <div v-if="currentApi" class="drawer-head">
-        <div class="dh-name">{{ currentApi.interfaceName }}</div>
-        <code class="mono dh-path">{{ currentApi.interfacePath }}</code>
+      <div v-if="currentApi" class="detail-body">
+        <div class="detail-hero">
+          <div class="hero-top">
+            <span class="method" :class="(currentApi.requestMethod || 'GET').toLowerCase()">{{ currentApi.requestMethod || 'GET' }}</span>
+            <div class="hero-title-wrap">
+              <div class="hero-title">{{ currentApi.interfaceName }}</div>
+              <code class="hero-path">{{ currentApi.interfacePath }}</code>
+            </div>
+            <el-tag :type="currentApi.status === 1 ? 'success' : 'info'" size="small">
+              {{ currentApi.status === 1 ? '启用中' : '已停用' }}
+            </el-tag>
+          </div>
+
+          <!-- 关键字段栅格：与「新建/编辑接口」弹窗字段同口径，只读展示 -->
+          <el-descriptions class="hero-meta" :column="2" size="mini" border>
+            <el-descriptions-item label="所属分组">{{ currentGroupName }}</el-descriptions-item>
+            <el-descriptions-item label="入参类型">{{ currentApi.requestParamType || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="后端服务地址" :span="2">
+              <span class="mono">{{ currentApi.backendUrl || '—' }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="转发超时">
+              {{ currentApi.timeoutMs != null ? currentApi.timeoutMs + ' ms' : '—' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="创建时间">{{ fmtTime(currentApi.createdAt) }}</el-descriptions-item>
+            <el-descriptions-item label="接口描述" :span="2">{{ currentApi.description || '—' }}</el-descriptions-item>
+          </el-descriptions>
+        </div>
+
+        <el-tabs v-model="activeTab" class="detail-tabs">
+          <el-tab-pane label="参数定义" name="param"><ApiParamTab :api-id="currentApiId" /></el-tab-pane>
+          <el-tab-pane label="版本管理" name="version"><ApiVersionTab :api-id="currentApiId" :api-name="currentApiName" /></el-tab-pane>
+          <el-tab-pane label="环境配置" name="env"><ApiEnvConfigTab :api-id="currentApiId" /></el-tab-pane>
+          <el-tab-pane label="变更历史" name="log"><ApiChangeLogTab :api-id="currentApiId" /></el-tab-pane>
+        </el-tabs>
       </div>
-      <el-tabs v-model="activeTab" class="detail-tabs">
-        <el-tab-pane label="参数定义" name="param"><ApiParamTab :api-id="currentApiId" /></el-tab-pane>
-        <el-tab-pane label="版本管理" name="version"><ApiVersionTab :api-id="currentApiId" :api-name="currentApiName" /></el-tab-pane>
-        <el-tab-pane label="环境配置" name="env"><ApiEnvConfigTab :api-id="currentApiId" /></el-tab-pane>
-        <el-tab-pane label="变更历史" name="log"><ApiChangeLogTab :api-id="currentApiId" /></el-tab-pane>
-      </el-tabs>
     </el-drawer>
 
     <CrudDialog
@@ -156,7 +184,13 @@ export default {
   },
   computed: {
     currentApiId() { return this.currentApi ? this.currentApi.id : null },
-    currentApiName() { return this.currentApi ? this.currentApi.interfaceName : '' }
+    currentApiName() { return this.currentApi ? this.currentApi.interfaceName : '' },
+    /** 详情概览里的所属分组名：优先用列表 VO 的 groupName，前端 map 仅兜底（同列表列的口径） */
+    currentGroupName() {
+      const row = this.currentApi
+      if (!row) return '—'
+      return row.groupName || this.groupNameMap[row.groupId] || '未分组'
+    }
   },
   mounted() {
     this.loadGroups()
@@ -283,8 +317,32 @@ export default {
 .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: #17233d; }
 .danger-link { color: #c03337; }
 .danger-link:hover { color: #e05559; }
-.drawer-head { display: flex; align-items: center; gap: 12px; padding: 0 4px 12px; border-bottom: 1px solid #eef1f7; margin-bottom: 8px; }
-.dh-name { font-size: 15px; font-weight: 600; color: #17233d; }
-.dh-path { color: #5c6b8a; }
-.detail-tabs { margin-top: 4px; }
+
+/* ===================== 详情抽屉 · 概览区 ===================== */
+/* 抽屉 body 的内边距由 global.scss 统一给（.el-drawer__body 默认无 padding，
+   内容会贴住抽屉边缘），这里只负责概览区自身的排版。 */
+.detail-body { display: flex; flex-direction: column; }
+
+/* 概览头条：方法徽标 + 接口名/路径 + 启停状态 */
+.hero-top { display: flex; align-items: flex-start; gap: 10px; padding-bottom: 12px; }
+.hero-title-wrap { flex: 1; min-width: 0; }
+.hero-title { font-size: 15px; font-weight: 600; line-height: 1.35; color: #17233d; }
+.hero-path {
+  display: inline-block; margin-top: 2px; line-height: 1.4;
+  color: #5c6b8a; word-break: break-all;
+}
+/* 头部徽标比列表页略大，与标题同高；不参与 flex 拉伸 */
+.hero-top .method { height: 22px; padding: 0 8px; margin: 1px 0 0; flex: none; }
+
+/* 关键字段栅格：借用 el-descriptions 的表格对齐能力，压成「企业控制台」观感 */
+.hero-meta { margin-bottom: 4px; }
+::v-deep .hero-meta .el-descriptions__body { background: transparent; }
+::v-deep .hero-meta .el-descriptions-item__label.is-bordered-label {
+  background: #f2f6ff; color: #5c6b8a; font-weight: 500;
+  white-space: nowrap; width: 96px;
+}
+::v-deep .hero-meta .is-bordered .el-descriptions-item__cell { border-color: #e8eefb; }
+::v-deep .hero-meta .el-descriptions-item__content { color: #17233d; }
+
+.detail-tabs { margin-top: 8px; }
 </style>
