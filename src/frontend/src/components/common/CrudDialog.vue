@@ -5,6 +5,7 @@
     :width="width"
     :close-on-click-modal="false"
     :destroy-on-close="destroyOnClose"
+    :append-to-body="appendToBody"
     @open="onOpen"
   >
     <el-form
@@ -137,7 +138,7 @@
  *  - model    Object    表单初始数据（打开时深拷贝到本地，避免直接改动父对象）
  *  - fields   Array<FieldDef>  字段定义（见下）
  *  - rules    Object    额外/覆盖校验规则（按 prop 覆盖）
- *  - width / loading / submitText / labelWidth / destroyOnClose
+ *  - width / loading / submitText / labelWidth / destroyOnClose / appendToBody
  *
  * FieldDef:
  *  { prop, label, type, options?, dictCode?, placeholder?, required?, rules?,
@@ -169,7 +170,25 @@ export default {
     loading: { type: Boolean, default: false },
     submitText: { type: String, default: '确定' },
     labelWidth: { type: String, default: '110px' },
-    destroyOnClose: { type: Boolean, default: true }
+    destroyOnClose: { type: Boolean, default: true },
+    /**
+     * 是否把弹窗 DOM 挂到 document.body。**默认 true，且不要轻易改成 false。**
+     *
+     * 原因（2026-09-14 实测，详情抽屉内「新建参数」的表单被遮罩整片压住、点不动）：
+     *  - `el-drawer` 的 `.el-drawer__wrapper` 是 `position:fixed` + 内联 `z-index:2001`
+     *    ⇒ 自成一个**层叠上下文**。弹窗若内联渲染（appendToBody=false）就会被困在里面，
+     *    只能拿到「抽屉 2001」这一层，弹窗自身的 z-index 再高也只在抽屉内部有效。
+     *  - Element 的遮罩 `.v-modal` 是**全局单例**，位置/层级跟随**当前顶层弹窗**：
+     *    抽屉先开（modal z=2000），弹窗再开时同一个 `.v-modal` 被提到 z=2002，
+     *    而它挂在 body 的静态层上 ⇒ 直接盖住整个抽屉子树（含弹窗自己的表单）。
+     *  - 实测命中测试：弹窗中心 `elementFromPoint` 命中的是 `DIV.v-modal`，
+     *    10 个 `el-form-item` 全部 `hitInside:false`、`hitCls:"v-modal"`。
+     * 挂到 body 后三者成为兄弟节点，层级单调递增：抽屉 2001 < 遮罩 2002 < 弹窗 2003。
+     *
+     * 顶层弹窗挂 body 与内联渲染**视觉完全一致**（`.el-dialog__wrapper` 本身就是
+     * position:fixed 全屏居中），因此可以安全地作为默认值。
+     */
+    appendToBody: { type: Boolean, default: true }
   },
   data() {
     return { form: {} }

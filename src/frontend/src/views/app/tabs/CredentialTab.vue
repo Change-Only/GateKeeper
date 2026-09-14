@@ -42,8 +42,11 @@
       @submit="submit"
     />
 
-    <!-- 明文密钥展示（仅创建 / 轮换时返回一次） -->
-    <el-dialog title="密钥已生成（请立即保存）" :visible.sync="secretVisible" width="520px" :close-on-click-modal="false">
+    <!-- 明文密钥展示（仅创建 / 轮换时返回一次）
+         append-to-body 必加：本 Tab 位于「应用详情」抽屉内，抽屉的 .el-drawer__wrapper
+         是 position:fixed + z-index 自成的层叠上下文；弹窗若内联渲染会被困在里面，
+         被 Element 的单例遮罩 .v-modal（z 跟随顶层弹窗、挂在 body 上）整片压住。 -->
+    <el-dialog title="密钥已生成（请立即保存）" :visible.sync="secretVisible" width="520px" :close-on-click-modal="false" append-to-body>
       <el-alert type="warning" :closable="false" show-icon title="AppSecret 明文仅在此展示一次，关闭后不可再查看">
         <template #title>AppSecret 明文仅在此展示一次</template>
       </el-alert>

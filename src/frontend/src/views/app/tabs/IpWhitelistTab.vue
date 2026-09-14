@@ -8,7 +8,7 @@
     <el-table :data="list" border stripe size="medium" v-loading="loading" class="wl-table">
       <el-table-column prop="ipCidr" label="IP / CIDR" min-width="180" />
       <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip />
-      <el-table-column prop="createdAt" label="创建时间" width="160" formatter="" />
+      <el-table-column prop="createdAt" label="创建时间" width="160" :formatter="createdAtCell" />
       <el-table-column label="操作" width="100" fixed="right">
         <template slot-scope="{ row }">
           <PermButton perm="app:ipwhitelist:delete" type="text" class="danger-link" @click="remove(row)">删除</PermButton>
@@ -19,7 +19,10 @@
       </template>
     </el-table>
 
-    <el-dialog title="新增 IP 白名单" :visible.sync="dialogVisible" width="480px">
+    <!-- append-to-body 必加：本 Tab 位于「应用详情」抽屉内，抽屉的 .el-drawer__wrapper
+         是 position:fixed + z-index 自成的层叠上下文；弹窗若内联渲染会被困在里面，
+         被 Element 的单例遮罩 .v-modal（z 跟随顶层弹窗、挂在 body 上）整片压住。 -->
+    <el-dialog title="新增 IP 白名单" :visible.sync="dialogVisible" width="480px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="IP / CIDR" prop="ipCidr">
           <el-input v-model="form.ipCidr" placeholder="如 10.0.0.1 或 10.0.0.0/24" maxlength="64" />
@@ -70,6 +73,21 @@ export default {
     }
   },
   methods: {
+    /** 后端 createdAt 是 LocalDateTime，ISO 输出带 `T`（2026-09-10T14:11:04），统一转可读形式 */
+    fmtTime(v) {
+      if (!v) return '—'
+      return String(v).replace('T', ' ')
+    },
+    /**
+     * el-table-column 的 formatter 签名是 (row, column, cellValue, index)，与 CrudTable 的
+     * formatter(value) 不同 —— 这里必须按行取值。
+     * 原先该列写的是 `formatter=""`（空字符串），Element 的 prop 类型校验会持续报
+     * `Invalid prop: type check failed for prop "formatter". Expected Function, got String`，
+     * 且格式化静默失效（时间直接显示带 T 的 ISO 串）。
+     */
+    createdAtCell(row) {
+      return this.fmtTime(row && row.createdAt)
+    },
     async reload() {
       if (this.appId == null) return
       this.loading = true
