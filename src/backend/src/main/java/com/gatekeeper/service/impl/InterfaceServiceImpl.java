@@ -116,6 +116,7 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
 
     @Override
     public ApiInterface createInterface(ApiInterface apiInterface) {
+        requireGroup(apiInterface); // T13：所属分组必填
         apiInterface.setStatus(1); // 默认启用
         if (apiInterface.getTimeoutMs() == null) {
             apiInterface.setTimeoutMs(5000); // 默认超时 5000 毫秒
@@ -145,9 +146,36 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
 
     @Override
     public void updateInterface(Long id, ApiInterface apiInterface) {
+        requireGroup(apiInterface); // T13：所属分组必填
         apiInterface.setId(id);
         apiInterface.setUpdatedAt(LocalDateTime.now());
         baseMapper.updateById(apiInterface);
+    }
+
+    /**
+     * T13（用户需求第 3 条）：接口所属分组为必填项。
+     *
+     * <p><b>为什么后端也要拦</b>：前端表单加 {@code required} 只是「体验层闸门」，
+     * curl / 脚本仍可绕过去造出无分组接口；而分组正是 T13「环境配置按分组维护 + 向上继承」
+     * 的锚点 —— 没有分组的接口**永远拿不到任何环境配置**（继承链起点为空），
+     * 属于会静默影响线上转发目标的脏数据。故两端同时拦。</p>
+     *
+     * <p>同时校验分组真实存在，避免落一个悬空 group_id（同 t13 之前修过的悬空授权问题）。</p>
+     *
+     * @param apiInterface 待写入的接口
+     * @throws com.gatekeeper.exception.GatewayException 400 当分组为空或不存在
+     */
+    private void requireGroup(ApiInterface apiInterface) {
+        if (apiInterface == null) {
+            throw com.gatekeeper.exception.GatewayException.badRequest("请求体不能为空");
+        }
+        if (apiInterface.getGroupId() == null) {
+            throw com.gatekeeper.exception.GatewayException.badRequest("请选择所属分组（必填）");
+        }
+        if (apiGroupMapper.selectById(apiInterface.getGroupId()) == null) {
+            throw com.gatekeeper.exception.GatewayException.badRequest(
+                    "所属分组不存在: id=" + apiInterface.getGroupId());
+        }
     }
 
     @Override

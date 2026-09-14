@@ -58,6 +58,7 @@
             <span>{{ row.parentId ? (parentNameMap[row.parentId] || '—') : '顶级分组' }}</span>
           </template>
           <template #actions="{ row }">
+            <PermButton perm="" type="text" @click="openEnvConfig(row)">环境配置</PermButton>
             <PermButton perm="api_group:update" type="text" @click="openEdit(row)">编辑</PermButton>
             <PermButton perm="api_group:delete" type="text" class="danger-link" @click="remove(row)">删除</PermButton>
           </template>
@@ -74,6 +75,24 @@
       width="520px"
       @submit="submit"
     />
+
+    <!-- 分组环境配置抽屉（T13）：环境配置的**唯一维护入口**。
+         用户需求第 4 条要求「维护的地方比较明确」—— 所以不新开菜单/路由（历史上路由与
+         权限点不同步导致过 11/19 菜单不可见的坑），而是挂在分组行操作上，
+         从「分组」这个归属主体直接进入，语义最直白。 -->
+    <el-drawer
+      :title="`环境配置 · ${envGroup ? envGroup.groupName : ''}`"
+      :visible.sync="envDrawerVisible"
+      direction="rtl"
+      size="62%"
+      append-to-body
+    >
+      <GroupEnvConfigPanel
+        v-if="envGroup"
+        :group-id="envGroup.id"
+        :group-name="envGroup.groupName"
+      />
+    </el-drawer>
   </div>
 </template>
 
@@ -85,15 +104,20 @@
  *       与原型计划的 groupCode/lineId/ownerName 等字段不同，表单以真实后端字段为准。
  */
 import { getGroupList, getGroupTree, createGroup, updateGroup, deleteGroup } from '@/api/modules'
+import GroupEnvConfigPanel from './tabs/GroupEnvConfigPanel.vue'
 
 export default {
   name: 'ApiGroup',
+  components: { GroupEnvConfigPanel },
   data() {
     return {
       treeData: [],
       parentNameMap: {},
       flatGroups: [],
       query: { kw: '', parentId: null },
+      // 分组环境配置抽屉（T13）
+      envDrawerVisible: false,
+      envGroup: null,
       columns: [
         { prop: 'groupName', label: '分组名称', minWidth: 160 },
         { prop: 'parentId', label: '父分组', minWidth: 140, slot: 'parentName' },
@@ -138,6 +162,11 @@ export default {
       if (this.$refs.table) this.$refs.table.reload()
     },
     onLoaded() {},
+    /** 打开分组环境配置抽屉（T13）。先赋 group 再置 visible，保证面板挂载时 groupId 已就绪。 */
+    openEnvConfig(row) {
+      this.envGroup = row
+      this.envDrawerVisible = true
+    },
     async fetchGroups(params) {
       let list = this.flatGroups.length ? this.flatGroups.slice() : (await getGroupList()).data || []
       this.flatGroups = list

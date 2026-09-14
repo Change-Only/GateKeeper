@@ -17,8 +17,15 @@ public class GatewayContext {
 
     /** 原始 HTTP 请求对象 */
     private HttpServletRequest httpRequest;
-    /** 请求路径（/gateway/xxx） */
+    /** 请求路径（原始 requestURI，含 context-path，如 {@code /api/gateway/test}）；仅用于日志与排障 */
     private String path;
+    /**
+     * 应用的 context-path（如 {@code /api}）。
+     *
+     * <p>T13 新增：接口匹配必须用「去掉 context-path」后的路径，否则
+     * {@code interface_path} 永远匹配不上（见 {@code GatewayPaths}）。</p>
+     */
+    private String contextPath;
     /** 请求方法（GET/POST/PUT/DELETE） */
     private String method;
     /** 客户端真实 IP（优先取 X-Forwarded-For 最后一跳） */
@@ -41,6 +48,14 @@ public class GatewayContext {
     private Long interfaceId;
     /** 接口路径（已注册的接口路径） */
     private String interfacePath;
+    /**
+     * 生效环境配置（T13）。
+     *
+     * <p>由 {@code PermissionHandler}（责任链第 5 环，此时环境码已由 AppAuthHandler 写入）
+     * 解析后写入，供 {@code ForwardHandler} 使用 —— 避免"解析两次"，
+     * 也保证同一请求内「用哪个上游/超时/重试/Mock」只有一个答案。</p>
+     */
+    private EffectiveEnvConfig effectiveEnvConfig;
     /** 后端真实服务地址（转发目标） */
     private String backendUrl;
     /** 接口超时时间（毫秒） */
@@ -85,6 +100,14 @@ public class GatewayContext {
     private String responseBody;
     /** 后端服务返回的 HTTP 状态码 */
     private Integer responseStatus;
+    /**
+     * 本次响应是否来自 Mock 短路（T13）。
+     *
+     * <p>由 {@code ForwardHandler} 在命中 Mock 时置 true。用途：Mock 的 HTTP 状态码是用户在
+     * 环境配置里显式填的，属于「可配置的 Mock 响应」的一部分，必须透传给调用方；
+     * 而真实转发的状态码保持既有 200 语义不变。{@code GatewayController} 据此区分。</p>
+     */
+    private boolean mockResponse;
     /** 加密后的响应体（返回给调用方的内容） */
     private String encryptedResponseBody;
 
@@ -149,6 +172,7 @@ public class GatewayContext {
         GatewayContext ctx = new GatewayContext();
         ctx.setHttpRequest(request);
         ctx.setPath(request.getRequestURI());
+        ctx.setContextPath(request.getContextPath());
         ctx.setMethod(request.getMethod());
         ctx.setStartTime(System.currentTimeMillis());
         ctx.setRateLimited(false);

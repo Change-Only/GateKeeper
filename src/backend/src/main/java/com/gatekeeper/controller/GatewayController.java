@@ -40,6 +40,12 @@ public class GatewayController {
      * 失败时按业务语义返回对应 HTTP 状态码（401/403/404/429/502/504），
      * 使调用方可按标准 HTTP 语义处理错误。</p>
      *
+     * <p><b>T13 增量</b>：命中 Mock 短路时，把用户在环境配置里填的 Mock 状态码**透传**给调用方。
+     * 此前 {@code GatewayCore.execute} 只回响应体，这里只能 {@code ResponseEntity.ok(...)}，
+     * 于是配了 {@code mockStatus=503} 的 Mock 依然以 200 返回（实测 2026-09-14）。
+     * Mock 状态码属于「可配置的 Mock 响应」的一部分，必须让调用方看到；
+     * 真实转发仍保持既有 200 语义不变（{@link com.gatekeeper.gateway.dto.GatewayResult#isMock()} 用于区分）。</p>
+     *
      * @param request 原始 HTTP 请求（含请求头、请求参数、客户端 IP 等）
      * @param body    请求体（可选，GET 请求可能为空）
      * @return 转发后的响应内容；发生异常时返回统一错误结果
@@ -50,8 +56,15 @@ public class GatewayController {
                         @RequestBody(required = false) String body) {
         try {
             // 交由网关核心执行完整转发链路：鉴权 -> 限流 -> 安全检测 -> 加解密 -> 转发
-            String response = gatewayCore.execute(request, body);
-            return ResponseEntity.ok(response);
+            com.gatekeeper.gateway.dto.GatewayResult result = gatewayCore.executeWithStatus(request, body);
+
+            // 只有 Mock 短路才把状态码透传；真实转发保持既有 200 语义
+            int status = result.isMock() ? result.getStatus() : 200;
+            HttpStatus httpStatus = HttpStatus.resolve(status);
+            if (httpStatus == null) {
+                httpStatus = HttpStatus.OK;
+            }
+            return ResponseEntity.status(httpStatus).body(result.getBody());
         } catch (com.gatekeeper.exception.GatewayException e) {
             // 网关业务异常：返回对应 HTTP 状态码（401/403/404/429/502/504 等）
             log.warn("Gateway rejected: status={}, msg={}", e.getCode(), e.getMessage());

@@ -682,3 +682,43 @@ export function manualBlock(id, data) {
 export function exportOperationLog(params) {
   return request.get('/system/operation-log/export', { params, responseType: 'blob' })
 }
+
+// ============ 接口分组环境配置 api-group-env-config（T13 · 环境配置下沉到分组侧） ============
+// 说明：T13 起环境配置的**维护入口在接口分组侧**，接口详情里的「环境配置」Tab 只做只读生效预览。
+// 分组树**向上继承**：某分组在某环境没有配置时，取最近的祖先分组配置（见后端 EnvConfigResolver）。
+// 分组自己的配置（不含继承来的；裸数组语义，与 /api-env-config/list 一致）
+export function getGroupEnvConfigList(groupId, envCode) {
+  return request.get('/api-group-env-config/list', { params: { groupId, envCode } })
+}
+// 某分组在 4 个环境下的**生效配置**（含 sourceType / sourcePath 继承链路），供只读预览
+export function getGroupEnvConfigEffective(groupId) {
+  return request.get('/api-group-env-config/effective', { params: { groupId } })
+}
+// 新增或更新（按 groupId + envCode 唯一匹配；命中更新、未命中插入）—— api_group_env_config:create 高危
+export function upsertGroupEnvConfig(data) {
+  return request.post('/api-group-env-config/upsert', data)
+}
+// 更新可编辑字段（结构键 groupId / envCode 不可改）—— api_group_env_config:update 高危
+export function updateGroupEnvConfig(id, data) {
+  return request.put(`/api-group-env-config/${id}/update`, data)
+}
+// 连通性测试（诊断；通过置 configStatus=2 已验证）
+export function testGroupEnvConfig(id) {
+  return request.post(`/api-group-env-config/${id}/test`)
+}
+// 切换 Mock 开关（0↔1）
+export function toggleGroupEnvConfigMock(id) {
+  return request.post(`/api-group-env-config/${id}/toggle-mock`)
+}
+// 删除分组环境配置 —— api_group_env_config:delete 高危
+export function deleteGroupEnvConfig(id) {
+  return request.delete(`/api-group-env-config/${id}`)
+}
+
+// ============ 接口试调测试 interface/{apiId}/test（T13） ============
+// mode=DIRECT 直连上游（验证配置与连通性，无需应用凭证）；
+// mode=GATEWAY 走网关（用真实应用凭证签名，把鉴权/限流/权限/Mock/日志整条链路跑一遍）。
+export function testInterface(apiId, data) {
+  return request.post(`/interface/${apiId}/test`, data)
+}
+

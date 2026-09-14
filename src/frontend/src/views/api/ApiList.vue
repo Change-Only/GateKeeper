@@ -7,6 +7,7 @@
       :query="query"
       row-key="id"
       :show-index="true"
+      :actions-width="300"
       @loaded="onLoaded"
     >
       <template #toolbar>
@@ -51,6 +52,7 @@
       </template>
       <template #actions="{ row }">
         <PermButton perm="" type="text" @click="openDetail(row)">详情</PermButton>
+        <PermButton perm="interface:test" type="text" @click="openTest(row)">测试</PermButton>
         <PermButton perm="api:update" type="text" @click="openEdit(row)">编辑</PermButton>
         <PermButton perm="api:disable" type="text" @click="toggleStatus(row)">{{ row.status === 1 ? '停用' : '启用' }}</PermButton>
         <PermButton perm="api:publish" type="text" @click="publish(row)">发布</PermButton>
@@ -82,7 +84,7 @@
             <el-descriptions-item label="入参类型">{{ currentApi.requestParamType || '—' }}</el-descriptions-item>
             <el-descriptions-item label="默认后端地址" :span="2">
               <span class="mono">{{ currentApi.backendUrl || '—' }}</span>
-              <span class="sub-text">（未配置环境前缀时的兜底地址；配了「环境配置」后按环境前缀 + 下方 URI 转发）</span>
+              <span class="sub-text">（兜底地址：接口所在分组在对应环境下没有配服务前缀时，网关转发到这里）</span>
             </el-descriptions-item>
             <el-descriptions-item label="转发超时">
               {{ currentApi.timeoutMs != null ? currentApi.timeoutMs + ' ms' : '—' }}
@@ -96,10 +98,12 @@
           <el-tab-pane label="参数定义" name="param"><ApiParamTab :api-id="currentApiId" /></el-tab-pane>
           <el-tab-pane label="版本管理" name="version"><ApiVersionTab :api-id="currentApiId" :api-name="currentApiName" /></el-tab-pane>
           <el-tab-pane label="环境配置" name="env">
-            <!-- 透传 interfacePath / requestMethod：环境配置 Tab 需要展示「各环境共用的 URI」，
-                 并把 upstream_url（服务前缀）拼成完整后端地址。 -->
+            <!-- 透传 interfacePath / requestMethod / groupId：
+                 环境配置 Tab 需要 ① 展示「各环境共用的 URI」，把服务前缀拼成完整后端地址；
+                 ② 用 groupId 作为**继承链起点**去解析生效配置（T13 环境配置下沉到分组侧）。 -->
             <ApiEnvConfigTab
               :api-id="currentApiId"
+              :group-id="currentApi.groupId"
               :interface-path="currentApi.interfacePath"
               :request-method="currentApi.requestMethod"
             />
@@ -118,6 +122,9 @@
       width="620px"
       @submit="submit"
     />
+
+    <!-- 接口测试弹窗（T13 · 需求第 2 条）：弹窗内可切换「直连后端 / 走网关」两种模式 -->
+    <InterfaceTestDialog :visible.sync="testVisible" :api="testApi" />
   </div>
 </template>
 
@@ -137,6 +144,7 @@ import ApiParamTab from './tabs/ApiParamTab.vue'
 import ApiVersionTab from './tabs/ApiVersionTab.vue'
 import ApiEnvConfigTab from './tabs/ApiEnvConfigTab.vue'
 import ApiChangeLogTab from './tabs/ApiChangeLogTab.vue'
+import InterfaceTestDialog from './InterfaceTestDialog.vue'
 
 const METHOD_OPTIONS = [
   { value: 'GET', label: 'GET' },
@@ -152,7 +160,7 @@ const PARAM_TYPE_OPTIONS = [
 
 export default {
   name: 'ApiList',
-  components: { ApiParamTab, ApiVersionTab, ApiEnvConfigTab, ApiChangeLogTab },
+  components: { ApiParamTab, ApiVersionTab, ApiEnvConfigTab, ApiChangeLogTab, InterfaceTestDialog },
   data() {
     return {
       groupTree: [],
@@ -164,12 +172,17 @@ export default {
       query: { kw: '', groupId: '', status: '' },
       columns: [
         { prop: 'interfaceName', label: '接口名称', minWidth: 140 },
-        { prop: 'interfacePath', label: '路径 / 方法', minWidth: 260, slot: 'path' },
+        { prop: 'interfacePath', label: '路径 / 方法', minWidth: 240, slot: 'path' },
         { prop: 'groupId', label: '分组', minWidth: 120, slot: 'groupName' },
-        { prop: 'backendUrl', label: '后端地址', minWidth: 200, showOverflowTooltip: true },
+        { prop: 'backendUrl', label: '后端地址', minWidth: 180, showOverflowTooltip: true },
         { prop: 'status', label: '状态', width: 80, slot: 'status' },
-        { prop: 'timeoutMs', label: '超时(ms)', width: 90, align: 'center' },
-        { prop: 'createdAt', label: '创建时间', width: 160, formatter: (v) => this.fmtTime(v) }
+        { prop: 'timeoutMs', label: '超时(ms)', width: 90, align: 'center' }
+        // 🔴 刻意**去掉「创建时间」列**（2026-09-14）：
+        //    操作列默认宽 160px 装不下 6 个按钮（本轮新增「测试」），而操作列是 fixed="right"；
+        //    固定列变宽会挤压中间列 —— 这正是用户反馈的「数字列看不到值」的同一机制
+        //    （接口侧环境配置表 10 列 + 固定操作列把数字列挤出可视区）。
+        //    创建时间在「详情 → 概览区」里本来就有，列表去掉不丢信息，换来 160px 空间，
+        //    比"看得见但被挤变形"更诚实。
       ],
       drawerVisible: false,
       activeTab: 'param',
@@ -178,12 +191,15 @@ export default {
       dialogTitle: '新建接口',
       submitting: false,
       form: {},
+      // 接口测试弹窗（T13）
+      testVisible: false,
+      testApi: null,
       fields: [
         { prop: 'interfaceName', label: '接口名称', type: 'input', required: true, maxlength: 64, span: 12 },
         { prop: 'interfacePath', label: '网关路径', type: 'input', required: true, placeholder: '/gateway/xxx', maxlength: 128, span: 12 },
         { prop: 'requestMethod', label: '请求方法', type: 'select', required: true, options: METHOD_OPTIONS, span: 12 },
         { prop: 'requestParamType', label: '入参类型', type: 'select', options: PARAM_TYPE_OPTIONS, span: 12 },
-        { prop: 'groupId', label: '所属分组', type: 'tree-select', labelKey: 'groupName', options: [], span: 12, placeholder: '不选则不归入任何分组' },
+        { prop: 'groupId', label: '所属分组', type: 'tree-select', labelKey: 'groupName', options: [], span: 12, required: true, placeholder: '请选择所属分组（必填）' },
         { prop: 'status', label: '状态', type: 'select', required: true, options: [{ value: 1, label: '启用' }, { value: 0, label: '停用' }], span: 12 },
         { prop: 'backendUrl', label: '后端服务地址', type: 'input', span: 24, maxlength: 200 },
         { prop: 'timeoutMs', label: '转发超时(ms)', type: 'number', min: 0, max: 60000, span: 12 },
@@ -244,6 +260,11 @@ export default {
     openDetail(row) {
       this.currentApi = row
       this.drawerVisible = true
+    },
+    /** 打开接口测试弹窗（T13 · 需求第 2 条）。先把 row 赋给 testApi，弹窗挂载时字段才是齐的。 */
+    openTest(row) {
+      this.testApi = row
+      this.testVisible = true
     },
     onDrawerOpen() {},
     openCreate() {

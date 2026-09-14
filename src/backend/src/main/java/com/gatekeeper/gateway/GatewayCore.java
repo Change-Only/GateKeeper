@@ -3,6 +3,7 @@ package com.gatekeeper.gateway;
 import com.gatekeeper.entity.ApiCallLog;
 import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.gateway.dto.GatewayContext;
+import com.gatekeeper.gateway.dto.GatewayResult;
 import com.gatekeeper.gateway.handler.EncryptionHandler;
 import com.gatekeeper.gateway.handler.GatewayHandler;
 import com.gatekeeper.gateway.handler.LogHandler;
@@ -75,7 +76,10 @@ public class GatewayCore {
     }
 
     /**
-     * 执行网关请求处理完整链路
+     * 执行网关请求处理完整链路（兼容入口，只回响应体）。
+     *
+     * <p>保留原签名供既有调用方/测试使用；需要拿到 HTTP 状态码（Mock 场景）请用
+     * {@link #executeWithStatus(HttpServletRequest, String)}。</p>
      *
      * @param request HTTP 请求（用于提取 IP、Header 等上下文信息）
      * @param body    请求体原始内容（可能是密文）
@@ -83,6 +87,23 @@ public class GatewayCore {
      * @throws GatewayException 链路上任一环节校验失败时抛出（带对应 HTTP 状态码与原因）
      */
     public String execute(HttpServletRequest request, String body) {
+        return executeWithStatus(request, body).getBody();
+    }
+
+    /**
+     * 执行网关请求处理完整链路，并返回「状态码 + 响应体」。
+     *
+     * <p>T13 新增：Mock 短路的 HTTP 状态码是用户在环境配置里显式配置的，
+     * 属于「可配置的 Mock 响应」的一部分，必须能回给调用方。
+     * 原 {@link #execute(HttpServletRequest, String)} 只回 String，
+     * 导致 {@code GatewayController} 一律返回 200（实测：配了 mockStatus=503 仍收到 200）。</p>
+     *
+     * @param request HTTP 请求（用于提取 IP、Header 等上下文信息）
+     * @param body    请求体原始内容（可能是密文）
+     * @return 网关执行结果（含状态码、响应体、是否 Mock 短路）
+     * @throws GatewayException 链路上任一环节校验失败时抛出（带对应 HTTP 状态码与原因）
+     */
+    public GatewayResult executeWithStatus(HttpServletRequest request, String body) {
         GatewayContext ctx = GatewayContext.from(request, trustXff);
         ctx.setRequestBody(body);
 
@@ -95,7 +116,10 @@ public class GatewayCore {
 
             // 响应加密：若接口配置了返参加密，在此统一加密
             String response = encryptionHandler.encryptResponse(ctx);
-            return response;
+            int status = ctx.getResponseStatus() != null ? ctx.getResponseStatus() : 200;
+            return ctx.isMockResponse()
+                    ? GatewayResult.mock(status, response)
+                    : GatewayResult.forward(status, response);
 
         } catch (GatewayException e) {
             // 链路拦截：记录拦截标记与原因后继续向上抛出，由全局异常处理器转成错误响应

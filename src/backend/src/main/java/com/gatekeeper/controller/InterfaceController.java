@@ -5,13 +5,18 @@ import com.gatekeeper.common.PageResult;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.dto.InterfaceDetailVo;
 import com.gatekeeper.dto.InterfaceListVo;
+import com.gatekeeper.dto.InterfaceTestRequest;
+import com.gatekeeper.dto.InterfaceTestResult;
 import com.gatekeeper.entity.ApiInterface;
 import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.InterfaceService;
+import com.gatekeeper.service.InterfaceTestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import javax.servlet.http.HttpServletRequest;
 
 /**
  * 接口管理 Controller
@@ -40,6 +45,7 @@ import org.springframework.web.bind.annotation.*;
 public class InterfaceController {
 
     private final InterfaceService interfaceService;
+    private final InterfaceTestService interfaceTestService;
 
     /**
      * 分页查询接口列表（T03b 增强：行内含分组名 groupName / 业务线名 lineName）。
@@ -149,5 +155,28 @@ public class InterfaceController {
     public Result<Void> publish(@PathVariable Long apiId) {
         interfaceService.updateStatus(apiId, 1);
         return Result.success();
+    }
+
+    /**
+     * 接口试调测试（T13）。
+     *
+     * <p>两种模式：{@code DIRECT} 直连上游（验证配置与上游连通性，无需应用凭证）、
+     * {@code GATEWAY} 走网关（用真实应用凭证签名，把鉴权/限流/权限/Mock/日志整条链路跑一遍）。</p>
+     *
+     * <p>权限点 {@code interface:test}（risk=false）：试调不写业务数据，但会真实外呼到上游，
+     * 属"可对外产生副作用"的动作，故仍需显式授权，不放进只读豁免。</p>
+     *
+     * @param apiId       接口 ID
+     * @param req         试调参数（可为空 ⇒ 直连 + 默认环境）
+     * @param httpRequest 当前请求（走网关模式据此推导自身地址与 context-path）
+     * @return 试调结果（含状态码/耗时/报文/生效配置来源/过程说明）
+     */
+    @RequirePerm(value = "interface:test", risk = false)
+    @Operation(summary = "接口试调测试")
+    @PostMapping("/{apiId}/test")
+    public Result<InterfaceTestResult> test(@PathVariable Long apiId,
+                                            @RequestBody(required = false) InterfaceTestRequest req,
+                                            HttpServletRequest httpRequest) {
+        return Result.success(interfaceTestService.test(apiId, req, httpRequest));
     }
 }
