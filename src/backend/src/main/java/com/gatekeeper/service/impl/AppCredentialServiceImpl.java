@@ -167,21 +167,13 @@ public class AppCredentialServiceImpl extends ServiceImpl<AppCredentialMapper, A
         String envCode = req.getEnvCode();
 
         // 1) 若已有轮换中凭证 → 拒绝（避免多窗口轮换叠加）
-        AppCredential rotating = baseMapper.selectOne(
-                new QueryWrapper<AppCredential>()
-                        .eq("app_id", appId)
-                        .eq("env_code", envCode)
-                        .eq("rotate_flag", 1));
+        AppCredential rotating = findLiveRotating(appId, envCode);
         if (rotating != null) {
             throw GatewayException.badRequest("该应用在此环境下已存在轮换中凭证，请先完成或撤销现有轮换");
         }
 
-        // 2) 取当前主密钥
-        AppCredential primary = baseMapper.selectOne(
-                new QueryWrapper<AppCredential>()
-                        .eq("app_id", appId)
-                        .eq("env_code", envCode)
-                        .eq("rotate_flag", 0));
+        // 2) 取当前主密钥（rotate_flag=0 且 status=1 —— 必须带 status，见 findLivePrimary 注释）
+        AppCredential primary = findLivePrimary(appId, envCode);
         if (primary == null) {
             throw GatewayException.badRequest("该应用在此环境下尚无主密钥，请使用「创建凭证」接口");
         }
@@ -235,20 +227,14 @@ public class AppCredentialServiceImpl extends ServiceImpl<AppCredentialMapper, A
             throw GatewayException.badRequest("appId / envCode 不能为空");
         }
         // 1) 取轮换中凭证
-        AppCredential rotating = baseMapper.selectOne(
-                new QueryWrapper<AppCredential>()
-                        .eq("app_id", appId)
-                        .eq("env_code", envCode)
-                        .eq("rotate_flag", 1));
+        AppCredential rotating = findLiveRotating(appId, envCode);
         if (rotating == null) {
             throw GatewayException.badRequest("该应用在此环境下不存在轮换中凭证");
         }
-        // 2) 取旧主密钥（即将吊销的）
-        AppCredential oldPrimary = baseMapper.selectOne(
-                new QueryWrapper<AppCredential>()
-                        .eq("app_id", appId)
-                        .eq("env_code", envCode)
-                        .eq("rotate_flag", 0));
+        // 2) 取旧主密钥（即将吊销的）——同样必须带 status=1：
+        //    否则本方法自己上一轮留下的「已吊销但 rotate_flag 仍为 0」的旧主密钥会被捞到，
+        //    下一轮 rotate 就会命中多行（这正是 2026-09-14 那次的 500 根因）。
+        AppCredential oldPrimary = findLivePrimary(appId, envCode);
         if (oldPrimary == null) {
             throw GatewayException.badRequest("该应用在此环境下不存在主密钥");
         }
@@ -332,22 +318,61 @@ public class AppCredentialServiceImpl extends ServiceImpl<AppCredentialMapper, A
             return null;
         }
         // 优先级 1：主密钥（rotateFlag=0, status=1）
-        AppCredential primary = baseMapper.selectOne(
-                new QueryWrapper<AppCredential>()
-                        .eq("app_id", appId)
-                        .eq("env_code", envCode)
-                        .eq("rotate_flag", 0)
-                        .eq("status", 1));
+        AppCredential primary = findLivePrimary(appId, envCode);
         if (primary != null) {
             return primary;
         }
         // 优先级 2：轮换中凭证（rotateFlag=1, status=1）
-        return baseMapper.selectOne(
-                new QueryWrapper<AppCredential>()
-                        .eq("app_id", appId)
-                        .eq("env_code", envCode)
-                        .eq("rotate_flag", 1)
-                        .eq("status", 1));
+        return findLiveRotating(appId, envCode);
+    }
+
+    // =====================================================================
+    // 凭证定位（统一入口）
+    // =====================================================================
+
+    /**
+     * 取「当前生效的主密钥」：{@code rotate_flag=0 AND status=1}，多条时取 id 最大的一条。
+     *
+     * <p><b>🔴 为什么必须带 status 过滤、且不能用 {@code selectOne}</b>（2026-09-14 实测线上 500）：</p>
+     * <ul>
+     *   <li>{@link #completeRotate} 第 3 步只把旧主密钥置为 {@code status=3}（已吊销），
+     *       <b>并不改 rotate_flag</b>（rotate_flag 只有 0/1 两态，语义上「已吊销的常规密钥」仍是 0）。
+     *       因此完成一次轮换后，同一 {@code (appId, envCode)} 下会同时存在
+     *       <b>两条 rotate_flag=0</b> 的记录：旧的（status=3）+ 新的（status=1）。</li>
+     *   <li>旧实现只按 {@code rotate_flag} 过滤并用 {@code selectOne}，第二轮「灰度轮换」
+     *       必然命中 2 行 ⇒ MyBatis-Plus 抛 {@code TooManyResultsException} ⇒ 被
+     *       {@code GlobalExceptionHandler} 兜底成 HTTP 500「系统繁忙，请稍后重试」。
+     *       界面症状：应用详情 → 凭证 → 灰度轮换，第一次正常、完成轮换后再点必报该错。</li>
+     *   <li>改为 {@code selectList} + 按 id 倒序取首条：既拿到「最新的生效主密钥」，
+     *       也对存量脏数据（历史重复行）免疫，不再抛异常。</li>
+     * </ul>
+     *
+     * @return 生效主密钥；不存在时返回 {@code null}（调用方自行决定报错文案）
+     */
+    private AppCredential findLivePrimary(Long appId, String envCode) {
+        List<AppCredential> rows = baseMapper.selectList(new QueryWrapper<AppCredential>()
+                .eq("app_id", appId)
+                .eq("env_code", envCode)
+                .eq("rotate_flag", 0)
+                .eq("status", 1)
+                .orderByDesc("id"));
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /**
+     * 取「轮换中的新凭证」：{@code rotate_flag=1 AND status=1}，多条时取 id 最大的一条。
+     *
+     * <p>带 {@code status=1} 的原因：轮换中的凭证若被「吊销」，不应再阻塞下一次轮换。
+     * 同样用 {@code selectList} 规避 {@code selectOne} 的多行异常。</p>
+     */
+    private AppCredential findLiveRotating(Long appId, String envCode) {
+        List<AppCredential> rows = baseMapper.selectList(new QueryWrapper<AppCredential>()
+                .eq("app_id", appId)
+                .eq("env_code", envCode)
+                .eq("rotate_flag", 1)
+                .eq("status", 1)
+                .orderByDesc("id"));
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     // =====================================================================

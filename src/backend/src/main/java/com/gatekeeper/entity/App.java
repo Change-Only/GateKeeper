@@ -29,6 +29,17 @@ public class App {
     /** 应用状态（1=启用 0=停用 2=已过期） */
     private Integer status;
 
+    /**
+     * 应用类型：1=内部 2=外部 3=测试。
+     *
+     * <p>🔴 2026-09-14 补：该列在 {@code app} 表里<b>一直存在</b>（原型与库表都有），
+     * 但实体未映射，导致 {@code GET /app/list} 的行里没有 appType ——
+     * 「接口授权总览」的「仅看外部应用」「内部/外部/测试」标签因此无从实现
+     * （原实现只能退化成一张纯审批列表，与原型结构不符）。
+     * 这里只补映射、不新增列，属于「补齐已有字段的暴露」。</p>
+     */
+    private Integer appType;
+
     /** 应用描述 */
     private String description;
 

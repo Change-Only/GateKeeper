@@ -80,8 +80,9 @@
           <el-descriptions class="hero-meta" :column="2" size="mini" border>
             <el-descriptions-item label="所属分组">{{ currentGroupName }}</el-descriptions-item>
             <el-descriptions-item label="入参类型">{{ currentApi.requestParamType || '—' }}</el-descriptions-item>
-            <el-descriptions-item label="后端服务地址" :span="2">
+            <el-descriptions-item label="默认后端地址" :span="2">
               <span class="mono">{{ currentApi.backendUrl || '—' }}</span>
+              <span class="sub-text">（未配置环境前缀时的兜底地址；配了「环境配置」后按环境前缀 + 下方 URI 转发）</span>
             </el-descriptions-item>
             <el-descriptions-item label="转发超时">
               {{ currentApi.timeoutMs != null ? currentApi.timeoutMs + ' ms' : '—' }}
@@ -94,7 +95,15 @@
         <el-tabs v-model="activeTab" class="detail-tabs">
           <el-tab-pane label="参数定义" name="param"><ApiParamTab :api-id="currentApiId" /></el-tab-pane>
           <el-tab-pane label="版本管理" name="version"><ApiVersionTab :api-id="currentApiId" :api-name="currentApiName" /></el-tab-pane>
-          <el-tab-pane label="环境配置" name="env"><ApiEnvConfigTab :api-id="currentApiId" /></el-tab-pane>
+          <el-tab-pane label="环境配置" name="env">
+            <!-- 透传 interfacePath / requestMethod：环境配置 Tab 需要展示「各环境共用的 URI」，
+                 并把 upstream_url（服务前缀）拼成完整后端地址。 -->
+            <ApiEnvConfigTab
+              :api-id="currentApiId"
+              :interface-path="currentApi.interfacePath"
+              :request-method="currentApi.requestMethod"
+            />
+          </el-tab-pane>
           <el-tab-pane label="变更历史" name="log"><ApiChangeLogTab :api-id="currentApiId" /></el-tab-pane>
         </el-tabs>
       </div>
@@ -315,6 +324,8 @@ export default {
 
 <style scoped>
 .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: #17233d; }
+/* 概览区里跟在主值后面的补充说明（如「默认后端地址」的兜底语义） */
+.sub-text { font-size: 11px; color: #9aa7bf; margin-left: 6px; }
 .danger-link { color: #c03337; }
 .danger-link:hover { color: #e05559; }
 
