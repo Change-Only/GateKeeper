@@ -45,11 +45,20 @@ class ApiParamServiceEnhanceTest {
     @Mock
     private ApiParamMapper apiParamMapper;
 
+    /** T17：新增的两个协作对象（加解密 + 可见性） */
+    @Mock
+    private com.gatekeeper.mapper.ApiInterfaceMapper apiInterfaceMapper;
+    @Mock
+    private com.gatekeeper.service.InterfaceVisibilityService interfaceVisibilityService;
+
     private ApiParamServiceImpl service;
 
     @BeforeEach
     void setUp() throws Exception {
-        service = new ApiParamServiceImpl();
+        service = new ApiParamServiceImpl(new com.gatekeeper.support.PassthroughInterfaceCrypto(),
+                interfaceVisibilityService, apiInterfaceMapper);
+        when(interfaceVisibilityService.resolveViewer())
+                .thenReturn(com.gatekeeper.security.InterfaceViewer.unprotected());
         Field f = com.baomidou.mybatisplus.extension.service.impl.ServiceImpl.class.getDeclaredField("baseMapper");
         f.setAccessible(true);
         f.set(service, apiParamMapper);

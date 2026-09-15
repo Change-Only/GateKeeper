@@ -87,6 +87,8 @@ public class InterfaceTestServiceImpl implements InterfaceTestService {
     private final AppApiPermissionMapper appApiPermissionMapper;
     private final CryptoService cryptoService;
     private final EnvConfigResolver envConfigResolver;
+    /** T17：接口路径字段级解密（试调必须先还原明文再拼 URL） */
+    private final com.gatekeeper.crypto.InterfaceCryptoService interfaceCryptoService;
 
     /** 数据库中 AppSecret 的 AES 加密密钥（与写入端 / 网关校验端一致） */
     @Value("${gatekeeper.crypto.aes-key}")
@@ -115,6 +117,9 @@ public class InterfaceTestServiceImpl implements InterfaceTestService {
         if (api == null) {
             throw GatewayException.notFound("接口不存在: id=" + apiId);
         }
+        // T17：接口路径在加密启用时是密文。试调要真的去拼上游 URL / 网关入口 URL，
+        // 必须用明文 —— 否则会把 enc:v1: 串当路径发出去（必然 404 且难排查）。
+        interfaceCryptoService.decryptInPlace(api);
 
         InterfaceTestRequest request = req != null ? req : new InterfaceTestRequest();
         String env = StringUtils.hasText(request.getEnvCode())

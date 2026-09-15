@@ -68,6 +68,10 @@ public class AppInterfaceDocServiceImpl implements AppInterfaceDocService {
     private final ApiInterfaceMapper apiInterfaceMapper;
     private final ApiGroupMapper apiGroupMapper;
     private final ApiParamMapper apiParamMapper;
+    /** T17：接口路径 / 参数契约的字段级加解密 */
+    private final com.gatekeeper.crypto.InterfaceCryptoService interfaceCryptoService;
+    /** T17：控制台可见性（文档导出同样受「别人看不到我的接口信息」约束） */
+    private final com.gatekeeper.service.InterfaceVisibilityService interfaceVisibilityService;
 
     @Override
     public AppInterfaceDocVo build(Long appId) {
@@ -114,6 +118,9 @@ public class AppInterfaceDocServiceImpl implements AppInterfaceDocService {
                     new QueryWrapper<ApiInterface>().in("id", apiIds));
             if (ifaces != null) {
                 for (ApiInterface i : ifaces) {
+                    // T17：先还原明文 —— 后面的分组名查找、排序、以及"路径/参数掩码"判断
+                    // 都要基于明文；密文串参与排序会得到毫无意义的顺序。
+                    interfaceCryptoService.decryptInPlace(i);
                     ifaceById.put(i.getId(), i);
                 }
             }
@@ -151,6 +158,8 @@ public class AppInterfaceDocServiceImpl implements AppInterfaceDocService {
                     new QueryWrapper<ApiParam>().in("api_id", exportIfaceIds));
             if (allParams != null) {
                 for (ApiParam p : allParams) {
+                    // T17：还原明文后再排序/装配（密文排序毫无意义）
+                    interfaceCryptoService.decryptInPlace(p);
                     paramsByIface.computeIfAbsent(p.getApiId(), k -> new ArrayList<>()).add(p);
                 }
                 for (List<ApiParam> list : paramsByIface.values()) {
@@ -158,6 +167,9 @@ public class AppInterfaceDocServiceImpl implements AppInterfaceDocService {
                 }
             }
         }
+
+        // T17：可见性上下文每次导出只解析一次
+        com.gatekeeper.security.InterfaceViewer viewer = interfaceVisibilityService.resolveViewer();
 
         // ⑤ 组装 + 计数
         List<AppInterfaceDocVo.Item> items = new ArrayList<>();
@@ -174,7 +186,8 @@ public class AppInterfaceDocServiceImpl implements AppInterfaceDocService {
                 continue;
             }
             items.add(toItem(g, i, groupNameById.get(i.getGroupId()),
-                    paramsByIface.getOrDefault(i.getId(), Collections.emptyList())));
+                    paramsByIface.getOrDefault(i.getId(), Collections.emptyList()),
+                    viewer.mustMask(i.getOwnerId())));
         }
 
         // 稳定排序：先按分组名，再按接口路径（同一分组内路径相邻，便于阅读）
@@ -196,9 +209,9 @@ public class AppInterfaceDocServiceImpl implements AppInterfaceDocService {
         return i.getStatus() != null && i.getStatus().intValue() == INTERFACE_STATUS_ENABLED;
     }
 
-    /** 授权 + 接口 + 分组 + 参数 → 一行明细 */
+    /** 授权 + 接口 + 分组 + 参数 → 一行明细（T17：mask=true 时路径与参数内容出掩码） */
     private AppInterfaceDocVo.Item toItem(AppApiGrant g, ApiInterface i, String groupName,
-                                         List<ApiParam> params) {
+                                         List<ApiParam> params, boolean mask) {
         AppInterfaceDocVo.Item it = new AppInterfaceDocVo.Item();
         it.setGrantId(g.getId());
         it.setEnvCode(g.getEnvCode());
@@ -210,7 +223,7 @@ public class AppInterfaceDocServiceImpl implements AppInterfaceDocService {
         it.setInterfaceId(i.getId());
         it.setApiCode(i.getApiCode());
         it.setInterfaceName(i.getInterfaceName());
-        it.setInterfacePath(i.getInterfacePath());
+        it.setInterfacePath(mask ? interfaceCryptoService.maskPath() : i.getInterfacePath());
         it.setRequestMethod(i.getRequestMethod());
         it.setRequestParamType(i.getRequestParamType());
         it.setDescription(i.getDescription());
@@ -221,8 +234,26 @@ public class AppInterfaceDocServiceImpl implements AppInterfaceDocService {
         it.setTimeoutMs(i.getTimeoutMs());
         it.setCurrentVersion(i.getCurrentVersion());
         it.setAuthRequired(i.getAuthRequired());
+        it.setMasked(mask);
 
-        it.setParams(params == null ? new ArrayList<>() : new ArrayList<>(params));
+        // 参数明细：mask 时只掩「契约内容」三列，结构列（类型/必填/错误码…）保持真值 ——
+        // 与接口详情页（InterfaceServiceImpl.paramDtos）口径完全一致，勿只改一处。
+        List<ApiParam> safe = new ArrayList<>();
+        if (params != null) {
+            for (ApiParam p : params) {
+                if (!mask) {
+                    safe.add(p);
+                    continue;
+                }
+                ApiParam copy = new ApiParam();
+                org.springframework.beans.BeanUtils.copyProperties(p, copy);
+                copy.setFieldName(interfaceCryptoService.maskPath());
+                copy.setExample(interfaceCryptoService.maskPath());
+                copy.setDescription(interfaceCryptoService.maskPath());
+                safe.add(copy);
+            }
+        }
+        it.setParams(safe);
         return it;
     }
 

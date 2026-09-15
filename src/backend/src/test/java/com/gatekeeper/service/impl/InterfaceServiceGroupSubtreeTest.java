@@ -81,6 +81,9 @@ class InterfaceServiceGroupSubtreeTest {
     private ApiEnvConfigMapper apiEnvConfigMapper;
     @Mock
     private ApiChangeLogMapper apiChangeLogMapper;
+    /** T17：可见性判定（本类用例与加密无关，stub 成「保护关闭」） */
+    @Mock
+    private com.gatekeeper.service.InterfaceVisibilityService interfaceVisibilityService;
 
     private InterfaceServiceImpl service;
 
@@ -90,8 +93,12 @@ class InterfaceServiceGroupSubtreeTest {
     @BeforeEach
     void setUp() {
         // 构造参数顺序 == @RequiredArgsConstructor 收集的 final 字段声明顺序
+        // T17：末尾追加了 interfaceCryptoService / interfaceVisibilityService 两个协作对象
         service = new InterfaceServiceImpl(apiGroupMapper, apiParamMapper,
-                apiVersionMapper, apiEnvConfigMapper, apiChangeLogMapper);
+                apiVersionMapper, apiEnvConfigMapper, apiChangeLogMapper,
+                new com.gatekeeper.support.PassthroughInterfaceCrypto(), interfaceVisibilityService);
+        when(interfaceVisibilityService.resolveViewer())
+                .thenReturn(com.gatekeeper.security.InterfaceViewer.unprotected());
         // baseMapper 由 Spring 在 ServiceImpl 中注入，单测用反射直塞
         try {
             Field baseMapperField = com.baomidou.mybatisplus.extension.service.impl.ServiceImpl.class

@@ -73,6 +73,10 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
     private final ApiVersionMapper apiVersionMapper;
     private final ApiEnvConfigMapper apiEnvConfigMapper;
     private final ApiChangeLogMapper apiChangeLogMapper;
+    /** T17：interface_path 的字段级加解密（含盲索引） */
+    private final com.gatekeeper.crypto.InterfaceCryptoService interfaceCryptoService;
+    /** T17：控制台可见性判定（每次请求解析一次，按行复用） */
+    private final com.gatekeeper.service.InterfaceVisibilityService interfaceVisibilityService;
 
     @Override
     public PageResult<ApiInterface> pageQuery(int current, int size, String interfaceName, Long groupId) {
@@ -103,11 +107,38 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
 
         List<ApiInterface> rows = page.getRecords();
         Map<Long, String> groupNames = loadGroupNames(rows);
+        // T17：可见性上下文每页解析一次（不是每行一次），每行只剩纯内存判断
+        com.gatekeeper.security.InterfaceViewer viewer = interfaceVisibilityService.resolveViewer();
         List<InterfaceListVo> vos = new ArrayList<>(rows.size());
         for (ApiInterface r : rows) {
-            vos.add(toListVo(r, groupNames));
+            InterfaceListVo vo = toListVo(r, groupNames);
+            // 路径出参：白名单内给明文、其余给固定掩码（读路径统一在此收敛）
+            applyPathVisibility(vo, r.getOwnerId(), viewer);
+            vos.add(vo);
         }
         return PageResult.of(vos, page.getTotal(), page.getCurrent(), page.getSize());
+    }
+
+    /**
+     * 列表行的路径可见性处理（T17）。
+     *
+     * <p>只在 VO 上替换，<b>不改动实体</b> —— 实体后续可能被同一次请求的其他逻辑复用，
+     * 就地改写会埋下"某些分支拿到明文、某些拿到掩码"的隐性 bug。</p>
+     *
+     * @param vo      待出参的列表行
+     * @param ownerId 该行接口的负责人 id（owner 本人始终可见）
+     * @param viewer  本次请求的可见性上下文
+     */
+    private void applyPathVisibility(InterfaceListVo vo, Long ownerId,
+                                     com.gatekeeper.security.InterfaceViewer viewer) {
+        String plain = interfaceCryptoService.decryptField(vo.getInterfacePath());
+        if (viewer.mustMask(ownerId)) {
+            vo.setInterfacePath(interfaceCryptoService.maskPath());
+            vo.setPathMasked(Boolean.TRUE);
+        } else {
+            vo.setInterfacePath(plain);
+            vo.setPathMasked(Boolean.FALSE);
+        }
     }
 
     @Override
@@ -135,7 +166,12 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
         }
         apiInterface.setCreatedAt(LocalDateTime.now());
         apiInterface.setUpdatedAt(LocalDateTime.now());
+        // T17 写路径：interface_path 加密落库 + 盲索引就位（开关关闭时存明文，但 blind index 照算）
+        interfaceCryptoService.applyToInterface(apiInterface);
         baseMapper.insert(apiInterface);
+        // 落库完成后立即还原明文：返回值会直接进响应体，不能把 enc:v1: 串露给前端。
+        // 提交者本人刚输入的路径，回显明文不构成泄漏（他本来就知道）。
+        interfaceCryptoService.decryptInPlace(apiInterface);
         log.info("ApiInterface created: id={}, name={}", apiInterface.getId(), apiInterface.getInterfaceName());
         return apiInterface;
     }
@@ -143,9 +179,42 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
     @Override
     public void updateInterface(Long id, ApiInterface apiInterface) {
         requireGroup(apiInterface); // T13：所属分组必填
+        if (id == null) {
+            throw GatewayException.badRequest("接口ID不能为空");
+        }
+        ApiInterface existing = baseMapper.selectById(id);
+        if (existing == null) {
+            throw GatewayException.notFound("接口不存在: id=" + id);
+        }
         apiInterface.setId(id);
+        applyPathWriteBackGuard(apiInterface, existing);
         apiInterface.setUpdatedAt(LocalDateTime.now());
         baseMapper.updateById(apiInterface);
+    }
+
+    /**
+     * 掩码回写防线 + 写路径加密（T17）。
+     *
+     * <p><b>为什么必须有这道防线</b>：不在可见性白名单内的用户打开编辑弹窗时，
+     * 表单里的路径就是掩码 {@code ****}。他「什么都不改直接保存」时，
+     * 后端若照单全收就会把 {@code ****} 当成新路径写进库 ——
+     * <b>接口路径被静默改坏，网关随即对这条接口永久 404</b>，且没有任何报错。
+     * （同族缺陷见 docs/CONTRACTS §8「表单往返静默改写」。）</p>
+     *
+     * <p>因此：入参为空或等于掩码 ⇒ 视为「本次不改这一列」，
+     * 用库中现存的密文值回填，使这次 update 对该列成为 no-op。</p>
+     *
+     * @param incoming 前端提交的实体
+     * @param existing 库中现存行（其 interface_path 为密文或明文原值）
+     */
+    private void applyPathWriteBackGuard(ApiInterface incoming, ApiInterface existing) {
+        String path = incoming.getInterfacePath();
+        if (interfaceCryptoService.isMask(path) || !StringUtils.hasText(path)) {
+            incoming.setInterfacePath(existing.getInterfacePath());   // 已是密文 → applyToInterface 不会二次加密
+            incoming.setInterfacePathHash(existing.getInterfacePathHash());
+            return;
+        }
+        interfaceCryptoService.applyToInterface(incoming);
     }
 
     /**
@@ -213,11 +282,21 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
             throw GatewayException.notFound("接口不存在: id=" + id);
         }
         InterfaceDetailVo vo = new InterfaceDetailVo();
+        // T17：详情页的路径与参数也走同一套可见性口径（与列表页一致，避免"列表掩码、详情明文"的漏口）
+        com.gatekeeper.security.InterfaceViewer viewer = interfaceVisibilityService.resolveViewer();
+        boolean maskPath = viewer.mustMask(api.getOwnerId());
+        api.setInterfacePath(maskPath
+                ? interfaceCryptoService.maskPath()
+                : interfaceCryptoService.decryptField(api.getInterfacePath()));
+        vo.setApiPathMasked(maskPath);
         vo.setApi(api);
-        vo.setHeader(paramDtos(id, PT_HEADER));
-        vo.setRequest(paramDtos(id, PT_REQUEST));
-        vo.setResponse(paramDtos(id, PT_RESPONSE));
-        vo.setError(paramDtos(id, PT_ERROR));
+
+        boolean maskParams = maskPath; // 同一行（同一 owner）⇒ 路径与参数的可见性必然一致
+        vo.setHeader(paramDtos(id, PT_HEADER, maskParams));
+        vo.setRequest(paramDtos(id, PT_REQUEST, maskParams));
+        vo.setResponse(paramDtos(id, PT_RESPONSE, maskParams));
+        vo.setError(paramDtos(id, PT_ERROR, maskParams));
+        vo.setParamsMasked(maskParams);
         vo.setVersions(versionDtos(id));
         vo.setEnvConfigs(envConfigDtos(id));
         vo.setRecentChangeLogs(changeLogDtos(id, RECENT_CHANGE_LOG_LIMIT));
@@ -311,7 +390,18 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
         return vo;
     }
 
-    private List<ApiParamDto> paramDtos(Long apiId, int paramType) {
+    /**
+     * 读取某分区的参数并转 DTO（T17：附带按可见性解密 / 掩码）。
+     *
+     * <p>掩码只作用在「契约内容」三列（fieldName / example / description）；
+     * 结构列保持真值。此口径与 {@code ApiParamServiceImpl.toVisibleDto} 及
+     * 接口文档导出（{@code AppInterfaceDocServiceImpl.toItem}）必须一致 —— 三处同改。</p>
+     *
+     * @param apiId      接口 id
+     * @param paramType  参数类型
+     * @param maskParams true=内容列替换为固定掩码
+     */
+    private List<ApiParamDto> paramDtos(Long apiId, int paramType, boolean maskParams) {
         List<ApiParam> list = apiParamMapper.selectList(
                 new QueryWrapper<ApiParam>()
                         .eq("api_id", apiId)
@@ -322,6 +412,17 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
         for (ApiParam p : list) {
             ApiParamDto d = new ApiParamDto();
             BeanUtils.copyProperties(p, d);
+            if (maskParams) {
+                d.setFieldName(interfaceCryptoService.maskPath());
+                d.setExample(interfaceCryptoService.maskPath());
+                d.setDescription(interfaceCryptoService.maskPath());
+                d.setMasked(Boolean.TRUE);
+            } else {
+                d.setFieldName(interfaceCryptoService.decryptField(p.getFieldName()));
+                d.setExample(interfaceCryptoService.decryptField(p.getExample()));
+                d.setDescription(interfaceCryptoService.decryptField(p.getDescription()));
+                d.setMasked(Boolean.FALSE);
+            }
             dtos.add(d);
         }
         return dtos;

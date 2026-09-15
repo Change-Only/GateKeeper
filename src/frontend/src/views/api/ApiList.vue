@@ -40,7 +40,12 @@
 
       <template #path="{ row }">
         <span class="method" :class="(row.requestMethod || 'GET').toLowerCase()">{{ row.requestMethod }}</span>
-        <code class="mono">{{ row.interfacePath }}</code>
+        <!-- T17 掩码态：不在「接口信息保护」可见性白名单内时后端只回 ****，
+             这里给出可解释的锁标记，避免用户以为数据坏了 -->
+        <el-tooltip v-if="row.pathMasked" placement="top" content="当前账号无权查看接口路径明文（受「接口信息保护」限制）">
+          <span class="mask-path"><i class="el-icon-lock" /> {{ row.interfacePath }}</span>
+        </el-tooltip>
+        <code v-else class="mono">{{ row.interfacePath }}</code>
       </template>
       <template #groupName="{ row }">
         <!-- 优先用后端 JOIN 出的 groupName（列表 VO 已带），前端 map 仅作兜底：
@@ -72,6 +77,9 @@
             <div class="hero-title-wrap">
               <div class="hero-title">{{ currentApi.interfaceName }}</div>
               <code class="hero-path">{{ currentApi.interfacePath }}</code>
+              <el-tag v-if="currentApi.pathMasked" size="mini" type="warning" effect="plain">
+                路径对当前账号隐藏
+              </el-tag>
             </div>
             <el-tag :type="currentApi.status === 1 ? 'success' : 'info'" size="small">
               {{ currentApi.status === 1 ? '启用中' : '已停用' }}
@@ -187,6 +195,8 @@ export default {
       drawerVisible: false,
       activeTab: 'param',
       currentApi: null,
+      /** T17：当前编辑行的路径是否为掩码（不在可见性白名单内）——决定弹窗里路径字段是否锁定 */
+      pathMasked: false,
       dialogVisible: false,
       dialogTitle: '新建接口',
       submitting: false,
@@ -241,9 +251,27 @@ export default {
         this.buildGroupOptions()
       } catch (e) { /* 拦截器已提示 */ }
     },
-    /** 把已加载的分组树注入 fields（沿用 ApiParamTab.buildParentOptions 的同款写法） */
+    /**
+     * 回填 fields 的动态部分（分组树 options + T17 路径掩码态）。
+     *
+     * 之所以把两件事放同一个方法：fields 是「整体重建」的（map 出新的数组），
+     * 若分成两个方法各重建一次，后执行的会把前一次的结果丢掉。
+     */
     buildGroupOptions() {
-      this.fields = this.fields.map((f) => f.prop === 'groupId' ? { ...f, options: this.groupTree } : f)
+      this.fields = this.fields.map((f) => {
+        if (f.prop === 'groupId') return { ...f, options: this.groupTree }
+        if (f.prop === 'interfacePath') {
+          return this.pathMasked
+            ? {
+              ...f,
+              disabled: true,
+              hint: '当前账号无权查看该接口路径明文（受「接口信息保护」限制）。'
+                + '此字段本次不会被修改 —— 直接保存不会影响已有的路径。'
+            }
+            : { ...f, disabled: false, hint: '' }
+        }
+        return f
+      })
     },
     reload() {
       if (this.$refs.table) this.$refs.table.reload()
@@ -269,6 +297,7 @@ export default {
     onDrawerOpen() {},
     openCreate() {
       this.dialogTitle = '新建接口'
+      this.pathMasked = false
       this.form = {
         interfaceName: '',
         interfacePath: '',
@@ -285,6 +314,9 @@ export default {
     },
     openEdit(row) {
       this.dialogTitle = '编辑接口'
+      // T17：行级 pathMasked 决定路径字段是否锁定（锁定后提交的仍是 ****，
+      // 后端 InterfaceServiceImpl.applyPathWriteBackGuard 会按「本次不改」处理）
+      this.pathMasked = !!row.pathMasked
       this.form = { ...row, groupId: row.groupId || null }
       this.buildGroupOptions()
       this.dialogVisible = true
@@ -345,6 +377,17 @@ export default {
 
 <style scoped>
 .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: #17233d; }
+/* T17 掩码态：路径无权查看时的锁定样式（与明文 mono 明显区分，但不刺眼） */
+.mask-path {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 12px;
+  color: #b8860b;
+  background: #fdf6ec;
+  border: 1px dashed #f0c78a;
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: help;
+}
 /* 概览区里跟在主值后面的补充说明（如「默认后端地址」的兜底语义） */
 .sub-text { font-size: 11px; color: #9aa7bf; margin-left: 6px; }
 .danger-link { color: #c03337; }

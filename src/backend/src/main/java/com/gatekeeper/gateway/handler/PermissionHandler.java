@@ -41,6 +41,14 @@ public class PermissionHandler implements GatewayHandler {
     private final AppApiPermissionMapper permissionMapper;
     private final SecurityDetectionService securityDetectionService;
 
+    /**
+     * T17：接口路径字段级加解密（网关只用到「解密」与「算盲索引」两个能力）。
+     *
+     * <p>本字段<b>不可改为可选注入</b>：盲索引缺失 ⇒ 密文行永远匹配不上 ⇒ 网关全量 404。
+     * 那是"静默失效"，比启动失败危险得多。</p>
+     */
+    private final com.gatekeeper.crypto.InterfaceCryptoService interfaceCryptoService;
+
     /** 当 ctx 未携带环境时的默认环境 */
     private static final String DEFAULT_ENV = "prod";
 
@@ -104,14 +112,23 @@ public class PermissionHandler implements GatewayHandler {
         // ⇒ 网关对任何接口都回 404「接口不存在或未启用」。
         // 这里改为「按候选路径逐个尝试，先精确后宽松」（见 GatewayPaths），兼容两种存量录入约定，
         // **不需要数据迁移**。
+        //
+        // 🔴 T17 追加：interface_path 在「接口信息加密」启用时是**随机 IV 密文**，
+        // 无法参与等值查询。故每个候选都同时比对「盲索引」与「明文列」两个分支：
+        //   · 密文行 → 命中 interface_path_hash（HMAC-SHA256，确定性）；
+        //   · 历史明文行 / 开关关闭时写入的行 → 命中 interface_path 本身。
+        // 两分支共存是「存量数据零迁移」的关键，勿删任一侧。
         ApiInterface apiInterface = null;
         List<String> candidates = GatewayPaths.interfacePathCandidates(ctx.getPath(), ctx.getContextPath());
         for (String candidate : candidates) {
+            String candidateHash = interfaceCryptoService.blindIndex(candidate);
             // 用 selectList 取首条而不是 selectOne：interface_path 上没有唯一约束，
             // 万一存在重复行，selectOne 会抛 TooManyResultsException（同类坑见 AppCredentialServiceImpl）。
             List<ApiInterface> hits = interfaceMapper.selectList(
                     new QueryWrapper<ApiInterface>()
-                            .eq("interface_path", candidate)
+                            .and(w -> w.eq("interface_path_hash", candidateHash)
+                                       .or()
+                                       .eq("interface_path", candidate))
                             .eq("request_method", ctx.getMethod())
                             .eq("status", 1)
                             .orderByAsc("id"));
@@ -127,6 +144,11 @@ public class PermissionHandler implements GatewayHandler {
         if (apiInterface == null) {
             throw GatewayException.notFound("接口不存在或未启用: " + ctx.getPath());
         }
+
+        // T17：把密文路径还原成明文 —— 后续的 URI 拼装（EnvConfigResolver.joinUrl）、
+        // 转发、日志落库都必须是明文，绝不能把 enc:v1: 串写进上游 URL 或调用日志。
+        // 网关链路**只解密不掩码**：掩码是「控制台可见性」的事，与数据面无关。
+        interfaceCryptoService.decryptInPlace(apiInterface);
 
         // 写入接口信息，供解密/转发/日志环节使用
         ctx.setInterfaceId(apiInterface.getId());

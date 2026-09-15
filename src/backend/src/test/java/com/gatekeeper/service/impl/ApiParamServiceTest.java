@@ -42,11 +42,22 @@ class ApiParamServiceTest {
     @Mock
     private ApiParamMapper apiParamMapper;
 
+    /** T17：参数行的可见性取决于所属接口 owner；本类用例无关，给 mock 即可 */
+    @Mock
+    private com.gatekeeper.mapper.ApiInterfaceMapper apiInterfaceMapper;
+    @Mock
+    private com.gatekeeper.service.InterfaceVisibilityService interfaceVisibilityService;
+
     private ApiParamServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new ApiParamServiceImpl();
+        // T17：新增两个协作对象（加解密 + 可见性）。用「开关关闭」替身，
+        // 让本类用例继续只关注 T03b 的原有语义。
+        service = new ApiParamServiceImpl(new com.gatekeeper.support.PassthroughInterfaceCrypto(),
+                interfaceVisibilityService, apiInterfaceMapper);
+        when(interfaceVisibilityService.resolveViewer())
+                .thenReturn(com.gatekeeper.security.InterfaceViewer.unprotected());
         try {
             Field baseMapperField = com.baomidou.mybatisplus.extension.service.impl.ServiceImpl.class
                     .getDeclaredField("baseMapper");

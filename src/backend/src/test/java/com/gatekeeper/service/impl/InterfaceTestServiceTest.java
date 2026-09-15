@@ -76,7 +76,9 @@ class InterfaceTestServiceTest {
     void setUp() throws Exception {
         service = new InterfaceTestServiceImpl(
                 apiInterfaceMapper, appMapper, appApiGrantMapper, appApiPermissionMapper,
-                cryptoService, envConfigResolver);
+                cryptoService, envConfigResolver,
+                // T17：试调要先还原接口路径明文再拼 URL；本类用例用「开关关闭」替身
+                new com.gatekeeper.support.PassthroughInterfaceCrypto());
         set("aesDbKey", "0123456789abcdef0123456789abcdef");
         set("selfBaseUrl", "http://127.0.0.1:1");
     }

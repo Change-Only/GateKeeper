@@ -10,7 +10,6 @@ import com.gatekeeper.gateway.dto.EffectiveGroupEncryption;
 import com.gatekeeper.gateway.dto.GatewayContext;
 import com.gatekeeper.mapper.ApiEncryptionConfigMapper;
 import com.gatekeeper.mapper.AppEncryptionConfigMapper;
-import com.gatekeeper.service.SysEncryptionConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
@@ -23,10 +22,6 @@ import org.springframework.stereotype.Component;
  *
  * <p><b>加解密配置优先级（T15-1 起为三档）</b>：
  * <b>接口级 &gt; 分组级（沿分组树向上继承） &gt; 应用级</b> &gt; 无加密（明文传输）。</p>
- *
- * <p><b>T16-1 平台级总开关凌驾于上述三档之上</b>：{@code sys_encryption_config.enabled = 0}
- * 时直接短路返回（全平台强制明文），连接口级配置也不生效。这是刻意的
- * "总闸"语义 —— 用户口径为「仅总闸，不留平台密钥」，平台级不提供算法与密钥兜底。</p>
  *
  * <p>三档的「终止」语义各不相同，务必区分：
  * <ul>
@@ -51,8 +46,6 @@ public class EncryptionHandler implements GatewayHandler {
     private final CryptoService cryptoService;
     /** T15-1：分组级加解密继承解析（唯一口径，与前端「生效预览」共用同一份逻辑） */
     private final EncryptionConfigResolver encryptionConfigResolver;
-    /** T16-1：平台级加解密总开关（关闭 ⇒ 全局强制明文，短路整条解析链） */
-    private final SysEncryptionConfigService sysEncryptionConfigService;
 
     /**
      * 责任链执行入口：加载加解密配置并解密入参
@@ -76,15 +69,6 @@ public class EncryptionHandler implements GatewayHandler {
      * @param ctx 网关上下文（写入入参/返参的算法、模式、密钥、IV、填充方式）
      */
     private void loadEncryptionConfig(GatewayContext ctx) {
-        // T16-1：平台级总开关 —— 关闭即**全局强制明文**（短路，忽略所有层级配置）。
-        // isGloballyEnabled() 内部 fail-safe：读不到开关时返回 true（保持加密），
-        // 绝不能因为一次 DB 抖动就把全平台打成明文。
-        if (!sysEncryptionConfigService.isGloballyEnabled()) {
-            log.info("平台加解密总开关已关闭，本次按明文处理: appId={}, ifaceId={}",
-                    ctx.getAppId(), ctx.getInterfaceId());
-            return;
-        }
-
         // 接口级配置
         ApiEncryptionConfig apiConfig = apiEncMapper.selectOne(
                 new QueryWrapper<ApiEncryptionConfig>().eq("interface_id", ctx.getInterfaceId())

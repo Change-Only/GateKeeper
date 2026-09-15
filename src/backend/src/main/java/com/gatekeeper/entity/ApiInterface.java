@@ -30,8 +30,26 @@ public class ApiInterface {
     /** 接口名称 */
     private String interfaceName;
 
-    /** 网关对外暴露路径（/gateway/ 开头） */
+    /** 网关对外暴露路径（/gateway/ 开头）
+     *
+     * <p>T17：接口信息加密启用时，本列存的是 AES-256-CBC 密文（{@code enc:v1:<iv>:<cipher>}）；
+     * 关闭或历史数据为明文。读取侧必须经
+     * {@code InterfaceCryptoService.decryptInPlace(ApiInterface)} 还原。</p>
+     */
     private String interfacePath;
+
+    /**
+     * 接口路径盲索引 —— HMAC-SHA256(interface_path) 的小写十六进制（T17）。
+     *
+     * <p><b>它存在的唯一理由是「让加密后的路径还能被网关等值查到」</b>：
+     * 随机 IV 密文无法参与 {@code eq} 查询，{@code PermissionHandler}
+     * 只能改用本列。详见 {@code InterfaceCryptoService} 类注释。</p>
+     *
+     * <p>🔴 {@code @JsonIgnore}：本列是确定性指纹，<b>绝不出现在任何控制台响应里</b>。
+     * 内部 Java 代码直接读实体字段，不受影响。</p>
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String interfacePathHash;
 
     /** 请求方法（GET/POST/PUT/DELETE） */
     private String requestMethod;

@@ -109,5 +109,15 @@ public class AppInterfaceDocVo {
          * 前端按 paramType 分组渲染成多张表。
          */
         private List<ApiParam> params = new ArrayList<>();
+
+        /**
+         * 本条明细的「路径 + 参数内容」是否被掩码（T17）。
+         *
+         * <p>{@code true} 时 {@link #interfacePath} 与 {@link #params} 的
+         * {@code fieldName}/{@code example}/{@code description} 是固定掩码 {@code ****}：
+         * 当前用户不在「接口信息可见性白名单」内。文档导出同样受该约束 ——
+         * 否则文档页会成为绕过控制台掩码的取数后门。</p>
+         */
+        private Boolean masked;
     }
 }

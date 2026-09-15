@@ -86,12 +86,20 @@ class AlarmRuleTargetBindingTest {
     @Mock
     private ApiInterfaceMapper apiInterfaceMapper;
 
+    /** T17：目标候选下拉的可见性掩码（本类用例 stub 成「保护关闭」） */
+    @Mock
+    private com.gatekeeper.service.InterfaceVisibilityService interfaceVisibilityService;
+
     private AlarmRuleServiceImpl service;
 
     @BeforeEach
     void setUp() throws Exception {
         service = new AlarmRuleServiceImpl(redisTemplate, alertService, notifySender,
-                notifyChannelService, appMapper, apiInterfaceMapper);
+                notifyChannelService, appMapper, apiInterfaceMapper,
+                // T17：末尾追加 interfaceCryptoService / interfaceVisibilityService
+                new com.gatekeeper.support.PassthroughInterfaceCrypto(), interfaceVisibilityService);
+        org.mockito.Mockito.lenient().when(interfaceVisibilityService.resolveViewer())
+                .thenReturn(com.gatekeeper.security.InterfaceViewer.unprotected());
         Field baseMapperField = com.baomidou.mybatisplus.extension.service.impl.ServiceImpl.class
                 .getDeclaredField("baseMapper");
         baseMapperField.setAccessible(true);

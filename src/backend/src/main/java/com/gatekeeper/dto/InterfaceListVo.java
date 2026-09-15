@@ -109,4 +109,12 @@ public class InterfaceListVo {
 
     /** 创建时间 */
     private LocalDateTime createdAt;
+
+    /**
+     * 接口路径是否因「接口信息加密 + 不在可见性白名单内」被掩码（T17）。
+     *
+     * <p>{@code true} 时 {@link #interfacePath} 是固定掩码 {@code ****} 而非真实路径。
+     * 前端据此渲染锁定图标与提示，并<b>避免把掩码回写</b>（后端也有掩码回写防线）。</p>
+     */
+    private Boolean pathMasked;
 }

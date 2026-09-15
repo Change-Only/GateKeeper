@@ -75,6 +75,9 @@ class AppInterfaceDocServiceTest {
     private ApiGroupMapper apiGroupMapper;
     @Mock
     private ApiParamMapper apiParamMapper;
+    /** T17：可见性判定（本类用例与加密无关，stub 成「保护关闭」） */
+    @Mock
+    private com.gatekeeper.service.InterfaceVisibilityService interfaceVisibilityService;
 
     private AppInterfaceDocServiceImpl service;
 
@@ -82,8 +85,12 @@ class AppInterfaceDocServiceTest {
 
     @BeforeEach
     void setUp() {
+        // T17：末尾追加 interfaceCryptoService / interfaceVisibilityService
         service = new AppInterfaceDocServiceImpl(
-                appMapper, grantMapper, apiInterfaceMapper, apiGroupMapper, apiParamMapper);
+                appMapper, grantMapper, apiInterfaceMapper, apiGroupMapper, apiParamMapper,
+                new com.gatekeeper.support.PassthroughInterfaceCrypto(), interfaceVisibilityService);
+        when(interfaceVisibilityService.resolveViewer())
+                .thenReturn(com.gatekeeper.security.InterfaceViewer.unprotected());
     }
 
     // ===================== 造数据的小工具 =====================

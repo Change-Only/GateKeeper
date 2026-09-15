@@ -752,16 +752,38 @@ export function testInterface(apiId, data) {
   return request.post(`/interface/${apiId}/test`, data)
 }
 
-// ============ 平台加解密总开关 sys/encryption-config（T16-1） ============
-// 平台级「总闸」：enabled=0 ⇒ 网关**全局强制明文**（短路，忽略接口级/分组级/应用级所有配置）。
-// 口径为「仅总闸，不留平台密钥」⇒ 实体只有 enabled / remark，没有算法与密钥字段。
-// 读取（后端在「表中无行」时返回 enabled=1 的虚拟行，前端无需为"从未配置过"写分支）
-export function getSysEncryptionConfig() {
-  return request.get('/sys/encryption-config')
+// ============ 接口信息保护 sys/interface-protection（T17） ============
+// 与「加解密管理」（第三方调我方接口时的报文加解密）**完全无关**，勿混：
+// 这里是 GateKeeper **自身数据**的保护 —— 把接口路径与参数契约内容加密落库，
+// 并只有可见性白名单内的人（+ 超管 + 接口 owner）在控制台能看到明文。
+//
+// 读取加密开关（后端「表中缺行」时返回 enabled=1 的虚拟行，前端无需为"从未配置过"写分支）
+export function getInterfaceProtectionConfig() {
+  return request.get('/sys/interface-protection/config')
 }
-// 更新（sys:security:update 高危；置 0 会把全平台降级为明文，务必二次确认）
-export function updateSysEncryptionConfig(data) {
-  return request.put('/sys/encryption-config', data)
+// 更新加密开关（sys:security:update 高危；置 0 = 明文落库且对所有登录用户可见，必须二次确认）
+export function updateInterfaceProtectionConfig(data) {
+  return request.put('/sys/interface-protection/config', data)
+}
+// 可见性白名单列表（含停用条目；条目主体已不存在时 subjectMissing=true，仅供提示，不自动清理）
+export function getInterfaceVisibilityList() {
+  return request.get('/sys/interface-protection/whitelist')
+}
+// 新增白名单（subjectType=USER|ROLE + subjectId）
+export function addInterfaceVisibility(data) {
+  return request.post('/sys/interface-protection/whitelist', data)
+}
+// 更新白名单（含启用/停用）
+export function updateInterfaceVisibility(id, data) {
+  return request.put(`/sys/interface-protection/whitelist/${id}`, data)
+}
+// 删除白名单
+export function removeInterfaceVisibility(id) {
+  return request.delete(`/sys/interface-protection/whitelist/${id}`)
+}
+// 候选主体下拉：{ users: [{id,label,code}], roles: [{id,label,code}] }
+export function getInterfaceVisibilitySubjectOptions() {
+  return request.get('/sys/interface-protection/subject-options')
 }
 
 // ============ 应用接口文档 app/{id}/interface-doc（T16-2） ============

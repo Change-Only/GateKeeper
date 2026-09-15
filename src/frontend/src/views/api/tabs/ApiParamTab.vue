@@ -5,6 +5,17 @@
       <span class="tab-hint">参数类型：Header/Query/Body/Response/Error；支持通过「父级参数」构造嵌套结构（如 items.skuId）</span>
     </div>
 
+    <!-- T17：参数契约内容被「接口信息保护」隐藏时的说明条。
+         结构列（类型/必填/敏感…）不加密也不掩码，所以页面不至于空白，
+         但用户必须知道「字段名/示例值/说明」为什么是 ****，否则会以为是数据坏了。 -->
+    <el-alert v-if="maskedCount > 0" type="warning" :closable="false" show-icon class="t17-mask-tip">
+      <template #title>
+        有 {{ maskedCount }} 条参数的<b>字段名 / 示例值 / 说明</b>对当前账号隐藏（显示为
+        <code>****</code>）：平台启用了「接口信息保护」，且你不在可见性白名单内。
+        类型 / 必填 / 敏感等结构信息不受影响；如需查看明文请联系管理员把你加入白名单。
+      </template>
+    </el-alert>
+
     <CrudTable
       ref="table"
       :columns="columns"
@@ -13,6 +24,12 @@
       row-key="id"
       :show-pagination="false"
     >
+      <template #fieldName="{ row }">
+        <el-tooltip v-if="row.masked" placement="top" content="当前账号无权查看该参数字段名（受「接口信息保护」限制）">
+          <span class="mask-cell"><i class="el-icon-lock" /> {{ row.fieldName }}</span>
+        </el-tooltip>
+        <span v-else>{{ row.fieldName }}</span>
+      </template>
       <template #paramType="{ row }">
         <el-tag size="small" :type="paramTypeMeta(row.paramType).type">{{ paramTypeMeta(row.paramType).label }}</el-tag>
       </template>
@@ -66,6 +83,9 @@ const FIELD_TYPES = [
   { value: 'boolean', label: '布尔' },
   { value: 'object', label: '对象' }
 ]
+/** T17：被「接口信息保护」加密 / 掩码的三个「契约内容」列（与后端口径一致，勿扩列） */
+const CONTENT_PROPS = ['fieldName', 'example', 'description']
+
 const ENCRYPT_RULES = [
   { value: 'NONE', label: '不处理' },
   { value: 'SYMMETRIC', label: '对称加密' },
@@ -81,7 +101,7 @@ export default {
     return {
       query: { apiId: this.apiId },
       columns: [
-        { prop: 'fieldName', label: '字段名', minWidth: 140 },
+        { prop: 'fieldName', label: '字段名', minWidth: 160, slot: 'fieldName' },
         { prop: 'paramType', label: '参数类型', width: 90, slot: 'paramType' },
         { prop: 'fieldType', label: '字段类型', width: 100, slot: 'fieldType' },
         { prop: 'required', label: '必填', width: 70, slot: 'required' },
@@ -90,6 +110,10 @@ export default {
         { prop: 'description', label: '说明', minWidth: 160, showOverflowTooltip: true },
         { prop: 'sortOrder', label: '排序', width: 70, align: 'center' }
       ],
+      /** 当前页参数（保留原始行，用于统计掩码条数） */
+      rows: [],
+      /** T17：编辑的这行内容列是否被掩码（决定弹窗里三个内容字段是否锁定） */
+      contentMasked: false,
       dialogVisible: false,
       dialogTitle: '新建参数',
       submitting: false,
@@ -108,6 +132,12 @@ export default {
       ]
     }
   },
+  computed: {
+    /** T17：有多少条参数的契约内容列对当前账号隐藏 */
+    maskedCount() {
+      return this.rows.filter((r) => r && r.masked).length
+    }
+  },
   watch: {
     apiId(v) {
       this.query = { apiId: v }
@@ -121,6 +151,7 @@ export default {
     async fetchParams() {
       const res = await getApiParamList({ apiId: this.apiId })
       const list = res.data || []
+      this.rows = list
       return { list, total: list.length }
     },
     async buildParentOptions(excludeId) {
@@ -132,10 +163,26 @@ export default {
           opts.push({ value: p.id, label: p.fieldName })
         }
       })
-      this.fields = this.fields.map((f) => f.prop === 'parentId' ? { ...f, options: opts } : f)
+      this.fields = this.fields.map((f) => {
+        if (f.prop === 'parentId') return { ...f, options: opts }
+        // T17：内容三列被掩码时锁定，避免把 **** 提交回去（后端 update 会跳过掩码列，
+        // 但前端先锁住能给出明确解释，而不是让用户以为"改了没生效"）
+        if (CONTENT_PROPS.indexOf(f.prop) >= 0) {
+          return this.contentMasked
+            ? {
+              ...f,
+              disabled: true,
+              hint: '当前账号无权查看该参数的' + f.label + '（受「接口信息保护」限制）。'
+                + '此字段本次不会被修改。'
+            }
+            : { ...f, disabled: false, hint: '' }
+        }
+        return f
+      })
     },
     openCreate() {
       this.dialogTitle = '新建参数'
+      this.contentMasked = false
       this.form = {
         apiId: this.apiId,
         fieldName: '',
@@ -154,6 +201,9 @@ export default {
     },
     openEdit(row) {
       this.dialogTitle = '编辑参数'
+      // T17：掩码行只读内容三列（提交值仍是 ****，后端 ApiParamServiceImpl.update
+      // 对掩码列跳过赋值 —— 两道防线，任一生效都不会写坏数据）
+      this.contentMasked = !!row.masked
       this.form = { ...row, parentId: row.parentId || 0 }
       this.buildParentOptions(row.id)
       this.dialogVisible = true
@@ -196,6 +246,18 @@ export default {
 .api-tab { padding: 4px; }
 .tab-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .tab-hint { font-size: 12px; color: #9aa7bf; }
+/* T17 掩码态 */
+.t17-mask-tip { margin-bottom: 12px; }
+.t17-mask-tip code { background: #f0f3f9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.mask-cell {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  color: #b8860b;
+  background: #fdf6ec;
+  border: 1px dashed #f0c78a;
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: help;
+}
 .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px; color: #17233d; }
 .danger-link { color: #c03337; }
 .danger-link:hover { color: #e05559; }

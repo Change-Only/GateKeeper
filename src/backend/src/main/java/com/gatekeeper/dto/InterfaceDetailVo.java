@@ -30,6 +30,22 @@ public class InterfaceDetailVo {
     /** 基本信息 */
     private ApiInterface api;
 
+    /**
+     * 基本信息里的 {@code interfacePath} 是否被掩码（T17）。
+     *
+     * <p>{@code true} 时 {@link #api}.{@code interfacePath} 是固定掩码 {@code ****}。
+     * 与列表接口的 {@code pathMasked} 同义，供详情页渲染锁定态。</p>
+     */
+    private Boolean apiPathMasked;
+
+    /**
+     * 参数契约（header/request/response/error）里是否有条目被掩码（T17）。
+     *
+     * <p>{@code true} 时对应 DTO 的 {@code fieldName}/{@code example}/{@code description}
+     * 为固定掩码 {@code ****}。逐条目还有 {@code ApiParamDto.masked} 更精确的标记。</p>
+     */
+    private Boolean paramsMasked;
+
     /** Header 参数（paramType=1） */
     private List<ApiParamDto> header = new ArrayList<>();
 

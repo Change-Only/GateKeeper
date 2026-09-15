@@ -9,9 +9,13 @@ import com.gatekeeper.dto.ApiParamCheckResult;
 import com.gatekeeper.dto.ApiParamDto;
 import com.gatekeeper.dto.ApiParamImportResult;
 import com.gatekeeper.entity.ApiParam;
+import com.gatekeeper.entity.ApiInterface;
 import com.gatekeeper.exception.GatewayException;
+import com.gatekeeper.mapper.ApiInterfaceMapper;
 import com.gatekeeper.mapper.ApiParamMapper;
+import com.gatekeeper.security.InterfaceViewer;
 import com.gatekeeper.service.ApiParamService;
+import com.gatekeeper.service.InterfaceVisibilityService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -56,6 +60,13 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
     /** paramType：Error 错误码 */
     private static final int PT_ERROR = 5;
 
+    /** T17：参数契约内容的字段级加解密 */
+    private final com.gatekeeper.crypto.InterfaceCryptoService interfaceCryptoService;
+    /** T17：可见性判定（参数行的可见性取决于其所属接口的 owner） */
+    private final InterfaceVisibilityService interfaceVisibilityService;
+    /** T17：查参数所属接口的 owner_id 用 */
+    private final ApiInterfaceMapper apiInterfaceMapper;
+
     @Override
     public List<ApiParamDto> list(Long apiId, Integer paramType, Long parentId) {
         QueryWrapper<ApiParam> wrapper = new QueryWrapper<>();
@@ -69,7 +80,10 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
             wrapper.eq("parent_id", parentId);
         }
         wrapper.orderByAsc("sort_order").orderByAsc("id");
-        return baseMapper.selectList(wrapper).stream().map(this::toDto).collect(Collectors.toList());
+        List<ApiParam> rows = baseMapper.selectList(wrapper);
+        InterfaceViewer viewer = interfaceVisibilityService.resolveViewer();
+        Map<Long, Long> owners = loadOwnerIds(rows);
+        return rows.stream().map(p -> toVisibleDto(p, viewer, owners)).collect(Collectors.toList());
     }
 
     @Override
@@ -81,7 +95,8 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
         if (entity == null) {
             throw GatewayException.notFound("接口参数不存在: id=" + id);
         }
-        return toDto(entity);
+        InterfaceViewer viewer = interfaceVisibilityService.resolveViewer();
+        return toVisibleDto(entity, viewer, loadOwnerIds(java.util.Collections.singletonList(entity)));
     }
 
     @Override
@@ -93,9 +108,12 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
         List<ApiParam> all = baseMapper.selectList(
                 new QueryWrapper<ApiParam>().eq("api_id", apiId).orderByAsc("sort_order").orderByAsc("id"));
 
+        InterfaceViewer viewer = interfaceVisibilityService.resolveViewer();
+        Map<Long, Long> owners = loadOwnerIds(all);
+
         Map<Long, ApiParamDto> dtoMap = new LinkedHashMap<>();
         for (ApiParam p : all) {
-            dtoMap.put(p.getId(), toDto(p));
+            dtoMap.put(p.getId(), toVisibleDto(p, viewer, owners));
         }
 
         List<ApiParamDto> roots = new ArrayList<>();
@@ -132,6 +150,11 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
         if (!StringUtils.hasText(dto.getFieldName())) {
             throw GatewayException.badRequest("字段名不能为空");
         }
+        if (interfaceCryptoService.isMask(dto.getFieldName())) {
+            // 掩码是"你看不到"，不是可提交的内容；照收会把 **** 写进库
+            throw GatewayException.badRequest(
+                    "字段名不能为掩码 —— 当前账号无权查看该接口参数明文，请勿把掩码回传");
+        }
         if (dto.getParamType() == null) {
             throw GatewayException.badRequest("参数类型不能为空");
         }
@@ -152,9 +175,14 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
         }
         entity.setCreatedAt(LocalDateTime.now());
         entity.setUpdatedAt(LocalDateTime.now());
+        // T17 写路径：契约内容三列加密落库
+        interfaceCryptoService.applyToParam(entity);
         baseMapper.insert(entity);
-        log.info("ApiParam created: id={}, apiId={}, fieldName={}", entity.getId(), entity.getApiId(), entity.getFieldName());
-        return toDto(entity);
+        log.info("ApiParam created: id={}, apiId={}, fieldName={}", entity.getId(), entity.getApiId(),
+                // 日志里绝不写明文契约内容，只记摘要痕迹
+                interfaceCryptoService.isEnabled() ? "[已加密]" : entity.getFieldName());
+        return toVisibleDto(entity, interfaceVisibilityService.resolveViewer(),
+                loadOwnerIds(java.util.Collections.singletonList(entity)));
     }
 
     @Override
@@ -171,7 +199,11 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
             throw GatewayException.notFound("接口参数不存在: id=" + id);
         }
         // 仅允许修改的字段（结构键 apiId / parentId / paramType 不可改）
-        if (StringUtils.hasText(dto.getFieldName())) {
+        //
+        // 🔴 T17 掩码回写防线：库中的 fieldName/example/description 是密文，
+        // 不在白名单内的用户拿到的是掩码，他"什么都不改直接保存"时提交的就是 ****。
+        // 因此掩码一律视为"本次不改这一列"（保持库中原值），绝不能把 **** 写进库。
+        if (StringUtils.hasText(dto.getFieldName()) && !interfaceCryptoService.isMask(dto.getFieldName())) {
             existing.setFieldName(dto.getFieldName());
         }
         if (StringUtils.hasText(dto.getFieldType())) {
@@ -180,7 +212,7 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
         if (dto.getRequired() != null) {
             existing.setRequired(dto.getRequired());
         }
-        if (StringUtils.hasText(dto.getExample())) {
+        if (StringUtils.hasText(dto.getExample()) && !interfaceCryptoService.isMask(dto.getExample())) {
             existing.setExample(dto.getExample());
         }
         if (StringUtils.hasText(dto.getErrorCode())) {
@@ -198,10 +230,13 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
         if (dto.getSortOrder() != null) {
             existing.setSortOrder(dto.getSortOrder());
         }
-        if (StringUtils.hasText(dto.getDescription())) {
+        if (StringUtils.hasText(dto.getDescription()) && !interfaceCryptoService.isMask(dto.getDescription())) {
             existing.setDescription(dto.getDescription());
         }
         existing.setUpdatedAt(LocalDateTime.now());
+        // T17 写路径：把（可能仍是密文的）三列统一过一遍 ——
+        // 未改动的列已是密文，encryptField 幂等跳过；改动过的是明文，这里加密。
+        interfaceCryptoService.applyToParam(existing);
         baseMapper.updateById(existing);
         log.info("ApiParam updated: id={}", id);
     }
@@ -252,6 +287,12 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
      * @return 实际写入条数
      */
     private int replaceSection(Long apiId, int paramType, List<ApiParamDto> items) {
+        // 🔴 T17 关键防线：本方法语义是「**先删后插**的全量替换」。
+        // 若提交内容里带掩码（= 调用者不在可见性白名单内、压根看不到真值），
+        // 这些 **** 会**覆盖掉不可见字段的真值**，且原值已随"先删"消失 —— 不可逆的数据损毁。
+        // 因此这里直接 400，而不是"尽力而为"：让用户先拿到明文权限，或改用单条编辑。
+        assertNoMaskInBatch(items);
+
         // 1) 先删：该接口该分区全量清除
         baseMapper.delete(new QueryWrapper<ApiParam>()
                 .eq("api_id", apiId)
@@ -289,11 +330,37 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
             }
             entity.setCreatedAt(LocalDateTime.now());
             entity.setUpdatedAt(LocalDateTime.now());
+            // T17 写路径：契约内容三列加密落库
+            interfaceCryptoService.applyToParam(entity);
             baseMapper.insert(entity);
             sort++;
             inserted++;
         }
         return inserted;
+    }
+
+    /**
+     * 全量替换的掩码防线（T17）。
+     *
+     * <p>掩码只在「保护启用 且 调用者不在白名单」时出现，所以这里无需再查一遍可见性 ——
+     * 提交体里出现掩码本身就已经说明"提交者看不到真值"，此时任何全量替换都不该被放行。</p>
+     */
+    private void assertNoMaskInBatch(List<ApiParamDto> items) {
+        if (items == null) {
+            return;
+        }
+        for (ApiParamDto it : items) {
+            if (it == null) {
+                continue;
+            }
+            if (interfaceCryptoService.isMask(it.getFieldName())
+                    || interfaceCryptoService.isMask(it.getExample())
+                    || interfaceCryptoService.isMask(it.getDescription())) {
+                throw GatewayException.badRequest(
+                        "提交内容包含不可见字段的掩码，无法执行全量替换（会覆盖你看不到的真值）。"
+                                + "请联系管理员把你加入「接口信息可见性白名单」，或改用单条编辑。");
+            }
+        }
     }
 
     @Override
@@ -349,6 +416,10 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
 
         ApiParamCheckResult res = new ApiParamCheckResult();
         res.setTotal(all.size());
+        // T17：就绪度校验会往 issues 里带 fieldName，出参前同样要按可见性还原/掩码
+        InterfaceViewer viewer = interfaceVisibilityService.resolveViewer();
+        Map<Long, Long> owners = loadOwnerIds(all);
+        boolean maskContent = viewer.mustMask(owners.get(apiId));
         int requiredCount = 0;
         int requestCount = 0;
         for (ApiParam p : all) {
@@ -361,13 +432,16 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
                 requiredCount++;
             }
             String section = sectionOf(pt);
+            String fieldName = maskContent
+                    ? interfaceCryptoService.maskPath()
+                    : interfaceCryptoService.decryptField(p.getFieldName());
             if (required && !StringUtils.hasText(p.getFieldType())) {
                 res.getIssues().add(new ApiParamCheckResult.Issue(
-                        p.getId(), section, p.getFieldName(), "必填参数缺少字段类型(fieldType)"));
+                        p.getId(), section, fieldName, "必填参数缺少字段类型(fieldType)"));
             }
             if (pt == PT_ERROR && !StringUtils.hasText(p.getErrorCode())) {
                 res.getIssues().add(new ApiParamCheckResult.Issue(
-                        p.getId(), section, p.getFieldName(), "错误码分区缺少 errorCode"));
+                        p.getId(), section, fieldName, "错误码分区缺少 errorCode"));
             }
         }
         res.setRequiredCount(requiredCount);
@@ -484,7 +558,11 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
     }
 
     /**
-     * Entity → DTO。
+     * Entity → DTO（<b>无可见性处理</b>）。
+     *
+     * <p>⚠ 仅供「不需要出参给控制台」的内部场景使用。任何会进响应体的路径请用
+     * {@link #toVisibleDto(ApiParam, InterfaceViewer, Map)}，否则会把密文或未掩码的
+     * 明文泄露出去。</p>
      */
     private ApiParamDto toDto(ApiParam entity) {
         if (entity == null) {
@@ -493,5 +571,64 @@ public class ApiParamServiceImpl extends ServiceImpl<ApiParamMapper, ApiParam> i
         ApiParamDto dto = new ApiParamDto();
         BeanUtils.copyProperties(entity, dto);
         return dto;
+    }
+
+    /**
+     * Entity → DTO（T17：按可见性解密或掩码）。
+     *
+     * <p>掩码只作用在「契约内容」三列（fieldName / example / description）；
+     * 结构列（paramType / fieldType / required / errorCode / httpStatus /
+     * sensitive / encryptRule / sortOrder）保持真值 —— 与
+     * {@code InterfaceServiceImpl.paramDtos} 和接口文档导出口径一致，三处必须同改。</p>
+     *
+     * @param entity 库中参数（其内容列为密文或历史明文）
+     * @param viewer 本次请求的可见性上下文
+     * @param owners {@code apiId → owner_id} 映射（批量预取，避免逐行查库）
+     */
+    private ApiParamDto toVisibleDto(ApiParam entity, InterfaceViewer viewer, Map<Long, Long> owners) {
+        ApiParamDto dto = toDto(entity);
+        if (dto == null) {
+            return null;
+        }
+        if (viewer != null && viewer.mustMask(owners == null ? null : owners.get(entity.getApiId()))) {
+            dto.setFieldName(interfaceCryptoService.maskPath());
+            dto.setExample(interfaceCryptoService.maskPath());
+            dto.setDescription(interfaceCryptoService.maskPath());
+            dto.setMasked(Boolean.TRUE);
+        } else {
+            dto.setFieldName(interfaceCryptoService.decryptField(entity.getFieldName()));
+            dto.setExample(interfaceCryptoService.decryptField(entity.getExample()));
+            dto.setDescription(interfaceCryptoService.decryptField(entity.getDescription()));
+            dto.setMasked(Boolean.FALSE);
+        }
+        return dto;
+    }
+
+    /**
+     * 批量预取 {@code apiId → owner_id}（T17）。
+     *
+     * <p>可见性判定依赖"参数所属接口的负责人"，逐行查库会变成 N+1；
+     * 这里把本页出现的 apiId 去重后一次查完。</p>
+     */
+    private Map<Long, Long> loadOwnerIds(List<ApiParam> rows) {
+        Map<Long, Long> out = new java.util.HashMap<>();
+        if (rows == null || rows.isEmpty()) {
+            return out;
+        }
+        java.util.Set<Long> ids = rows.stream()
+                .map(ApiParam::getApiId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) {
+            return out;
+        }
+        List<ApiInterface> ifaces = apiInterfaceMapper.selectList(
+                new QueryWrapper<ApiInterface>().select("id", "owner_id").in("id", ids));
+        if (ifaces != null) {
+            for (ApiInterface i : ifaces) {
+                out.put(i.getId(), i.getOwnerId());
+            }
+        }
+        return out;
     }
 }

@@ -72,6 +72,10 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
     private final NotifyChannelService notifyChannelService;
     private final AppMapper appMapper;
     private final ApiInterfaceMapper apiInterfaceMapper;
+    /** T17：接口路径字段级解密（告警对象的 "GET /path" 说明） */
+    private final com.gatekeeper.crypto.InterfaceCryptoService interfaceCryptoService;
+    /** T17：控制台出口的可见性掩码 */
+    private final com.gatekeeper.service.InterfaceVisibilityService interfaceVisibilityService;
 
     // =====================================================================
     // 主数据接口
@@ -102,7 +106,22 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
     @Override
     public List<AlarmTargetVo> targetOptions(String targetType) {
         String type = normalizeTargetType(requireTargetType(targetType));
-        return listAllTargets(type);
+        List<AlarmTargetVo> list = listAllTargets(type);
+        // T17：这是控制台出口，接口路径必须按可见性掩码 ——
+        // 否则本端点会成为绕过接口列表掩码的"取数后门"（一次问出全部接口路径）。
+        // 掩码只作用于本次返回的副本：listAllTargets 每次调用都新建对象，
+        // 与评估链路内部用的缓存副本互不影响（那边需要明文来拼告警正文）。
+        if (TARGET_TYPE_API.equals(type)) {
+            com.gatekeeper.security.InterfaceViewer viewer = interfaceVisibilityService.resolveViewer();
+            if (viewer.isProtectionEnabled()) {
+                for (AlarmTargetVo vo : list) {
+                    if (viewer.mustMask(null) && StringUtils.hasText(vo.getExtra())) {
+                        vo.setExtra(interfaceCryptoService.maskPath());
+                    }
+                }
+            }
+        }
+        return list;
     }
 
     @Override
@@ -416,6 +435,8 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
             List<ApiInterface> list = apiInterfaceMapper.selectList(
                     new QueryWrapper<ApiInterface>().orderByAsc("id"));
             for (ApiInterface it : list) {
+                // T17：路径在加密启用时是密文，告警正文/候选下拉要的是明文
+                interfaceCryptoService.decryptInPlace(it);
                 AlarmTargetVo vo = new AlarmTargetVo();
                 vo.setId(it.getId());
                 vo.setLabel(it.getInterfaceName());

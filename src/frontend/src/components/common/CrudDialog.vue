@@ -26,6 +26,7 @@
               :clearable="f.clearable !== false"
               :maxlength="f.maxlength"
               :show-word-limit="f.showWordLimit"
+              :disabled="!!f.disabled"
             />
             <el-input
               v-else-if="f.type === 'textarea'"
@@ -35,6 +36,7 @@
               :placeholder="f.placeholder"
               :maxlength="f.maxlength"
               :show-word-limit="f.showWordLimit"
+              :disabled="!!f.disabled"
             />
             <el-input-number
               v-else-if="f.type === 'number'"
@@ -44,6 +46,7 @@
               :step="f.step"
               :precision="f.precision"
               :controls-position="f.controlsPosition"
+              :disabled="!!f.disabled"
               style="width: 100%"
             />
             <el-select
@@ -52,6 +55,7 @@
               :placeholder="f.placeholder || '请选择'"
               :clearable="f.clearable !== false"
               :multiple="f.multiple"
+              :disabled="!!f.disabled"
               style="width: 100%"
               @change="onFieldChange(f)"
             >
@@ -74,6 +78,7 @@
               :placeholder="f.placeholder || '请选择'"
               :clearable="f.clearable !== false"
               :show-all-levels="f.showAllLevels !== false"
+              :disabled="!!f.disabled"
               style="width: 100%"
               @change="onFieldChange(f)"
             />
@@ -109,6 +114,8 @@
               :placeholder="f.placeholder || '选择时间'"
               style="width: 100%"
             />
+            <!-- 字段级提示：用于说明「为何不可编辑」等（T17 掩码态） -->
+            <div v-if="f.hint" class="cd-field-hint">{{ f.hint }}</div>
           </el-form-item>
         </el-col>
       </el-row>
@@ -274,4 +281,5 @@ export default {
 
 <style scoped>
 /* 弹窗内部样式由全局样式统一，这里仅保留最小占位 */
+.cd-field-hint { margin-top: 4px; font-size: 12px; color: #e6a23c; line-height: 1.6; }
 </style>

@@ -81,4 +81,17 @@ public class ApiParamDto {
 
     /** 更新时间（响应字段） */
     private LocalDateTime updatedAt;
+
+    /**
+     * 本条参数的内容字段是否被掩码（T17，仅响应字段，不会被写库）。
+     *
+     * <p>{@code true} 时 {@link #fieldName}/{@link #example}/{@link #description}
+     * 为固定掩码 {@code ****}，而非真实契约内容。结构字段
+     * （paramType/fieldType/required/errorCode/httpStatus/sensitive/encryptRule/sortOrder）
+     * <b>不受影响</b>，仍返回真值。</p>
+     *
+     * <p>前端据此渲染锁定态；批量保存时若带掩码会被后端 <b>400 拒绝</b>
+     * （全量替换语义下掩码会覆盖不可见字段，见 docs/CONTRACTS §18）。</p>
+     */
+    private Boolean masked;
 }
