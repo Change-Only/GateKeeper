@@ -3,6 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <!-- 站点图标：SVG 优先（现代浏览器矢量清晰），ICO 兜底（旧浏览器 / Windows 快捷方式），PNG 供 apple-touch-icon -->
+  <link rel="icon" type="image/svg+xml" href="<%= BASE_URL %>favicon.svg">
+  <link rel="alternate icon" type="image/x-icon" href="<%= BASE_URL %>favicon.ico">
+  <link rel="apple-touch-icon" href="<%= BASE_URL %>logo192.png">
+  <meta name="theme-color" content="#0b1c33">
   <title>GateKeeper - API权限管理系统</title>
 </head>
 <body>

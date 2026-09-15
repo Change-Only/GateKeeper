@@ -2,7 +2,7 @@
   <div class="page-container perm-datascope">
     <div class="page-head">
       <h2>数据权限</h2>
-      <span class="page-tag">按角色配置数据范围（业务线 / 环境 / 接口分组）</span>
+      <span class="page-tag">按角色配置数据范围（环境 / 接口分组）</span>
     </div>
 
     <el-row :gutter="12">
@@ -83,25 +83,6 @@
 
             <div class="scope-section">
               <div class="scope-section-head">
-                <span class="scope-section-title">业务线</span>
-                <span class="scope-section-tip">已选 {{ counts.bizLines }} 个</span>
-                <span class="spacer" />
-                <el-button size="mini" :disabled="!options.bizLines || !options.bizLines.length" @click="toggleAll('bizLines')">
-                  {{ isAllChecked('bizLines') ? '全不选' : '全选' }}
-                </el-button>
-              </div>
-              <el-checkbox-group v-model="form.bizLines" class="scope-options">
-                <el-checkbox
-                  v-for="o in (options.bizLines || [])"
-                  :key="'bl-' + o.id"
-                  :label="String(o.id)"
-                  border
-                >{{ o.lineName || o.lineCode || o.id }}</el-checkbox>
-              </el-checkbox-group>
-            </div>
-
-            <div class="scope-section">
-              <div class="scope-section-head">
                 <span class="scope-section-title">环境</span>
                 <span class="scope-section-tip">已选 {{ counts.envs }} 个</span>
                 <span class="spacer" />
@@ -141,11 +122,6 @@
             <el-divider content-position="left">效果预览</el-divider>
             <div class="preview">
               <div class="preview-row">
-                <span class="preview-label">可见业务线：</span>
-                <el-tag v-for="v in preview.bizLines" :key="'pb-' + v" size="small" type="warning" effect="plain" style="margin-right:6px">{{ v }}</el-tag>
-                <span v-if="!preview.bizLines.length" class="muted">未限制</span>
-              </div>
-              <div class="preview-row">
                 <span class="preview-label">可见环境：</span>
                 <el-tag v-for="v in preview.envs" :key="'pe-' + v" size="small" type="primary" effect="plain" style="margin-right:6px">{{ v }}</el-tag>
                 <span v-if="!preview.envs.length" class="muted">未限制</span>
@@ -179,15 +155,14 @@ export default {
       roleLoading: false,
       roleList: [],
       selectedRole: null,
-      options: { bizLines: [], envs: [], apiGroups: [] },
-      form: { bizLines: [], envs: [], apiGroups: [] },
+      options: { envs: [], apiGroups: [] },
+      form: { envs: [], apiGroups: [] },
       saving: false
     }
   },
   computed: {
     counts() {
       return {
-        bizLines: this.form.bizLines.length,
         envs: this.form.envs.length,
         apiGroups: this.form.apiGroups.length
       }
@@ -195,10 +170,9 @@ export default {
     preview() {
       const lookup = (list, arr) => arr.map((v) => {
         const it = (list || []).find((x) => String(x.id === undefined ? x.envCode : x.id) === String(v) || x.envCode === v)
-        return it ? (it.lineName || it.envName || it.groupName || v) : v
+        return it ? (it.envName || it.groupName || v) : v
       })
       return {
-        bizLines: lookup(this.options.bizLines, this.form.bizLines),
         envs: lookup(this.options.envs, this.form.envs),
         apiGroups: lookup(this.options.apiGroups, this.form.apiGroups)
       }
@@ -225,26 +199,23 @@ export default {
         const res = await getDataScopeOptions()
         const data = (res && res.data) || {}
         this.options = {
-          bizLines: data.bizLines || [],
           envs: data.envs || [],
           apiGroups: data.apiGroups || []
         }
       } catch (e) {
-        this.options = { bizLines: [], envs: [], apiGroups: [] }
+        this.options = { envs: [], apiGroups: [] }
       }
     },
     async onSelectRole(row) {
       if (!row) return
       this.selectedRole = row
-      this.form.bizLines = []
       this.form.envs = []
       this.form.apiGroups = []
       try {
         const res = await getDataScopeByRole(row.roleId)
         const list = (res && res.data) || []
         list.forEach((s) => {
-          if (s.scopeType === 'BIZ_LINE') this.form.bizLines.push(String(s.scopeValue))
-          else if (s.scopeType === 'ENV') this.form.envs.push(s.scopeValue)
+          if (s.scopeType === 'ENV') this.form.envs.push(s.scopeValue)
           else if (s.scopeType === 'API_GROUP') this.form.apiGroups.push(String(s.scopeValue))
         })
       } catch (e) {
@@ -252,12 +223,12 @@ export default {
       }
     },
     isAllChecked(key) {
-      const all = this.options[key === 'bizLines' ? 'bizLines' : key === 'envs' ? 'envs' : 'apiGroups'] || []
+      const all = this.options[key === 'envs' ? 'envs' : 'apiGroups'] || []
       if (!all.length) return false
       return this.form[key].length >= all.length
     },
     toggleAll(key) {
-      const all = this.options[key === 'bizLines' ? 'bizLines' : key === 'envs' ? 'envs' : 'apiGroups'] || []
+      const all = this.options[key === 'envs' ? 'envs' : 'apiGroups'] || []
       if (!all.length) return
       if (this.isAllChecked(key)) {
         this.form[key] = []
@@ -268,15 +239,14 @@ export default {
     async onSave() {
       if (!this.selectedRole) return
       const roleName = this.selectedRole.roleName
-      const total = this.counts.bizLines + this.counts.envs + this.counts.apiGroups
+      const total = this.counts.envs + this.counts.apiGroups
       const msg = total === 0
         ? `确认将「${roleName}」的数据范围清空（不限）？`
-        : `确认覆盖「${roleName}」的数据范围（业务线 ${this.counts.bizLines} / 环境 ${this.counts.envs} / 分组 ${this.counts.apiGroups}）？该操作为高危全量覆盖，旧范围将丢失。`
+        : `确认覆盖「${roleName}」的数据范围（环境 ${this.counts.envs} / 分组 ${this.counts.apiGroups}）？该操作为高危全量覆盖，旧范围将丢失。`
       try {
         await this.$confirm(msg, '保存确认（高危）', { type: 'warning', confirmButtonText: '确认保存' })
       } catch (e) { return }
       const scopes = []
-      this.form.bizLines.forEach((v) => scopes.push({ scopeType: 'BIZ_LINE', scopeValue: String(v) }))
       this.form.envs.forEach((v) => scopes.push({ scopeType: 'ENV', scopeValue: String(v) }))
       this.form.apiGroups.forEach((v) => scopes.push({ scopeType: 'API_GROUP', scopeValue: String(v) }))
       this.saving = true

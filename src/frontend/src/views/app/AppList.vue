@@ -24,6 +24,15 @@
           <el-option :value="2" label="已过期" />
         </el-select>
         <span class="spacer" />
+        <!-- T15-4：系统级访问白名单（全局、对全部应用生效）。
+             刻意放在应用管理页的工具栏而不是某个应用的详情里 ——
+             它是系统级配置，不应依赖"先选中一个应用"才能维护
+             （否则应用被清空时就再也进不去这个配置页）。 -->
+        <PermButton
+          perm="sys:security:update"
+          icon="el-icon-lock"
+          @click="openSysWhitelist"
+        >系统访问白名单</PermButton>
         <PermButton perm="app:create" type="primary" icon="el-icon-plus" @click="openCreate">新建应用</PermButton>
       </template>
 
@@ -62,6 +71,18 @@
         <el-tab-pane label="配额" name="quota"><QuotaTab :app-id="currentAppId" /></el-tab-pane>
         <el-tab-pane label="IP 白名单" name="ip"><IpWhitelistTab :app-id="currentAppId" /></el-tab-pane>
       </el-tabs>
+    </el-drawer>
+
+    <!-- T15-4：系统访问白名单抽屉（全局配置；与「应用详情 → IP 白名单」是两个层级，
+         所以用独立抽屉而不是往应用详情里塞一个 Tab —— 后者会让人误以为是本应用的设置） -->
+    <el-drawer
+      title="系统访问白名单"
+      :visible.sync="sysWlVisible"
+      direction="rtl"
+      size="58%"
+      append-to-body
+    >
+      <SysIpWhitelistPanel />
     </el-drawer>
 
     <CrudDialog
@@ -111,10 +132,11 @@ import StatusTag from '@/components/common/StatusTag.vue'
 import CredentialTab from './tabs/CredentialTab.vue'
 import QuotaTab from './tabs/QuotaTab.vue'
 import IpWhitelistTab from './tabs/IpWhitelistTab.vue'
+import SysIpWhitelistPanel from './tabs/SysIpWhitelistPanel.vue'
 
 export default {
   name: 'AppList',
-  components: { StatusTag, CredentialTab, QuotaTab, IpWhitelistTab },
+  components: { StatusTag, CredentialTab, QuotaTab, IpWhitelistTab, SysIpWhitelistPanel },
   data() {
     return {
       query: { kw: '', status: '' },
@@ -129,6 +151,8 @@ export default {
       drawerVisible: false,
       activeTab: 'cred',
       currentApp: null,
+      // T15-4：系统访问白名单抽屉（全局配置，与选中哪个应用无关）
+      sysWlVisible: false,
       // T14：创建成功后的接入材料弹窗
       createdVisible: false,
       createdApp: {},
@@ -170,6 +194,10 @@ export default {
       this.currentApp = row
       this.activeTab = 'cred'
       this.drawerVisible = true
+    },
+    /** 打开系统访问白名单抽屉（T15-4）：系统级配置，不依赖当前应用 */
+    openSysWhitelist() {
+      this.sysWlVisible = true
     },
     openCreate() {
       this.dialogTitle = '新建应用'

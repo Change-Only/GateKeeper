@@ -48,7 +48,7 @@ public class InterfaceController {
     private final InterfaceTestService interfaceTestService;
 
     /**
-     * 分页查询接口列表（T03b 增强：行内含分组名 groupName / 业务线名 lineName）。
+     * 分页查询接口列表（T03b 增强：行内含分组名 groupName）。
      *
      * @param current       当前页码（默认第 1 页）
      * @param size          每页条数（默认 10 条）

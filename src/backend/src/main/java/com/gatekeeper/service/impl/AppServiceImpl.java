@@ -9,6 +9,7 @@ import com.gatekeeper.crypto.CryptoService;
 import com.gatekeeper.entity.App;
 import com.gatekeeper.entity.AppIpWhitelist;
 import com.gatekeeper.entity.AppRateLimit;
+import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.mapper.AppIpWhitelistMapper;
 import com.gatekeeper.mapper.AppMapper;
 import com.gatekeeper.mapper.AppRateLimitMapper;
@@ -19,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -140,7 +142,11 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     }
 
     /**
-     * 查询指定应用的 IP 白名单列表（按创建时间倒序）
+     * 查询指定应用的 IP 白名单列表（启用在前，其次按创建时间倒序）
+     *
+     * <p>T15-4：排序改为「status 倒序 + created_at 倒序」——
+     * 启用中的规则是真正生效的那些，应当排在停用条目之前，
+     * 免得用户翻着列表误以为"我配的几条没生效"。</p>
      *
      * @param appId 应用 ID
      * @return IP 白名单列表
@@ -148,11 +154,21 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     @Override
     public List<AppIpWhitelist> listIpWhitelist(Long appId) {
         return ipWhitelistMapper.selectList(
-                new QueryWrapper<AppIpWhitelist>().eq("app_id", appId).orderByDesc("created_at"));
+                new QueryWrapper<AppIpWhitelist>()
+                        .eq("app_id", appId)
+                        .orderByDesc("status")
+                        .orderByDesc("created_at"));
     }
 
     /**
      * 为指定应用新增一条 IP 白名单记录
+     *
+     * <p>T15-4：补 {@code envCode} / {@code status} 默认值。
+     * 这两列在 DDL 上虽有默认值（'prod' / 1），但**不能依赖它**：
+     * 网关 {@code IpWhitelistHandler} 按 {@code status = 1} 过滤，
+     * 一旦出现 status 为 NULL 的行（例如从其它路径写入、或 DDL 默认值被改），
+     * 该条规则会静默失效 —— 用户看到记录在列表里，实际却不参与校验。
+     * 写入侧显式赋值是这条过滤能成立的前提。</p>
      *
      * @param appId     应用 ID
      * @param whitelist IP 白名单实体
@@ -161,7 +177,54 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     public void addIpWhitelist(Long appId, AppIpWhitelist whitelist) {
         whitelist.setAppId(appId);
         whitelist.setCreatedAt(LocalDateTime.now());
+        if (whitelist.getStatus() == null) {
+            whitelist.setStatus(AppIpWhitelist.STATUS_ENABLED);
+        }
+        if (whitelist.getEnvCode() == null || whitelist.getEnvCode().trim().isEmpty()) {
+            whitelist.setEnvCode(AppIpWhitelist.DEFAULT_ENV_CODE);
+        }
         ipWhitelistMapper.insert(whitelist);
+    }
+
+    /**
+     * 更新一条 IP 白名单（IP/CIDR、备注、环境、启用停用）。
+     *
+     * <p>T15-4 新增：此前只有"新增 / 删除"两个动作，想临时放行某段 IP
+     * 只能删记录再加回来（丢备注、易写错）。补上编辑与启停后
+     * {@code status} 才真正可用（网关侧已按 status=1 过滤）。</p>
+     *
+     * <p>实现用 {@code updateById} 而非「先删后插」：本表主键是被前端引用的
+     * （删除按钮按 id 提交），换 id 会让页面上的行"变成新记录"。
+     * 因此这里不追求把 null 写库 —— {@code appId} 与 {@code createdAt} 本就不允许被改，
+     * 备注清空属于次要场景，用 trim + 空串归一即可（空串在 UI 上等价于未填）。</p>
+     *
+     * @param whitelistId 白名单记录 ID
+     * @param whitelist   新值
+     */
+    @Override
+    public void updateIpWhitelist(Long whitelistId, AppIpWhitelist whitelist) {
+        if (whitelistId == null) {
+            throw GatewayException.badRequest("白名单ID不能为空");
+        }
+        if (whitelist == null) {
+            throw GatewayException.badRequest("白名单内容不能为空");
+        }
+        AppIpWhitelist existing = ipWhitelistMapper.selectById(whitelistId);
+        if (existing == null) {
+            throw GatewayException.notFound("IP 白名单不存在");
+        }
+        AppIpWhitelist patch = new AppIpWhitelist();
+        patch.setId(whitelistId);
+        // 归属应用不可改：沿用库里的值，杜绝把某应用的规则"搬"到另一个应用
+        patch.setAppId(existing.getAppId());
+        patch.setIpCidr(StringUtils.hasText(whitelist.getIpCidr())
+                ? whitelist.getIpCidr().trim() : existing.getIpCidr());
+        patch.setRemark(whitelist.getRemark() == null ? existing.getRemark() : whitelist.getRemark().trim());
+        patch.setEnvCode(StringUtils.hasText(whitelist.getEnvCode())
+                ? whitelist.getEnvCode().trim() : AppIpWhitelist.DEFAULT_ENV_CODE);
+        patch.setStatus(whitelist.getStatus() == null
+                ? AppIpWhitelist.STATUS_ENABLED : whitelist.getStatus());
+        ipWhitelistMapper.updateById(patch);
     }
 
     /**

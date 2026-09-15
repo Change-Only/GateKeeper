@@ -12,6 +12,7 @@
     <el-menu
       :default-active="activePath"
       :collapse="collapse"
+      unique-opened
       router
       background-color="#0b1c33"
       text-color="#8ea4c6"

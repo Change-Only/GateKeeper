@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
  * 接口列表行 VO — T03b 升级后的 /interface/list 展示对象
  *
  * <p>在存量 {@code ApiInterface} 字段基础上，补充跨表冗余展示列：
- * {@code groupName}（来自 api_group）、{@code lineName}（来自 biz_line），
+ * {@code groupName}（来自 api_group），
  * 以及发布生命周期 {@code publishStatus} 与 {@code currentVersion}。</p>
  *
  * @author GateKeeper
@@ -37,12 +37,6 @@ public class InterfaceListVo {
 
     /** 所属分组名（JOIN api_group） */
     private String groupName;
-
-    /** 业务线ID */
-    private Long lineId;
-
-    /** 业务线名（JOIN biz_line） */
-    private String lineName;
 
     /** 网关开关：1=启用 0=停用 */
     private Integer status;

@@ -65,8 +65,11 @@ public class ApiInterface {
     /** 接口编码 如 order.create（原型 apiCode，唯一） */
     private String apiCode;
 
-    /** 业务线ID（原型 lineId） */
-    private Long lineId;
+    /*
+     * T15：原 lineId（业务线ID）字段已移除 —— 业务线模块整体下线。
+     * 注意 DB 的 api_interface.line_id 列**保留**（演进式重构铁律：只加列不删列），
+     * 仅代码层不再映射与展示，避免对存量数据做破坏性 DDL。
+     */
 
     /** 负责人用户ID */
     private Long ownerId;

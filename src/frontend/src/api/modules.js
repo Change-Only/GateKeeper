@@ -39,6 +39,28 @@ export function addIpWhitelist(appId, data) {
 export function removeIpWhitelist(id) {
   return request.delete(`/app/ip-whitelist/${id}`)
 }
+// 更新 IP 白名单条目（T15-4：编辑 IP/CIDR、备注、环境、启用停用）
+export function updateIpWhitelist(id, data) {
+  return request.put(`/app/ip-whitelist/${id}`, data)
+}
+
+// ============ 系统级访问白名单（T15-4：网关入口全局前置校验，表空=不限制） ============
+// 列表（含停用条目，供管理页展示）
+export function getSysIpWhitelist() {
+  return request.get('/sys/ip-whitelist')
+}
+// 新增（写操作复用 sys:security:update 权限点）
+export function addSysIpWhitelist(data) {
+  return request.post('/sys/ip-whitelist', data)
+}
+// 更新（含启用/停用）
+export function updateSysIpWhitelist(id, data) {
+  return request.put(`/sys/ip-whitelist/${id}`, data)
+}
+// 删除
+export function removeSysIpWhitelist(id) {
+  return request.delete(`/sys/ip-whitelist/${id}`)
+}
 // 查询应用的频率限制配置
 export function getRateLimit(appId) {
   return request.get(`/app/${appId}/rate-limit`)
@@ -354,26 +376,29 @@ export function getApiEnvConfigList(apiId) {
   return request.get('/api-env-config/list', { params: { apiId } })
 }
 
-// ============ 业务线 / 环境 / 通知渠道 / 告警规则（Phase 1+ 页面复用，Phase 0 仅声明） ============
-// 业务线
-export function getBizLineList(params) {
-  return request.get('/biz-line/list', { params })
+// ============ 分组加解密配置（T15-1：分组树向上继承 + 三态 INHERIT/ENABLED/DISABLED） ============
+// 分组生效加解密配置（含沿分组树向上继承；整条链无配置时 data=null）
+export function getGroupEncryptionEffective(groupId) {
+  return request.get('/api-group-encryption/effective', { params: { groupId } })
 }
-export function getBizLineAll() {
-  return request.get('/biz-line/all')
+// 本分组自己的配置行（编辑回填用，不含继承）
+export function getGroupEncryptionOwn(groupId) {
+  return request.get('/api-group-encryption/own', { params: { groupId } })
 }
-export function getBizLineDetail(id) {
-  return request.get(`/biz-line/${id}`)
+// 新建 / 覆盖本分组配置（全量覆盖语义）
+export function upsertGroupEncryption(groupId, data) {
+  return request.post('/api-group-encryption/upsert', data, { params: { groupId } })
 }
-export function createBizLine(data) {
-  return request.post('/biz-line/create', data)
+// 按配置行 ID 更新
+export function updateGroupEncryption(id, data) {
+  return request.put(`/api-group-encryption/${id}`, data)
 }
-export function updateBizLine(data) {
-  return request.put('/biz-line/update', data)
+// 清除本分组配置（回落父级继承）
+export function deleteGroupEncryption(id) {
+  return request.delete(`/api-group-encryption/${id}`)
 }
-export function deleteBizLine(id) {
-  return request.delete(`/biz-line/${id}`)
-}
+
+// ============ 环境 / 通知渠道 / 告警规则（Phase 1+ 页面复用） ============
 // 环境
 export function getEnvList(params) {
   return request.get('/env/list', { params })
@@ -547,7 +572,7 @@ export function deleteConfig(id) {
 export function getDataScopeRoles(params) {
   return request.get('/role-data-scope/roles', { params })
 }
-// 范围值选项（业务线/环境/接口分组）
+// 范围值选项（环境/接口分组）
 export function getDataScopeOptions() {
   return request.get('/role-data-scope/options')
 }

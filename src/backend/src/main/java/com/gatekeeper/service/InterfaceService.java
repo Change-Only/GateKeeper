@@ -33,7 +33,7 @@ public interface InterfaceService extends IService<ApiInterface> {
     PageResult<ApiInterface> pageQuery(int current, int size, String interfaceName, Long groupId);
 
     /**
-     * 分页查询接口列表（T03b 增强版）—— 行内带 groupName / lineName。
+     * 分页查询接口列表（T03b 增强版）—— 行内带 groupName。
      *
      * @param current       当前页码
      * @param size          每页条数

@@ -4,13 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.gatekeeper.dto.DataScopeItemDto;
 import com.gatekeeper.dto.RoleDataScopeSaveDto;
 import com.gatekeeper.entity.ApiGroup;
-import com.gatekeeper.entity.BizLine;
 import com.gatekeeper.entity.Env;
 import com.gatekeeper.entity.SysRole;
 import com.gatekeeper.entity.SysRoleDataScope;
 import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.mapper.ApiGroupMapper;
-import com.gatekeeper.mapper.BizLineMapper;
 import com.gatekeeper.mapper.EnvMapper;
 import com.gatekeeper.mapper.SysRoleDataScopeMapper;
 import com.gatekeeper.mapper.SysRoleMapper;
@@ -38,6 +36,9 @@ import java.util.Map;
  *   <li>{@link #saveRoleScopes} 全量覆盖：先 DELETE 该角色旧范围，再批量 INSERT dto.scopes（空=不限）</li>
  * </ul></p>
  *
+ * <p>T15：业务线维度已整体下线 —— 选项不再返回 {@code bizLines}，
+ * {@code sys_role_datascope} 表与其 {@code scope_type} 枚举值保留（只加不删，历史数据兼容）。</p>
+ *
  * @author GateKeeper
  * @since T05 (APIM V2)
  */
@@ -48,7 +49,6 @@ public class RoleDataScopeServiceImpl implements RoleDataScopeService {
 
     private final SysRoleDataScopeMapper scopeMapper;
     private final SysRoleMapper sysRoleMapper;
-    private final BizLineMapper bizLineMapper;
     private final EnvMapper envMapper;
     private final ApiGroupMapper apiGroupMapper;
 
@@ -75,18 +75,6 @@ public class RoleDataScopeServiceImpl implements RoleDataScopeService {
     @Override
     public DataScopeOptionsVo listOptions() {
         DataScopeOptionsVo vo = new DataScopeOptionsVo();
-
-        // 业务线
-        List<BizLine> bizLines = bizLineMapper.selectList(new QueryWrapper<BizLine>().orderByAsc("id"));
-        List<DataScopeOptionsVo.BizLineSimple> bizList = new ArrayList<>(bizLines.size());
-        for (BizLine b : bizLines) {
-            DataScopeOptionsVo.BizLineSimple s = new DataScopeOptionsVo.BizLineSimple();
-            s.setId(b.getId());
-            s.setLineCode(b.getLineCode());
-            s.setLineName(b.getLineName());
-            bizList.add(s);
-        }
-        vo.setBizLines(bizList);
 
         // 环境
         List<Env> envs = envMapper.selectList(new QueryWrapper<Env>().orderByAsc("id"));

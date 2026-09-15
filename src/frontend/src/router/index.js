@@ -47,7 +47,6 @@ const routes = [
       // ===== 系统设置 =====
       { path: 'sys/sys-env', name: 'SysEnv', component: () => import('@/views/system/SysEnv.vue'), meta: { title: '环境与网关', perm: 'env:list', module: '系统设置' } },
       { path: 'sys/sys-security', name: 'SysSecurity', component: () => import('@/views/system/SysSecurity.vue'), meta: { title: '安全策略', perm: 'sys:security:view', module: '系统设置' } },
-      { path: 'sys/sys-bizline', name: 'SysBizline', component: () => import('@/views/system/SysBizLine.vue'), meta: { title: '业务线管理', perm: 'biz_line:list', module: '系统设置' } },
       { path: 'sys/sys-dict', name: 'SysDict', component: () => import('@/views/system/SysDict.vue'), meta: { title: '字典管理', perm: 'sys:dict:update', module: '系统设置' } },
       { path: 'sys/sys-alarm', name: 'SysAlarm', component: () => import('@/views/system/SysAlarm.vue'), meta: { title: '告警规则', perm: 'sys:alarm:update', module: '系统设置' } },
       { path: 'sys/sys-notify', name: 'SysNotify', component: () => import('@/views/system/SysNotify.vue'), meta: { title: '通知渠道', perm: 'sys:notify:list', module: '系统设置' } },

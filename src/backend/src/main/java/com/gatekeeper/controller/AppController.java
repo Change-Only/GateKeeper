@@ -171,6 +171,26 @@ public class AppController {
     }
 
     /**
+     * 更新一条 IP 白名单（T15-4：补编辑与启用/停用）
+     *
+     * <p>此前只有"新增 / 删除"，临时放行某段 IP 只能删了再加（丢备注、易写错）。
+     * 补上编辑后 {@code status}（启用/停用）才真正可用 ——
+     * 网关侧 {@code IpWhitelistHandler} 已按 {@code status=1} 过滤。</p>
+     *
+     * @param whitelistId 白名单记录 ID
+     * @param whitelist   新值（IP/CIDR、备注、环境、状态）
+     * @return 操作结果（无业务数据返回）
+     */
+    @Operation(summary = "更新IP白名单")
+    @RequirePerm(value = "app:ipwhitelist:update", risk = true)
+    @PutMapping("/ip-whitelist/{whitelistId}")
+    public Result<Void> updateIpWhitelist(@PathVariable Long whitelistId,
+                                          @RequestBody AppIpWhitelist whitelist) {
+        appService.updateIpWhitelist(whitelistId, whitelist);
+        return Result.success();
+    }
+
+    /**
      * 查询应用的限流配置
      *
      * @param id 应用 ID

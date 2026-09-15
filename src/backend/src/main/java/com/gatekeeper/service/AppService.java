@@ -72,6 +72,17 @@ public interface AppService extends IService<App> {
     void addIpWhitelist(Long appId, AppIpWhitelist whitelist);
 
     /**
+     * 更新应用的 IP 白名单条目（T15-4：补编辑与启用/停用）
+     *
+     * <p>归属应用不可改；{@code status} 为空时按启用处理。
+     * 停用后该条目不参与网关校验（{@code IpWhitelistHandler} 按 status=1 过滤）。</p>
+     *
+     * @param whitelistId 白名单记录 ID
+     * @param whitelist   新值
+     */
+    void updateIpWhitelist(Long whitelistId, AppIpWhitelist whitelist);
+
+    /**
      * 删除指定 IP 白名单条目
      *
      * @param whitelistId 白名单记录 ID

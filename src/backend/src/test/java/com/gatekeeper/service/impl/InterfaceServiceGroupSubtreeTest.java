@@ -11,7 +11,6 @@ import com.gatekeeper.mapper.ApiGroupMapper;
 import com.gatekeeper.mapper.ApiInterfaceMapper;
 import com.gatekeeper.mapper.ApiParamMapper;
 import com.gatekeeper.mapper.ApiVersionMapper;
-import com.gatekeeper.mapper.BizLineMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -73,8 +72,6 @@ class InterfaceServiceGroupSubtreeTest {
     @Mock
     private ApiGroupMapper apiGroupMapper;
     @Mock
-    private BizLineMapper bizLineMapper;
-    @Mock
     private ApiInterfaceMapper apiInterfaceMapper;
     @Mock
     private ApiParamMapper apiParamMapper;
@@ -93,7 +90,7 @@ class InterfaceServiceGroupSubtreeTest {
     @BeforeEach
     void setUp() {
         // 构造参数顺序 == @RequiredArgsConstructor 收集的 final 字段声明顺序
-        service = new InterfaceServiceImpl(apiGroupMapper, bizLineMapper, apiParamMapper,
+        service = new InterfaceServiceImpl(apiGroupMapper, apiParamMapper,
                 apiVersionMapper, apiEnvConfigMapper, apiChangeLogMapper);
         // baseMapper 由 Spring 在 ServiceImpl 中注入，单测用反射直塞
         try {

@@ -59,6 +59,7 @@
           </template>
           <template #actions="{ row }">
             <PermButton perm="" type="text" @click="openEnvConfig(row)">环境配置</PermButton>
+            <PermButton perm="" type="text" @click="openEncConfig(row)">加解密</PermButton>
             <PermButton perm="api_group:update" type="text" @click="openEdit(row)">编辑</PermButton>
             <PermButton perm="api_group:delete" type="text" class="danger-link" @click="remove(row)">删除</PermButton>
           </template>
@@ -93,6 +94,23 @@
         :group-name="envGroup.groupName"
       />
     </el-drawer>
+
+    <!-- 分组加解密配置抽屉（T15-1）：与「环境配置」同一挂载方式（行操作 → 抽屉兜住），
+         不新开菜单/路由 —— 历史上路由与权限点不同步导致过菜单不可见的坑。
+         加解密是接口契约的一部分，故**不带环境维度**（一个分组一条配置）。 -->
+    <el-drawer
+      :title="`加解密配置 · ${encGroup ? encGroup.groupName : ''}`"
+      :visible.sync="encDrawerVisible"
+      direction="rtl"
+      size="62%"
+      append-to-body
+    >
+      <GroupEncryptionPanel
+        v-if="encGroup"
+        :group-id="encGroup.id"
+        :group-name="encGroup.groupName"
+      />
+    </el-drawer>
   </div>
 </template>
 
@@ -105,10 +123,11 @@
  */
 import { getGroupList, getGroupTree, createGroup, updateGroup, deleteGroup } from '@/api/modules'
 import GroupEnvConfigPanel from './tabs/GroupEnvConfigPanel.vue'
+import GroupEncryptionPanel from './tabs/GroupEncryptionPanel.vue'
 
 export default {
   name: 'ApiGroup',
-  components: { GroupEnvConfigPanel },
+  components: { GroupEnvConfigPanel, GroupEncryptionPanel },
   data() {
     return {
       treeData: [],
@@ -118,6 +137,9 @@ export default {
       // 分组环境配置抽屉（T13）
       envDrawerVisible: false,
       envGroup: null,
+      // 分组加解密配置抽屉（T15-1）
+      encDrawerVisible: false,
+      encGroup: null,
       columns: [
         { prop: 'groupName', label: '分组名称', minWidth: 160 },
         { prop: 'parentId', label: '父分组', minWidth: 140, slot: 'parentName' },
@@ -166,6 +188,11 @@ export default {
     openEnvConfig(row) {
       this.envGroup = row
       this.envDrawerVisible = true
+    },
+    /** 打开分组加解密配置抽屉（T15-1）。同样先赋 group 再置 visible。 */
+    openEncConfig(row) {
+      this.encGroup = row
+      this.encDrawerVisible = true
     },
     async fetchGroups(params) {
       let list = this.flatGroups.length ? this.flatGroups.slice() : (await getGroupList()).data || []

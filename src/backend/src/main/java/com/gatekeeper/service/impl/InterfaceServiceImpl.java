@@ -16,7 +16,6 @@ import com.gatekeeper.entity.ApiGroup;
 import com.gatekeeper.entity.ApiInterface;
 import com.gatekeeper.entity.ApiParam;
 import com.gatekeeper.entity.ApiVersion;
-import com.gatekeeper.entity.BizLine;
 import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.mapper.ApiChangeLogMapper;
 import com.gatekeeper.mapper.ApiEnvConfigMapper;
@@ -24,7 +23,6 @@ import com.gatekeeper.mapper.ApiGroupMapper;
 import com.gatekeeper.mapper.ApiInterfaceMapper;
 import com.gatekeeper.mapper.ApiParamMapper;
 import com.gatekeeper.mapper.ApiVersionMapper;
-import com.gatekeeper.mapper.BizLineMapper;
 import com.gatekeeper.service.InterfaceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,7 +43,7 @@ import java.util.Set;
 /**
  * 接口管理服务实现 — 负责 API 接口的分页查询、创建、更新、启停与删除。
  *
- * <p>T03b 扩展：列表带分组名/业务线名、详情聚合、删除前置校验（版本全下线）。</p>
+ * <p>T03b 扩展：列表带分组名、详情聚合、删除前置校验（版本全下线）。</p>
  *
  * <p>分组筛选语义：{@code groupId} 按「自身 + 全部子孙分组」展开（详见
  * {@link #applyGroupScope}），选中父分组即可看到其下所有层级的接口。</p>
@@ -71,7 +69,6 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
     private static final int RECENT_CHANGE_LOG_LIMIT = 5;
 
     private final ApiGroupMapper apiGroupMapper;
-    private final BizLineMapper bizLineMapper;
     private final ApiParamMapper apiParamMapper;
     private final ApiVersionMapper apiVersionMapper;
     private final ApiEnvConfigMapper apiEnvConfigMapper;
@@ -106,10 +103,9 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
 
         List<ApiInterface> rows = page.getRecords();
         Map<Long, String> groupNames = loadGroupNames(rows);
-        Map<Long, String> lineNames = loadLineNames(rows);
         List<InterfaceListVo> vos = new ArrayList<>(rows.size());
         for (ApiInterface r : rows) {
-            vos.add(toListVo(r, groupNames, lineNames));
+            vos.add(toListVo(r, groupNames));
         }
         return PageResult.of(vos, page.getTotal(), page.getCurrent(), page.getSize());
     }
@@ -306,34 +302,11 @@ public class InterfaceServiceImpl extends ServiceImpl<ApiInterfaceMapper, ApiInt
         return map;
     }
 
-    private Map<Long, String> loadLineNames(List<ApiInterface> rows) {
-        Set<Long> ids = new HashSet<>();
-        for (ApiInterface r : rows) {
-            if (r.getLineId() != null) {
-                ids.add(r.getLineId());
-            }
-        }
-        if (ids.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        List<BizLine> lines = bizLineMapper.selectBatchIds(ids);
-        Map<Long, String> map = new HashMap<>();
-        if (lines != null) {
-            for (BizLine b : lines) {
-                map.put(b.getId(), b.getLineName());
-            }
-        }
-        return map;
-    }
-
-    private InterfaceListVo toListVo(ApiInterface r, Map<Long, String> groupNames, Map<Long, String> lineNames) {
+    private InterfaceListVo toListVo(ApiInterface r, Map<Long, String> groupNames) {
         InterfaceListVo vo = new InterfaceListVo();
         BeanUtils.copyProperties(r, vo);
         if (r.getGroupId() != null) {
             vo.setGroupName(groupNames.get(r.getGroupId()));
-        }
-        if (r.getLineId() != null) {
-            vo.setLineName(lineNames.get(r.getLineId()));
         }
         return vo;
     }

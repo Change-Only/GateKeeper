@@ -64,11 +64,6 @@ export const STATUS_MAP = {
     1: { label: '启用中', type: 'success' },
     2: { label: '已废弃', type: 'info' }
   },
-  // 业务线启停态（对齐后端 BizLineDto.status：0=停用, 1=启用；无 app 的过期态）
-  bizLine: {
-    0: { label: '已停用', type: 'info' },
-    1: { label: '启用中', type: 'success' }
-  },
   // 告警规则启停态
   alarmRule: {
     0: { label: '已停用', type: 'info' },
@@ -108,7 +103,15 @@ export const STATUS_MAP = {
     0: { label: '停用', type: 'info' },
     1: { label: '启用', type: 'success' }
   },
+  // 分组加解密模式（api_group_encryption_config.mode，T15-1 三态）
+  groupEncryptionMode: {
+    INHERIT: { label: '继承上级', type: 'info' },
+    ENABLED: { label: '启用加解密', type: 'success' },
+    DISABLED: { label: '不需要加解密', type: 'warning' }
+  },
   // 数据范围 dataScope（角色级）
+  // ⚠️ BIZ_LINE 是**历史枚举值**：T15 已下线业务线维度，但 sys_role.data_scope 的存量行仍可能
+  //    带该值（如角色「业务线管理员」BIZ_ADMIN）。映射必须保留，否则角色列表「范围」列渲染成空白。
   dataScope: {
     ALL: { label: '全部', type: 'success' },
     BIZ_LINE: { label: '仅本业务线', type: 'warning' },
