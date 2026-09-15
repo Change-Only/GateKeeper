@@ -45,6 +45,8 @@
       <template #actions="{ row }">
         <PermButton perm="" type="text" @click="openDetail(row)">详情</PermButton>
         <PermButton perm="" type="text" @click="downloadDoc(row)">接入文档</PermButton>
+        <!-- T16-2：接口文档（只含该应用**有权限**的接口） -->
+        <PermButton perm="" type="text" @click="downloadInterfaceDoc(row)">接口文档</PermButton>
         <PermButton perm="app:update" type="text" @click="openEdit(row)">编辑</PermButton>
         <PermButton perm="app:disable" type="text" @click="toggleStatus(row)">{{ row.status === 1 ? '停用' : '启用' }}</PermButton>
         <PermButton perm="app:delete" type="text" class="danger-link" @click="remove(row)">删除</PermButton>
@@ -59,6 +61,8 @@
         <StatusTag entity="app" :value="currentApp.status" />
         <span class="dh-spacer" />
         <el-button size="mini" plain icon="el-icon-download" @click="downloadDoc(currentApp)">接入文档</el-button>
+        <!-- T16-2：接口文档（只含该应用有权限的接口） -->
+        <el-button size="mini" plain icon="el-icon-document" @click="downloadInterfaceDoc(currentApp)">接口文档</el-button>
       </div>
       <el-tabs v-model="activeTab" class="detail-tabs">
         <el-tab-pane label="密钥凭证" name="cred"><CredentialTab :app-id="currentAppId" /></el-tab-pane>
@@ -124,10 +128,13 @@
  * 注意：后端 App 实体字段为 appName/appKey/appSecret/status/description/expireTime，
  *       与原型计划的 appCode/lineId/appType/ownerName/envScope 等字段不同，表单以真实后端字段为准。
  */
-import { getAppList, createApp, updateApp, updateAppStatus, deleteApp } from '@/api/modules'
+import { getAppList, createApp, updateApp, updateAppStatus, deleteApp, getAppInterfaceDoc } from '@/api/modules'
 // T14：接入文档的正文与「页面右侧展示的那份」共用同一来源（@/utils/accessDoc），
 // 避免导出文件里写的签名算法与页面讲的不是一回事
-import { exportAccessDoc } from '@/utils/accessDoc'
+import { exportAccessDoc, defaultGatewayUrl } from '@/utils/accessDoc'
+// T16-2：接口文档（只含有权限的接口）。正文同样只在 JS 侧定义一次，
+// 后端只返回结构化数据（GET /app/{id}/interface-doc）
+import { exportInterfaceDoc } from '@/utils/interfaceDoc'
 import StatusTag from '@/components/common/StatusTag.vue'
 import CredentialTab from './tabs/CredentialTab.vue'
 import QuotaTab from './tabs/QuotaTab.vue'
@@ -267,6 +274,34 @@ export default {
         this.$message.success('已导出 ' + name)
       } catch (e) {
         this.$message.error('导出失败：' + (e && e.message ? e.message : '未知错误'))
+      }
+    },
+    /**
+     * 导出该应用的「接口文档」（Markdown，T16-2）。
+     *
+     * 「有权限」的判定在后端完成：授权已生效(status=1) + 在有效期内 + 接口已启用。
+     * 前端只负责把后端返回的结构化数据渲染成 Markdown 并触发下载，
+     * 不在这里做二次过滤 —— 否则「页面判定」与「网关判定」会出现两套口径。
+     */
+    async downloadInterfaceDoc(app) {
+      if (!app || !app.id) return
+      try {
+        const res = await getAppInterfaceDoc(app.id)
+        const doc = (res && res.data) || {}
+        const total = Number(doc.total) || 0
+        const name = exportInterfaceDoc(doc, { gatewayUrl: defaultGatewayUrl() })
+        const extra = []
+        if (Number(doc.danglingCount) > 0) extra.push(`${doc.danglingCount} 条授权指向的接口已删除`)
+        if (Number(doc.disabledCount) > 0) extra.push(`${doc.disabledCount} 条授权指向的接口已停用`)
+        if (total === 0) {
+          this.$message.warning('该应用暂无已生效的接口授权，已导出空清单文档：' + name)
+        } else {
+          this.$message.success(
+            `已导出 ${total} 个接口：${name}` + (extra.length ? `（另有${extra.join('、')}，未导出）` : '')
+          )
+        }
+      } catch (e) {
+        // 拦截器已弹错（业务码非 200 时），这里不再重复提示
       }
     }
   }

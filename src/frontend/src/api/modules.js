@@ -752,3 +752,23 @@ export function testInterface(apiId, data) {
   return request.post(`/interface/${apiId}/test`, data)
 }
 
+// ============ 平台加解密总开关 sys/encryption-config（T16-1） ============
+// 平台级「总闸」：enabled=0 ⇒ 网关**全局强制明文**（短路，忽略接口级/分组级/应用级所有配置）。
+// 口径为「仅总闸，不留平台密钥」⇒ 实体只有 enabled / remark，没有算法与密钥字段。
+// 读取（后端在「表中无行」时返回 enabled=1 的虚拟行，前端无需为"从未配置过"写分支）
+export function getSysEncryptionConfig() {
+  return request.get('/sys/encryption-config')
+}
+// 更新（sys:security:update 高危；置 0 会把全平台降级为明文，务必二次确认）
+export function updateSysEncryptionConfig(data) {
+  return request.put('/sys/encryption-config', data)
+}
+
+// ============ 应用接口文档 app/{id}/interface-doc（T16-2） ============
+// 只返回该应用「有权限」的接口：授权已生效(status=1) + 在有效期内 + 接口已启用(status=1)。
+// 被剔除的两类分别计数返回：danglingCount（授权指向的接口已不存在）、
+// disabledCount（接口存在但已停用）—— 让「导出条数 < 授权条数」可解释。
+export function getAppInterfaceDoc(appId) {
+  return request.get(`/app/${appId}/interface-doc`)
+}
+

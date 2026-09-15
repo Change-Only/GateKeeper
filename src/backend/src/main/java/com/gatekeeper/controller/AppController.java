@@ -8,7 +8,9 @@ import com.gatekeeper.entity.App;
 import com.gatekeeper.entity.AppIpWhitelist;
 import com.gatekeeper.entity.AppRateLimit;
 import com.gatekeeper.security.RequirePerm;
+import com.gatekeeper.service.AppInterfaceDocService;
 import com.gatekeeper.service.AppService;
+import com.gatekeeper.vo.AppInterfaceDocVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -32,6 +34,7 @@ import java.util.List;
  *   <li>DELETE /app/ip-whitelist/{id}     移除 IP 白名单</li>
  *   <li>GET/PUT /app/{id}/rate-limit      查询/更新限流配置</li>
  *   <li>POST /app/{id}/reset-secret       重置应用密钥（{@code app:credential:reset} 高危）</li>
+ *   <li>GET  /app/{id}/interface-doc      该应用「有权限」的接口文档数据（T16-2）</li>
  * </ul>
  * </p>
  */
@@ -43,6 +46,9 @@ import java.util.List;
 public class AppController {
 
     private final AppService appService;
+
+    /** T16-2：应用接口文档数据（只含有权限的接口） */
+    private final AppInterfaceDocService appInterfaceDocService;
 
     /**
      * 分页查询应用列表
@@ -61,6 +67,33 @@ public class AppController {
             @RequestParam(required = false) String appName,
             @RequestParam(required = false) Integer status) {
         return Result.success(appService.pageQuery(current, size, appName, status));
+    }
+
+    /**
+     * 查询该应用「有权限」的接口文档数据（T16-2）。
+     *
+     * <p>需求：「应用管理中增加接口文档导出，<b>只导出有权限的接口</b>」。</p>
+     *
+     * <p><b>「有权限」= 授权已生效（{@code status=1}）+ 在有效期内 + 接口已启用</b>；
+     * 待审批/已驳回/已过期/已撤销的授权，以及已停用或已删除的接口，一律不出现在结果里。
+     * 被剔除的两类分别计数返回（{@code danglingCount} / {@code disabledCount}），
+     * 避免「导出条数 < 授权条数」变成无法解释的谜。</p>
+     *
+     * <p>本端点<b>刻意不加</b> {@code @RequirePerm}：与本仓其余只读端点
+     * （{@code /app/list}、{@code /app/{id}/ip-whitelist} 等）保持一致 ——
+     * 只读 + 页面菜单可见性即为控制，单点加注解会让缺该码的角色一打开页面就 403。
+     * 数据本身只包含「该应用已被授权」的接口，不含任何密钥材料。</p>
+     *
+     * <p>只返回<b>数据</b>；Markdown 正文由前端 {@code utils/interfaceDoc.js} 生成
+     * （与 T14 接入文档同一取舍：正文口径只在一处定义）。</p>
+     *
+     * @param id 应用 ID
+     * @return 接口文档数据（应用不存在时 400）
+     */
+    @Operation(summary = "查询应用的接口文档数据")
+    @GetMapping("/{id}/interface-doc")
+    public Result<AppInterfaceDocVo> interfaceDoc(@PathVariable Long id) {
+        return Result.success(appInterfaceDocService.build(id));
     }
 
     /**
