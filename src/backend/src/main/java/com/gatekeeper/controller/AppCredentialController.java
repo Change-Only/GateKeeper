@@ -3,6 +3,7 @@ package com.gatekeeper.controller;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.dto.AppCredentialDto;
 import com.gatekeeper.dto.CredentialRotateRequest;
+import com.gatekeeper.security.AccountPasswordVerifier;
 import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.AppCredentialService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,8 +18,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 应用凭证管理 Controller — T03a 凭证主数据对外能力
@@ -32,9 +35,11 @@ import java.util.List;
  *   <li>POST   /api/app-credential/complete-rotate            完成轮换</li>
  *   <li>POST   /api/app-credential/{id}/revoke                立即吊销（{@code app:credential:revoke} 高危）</li>
  *   <li>PUT    /api/app-credential/{id}/update                修改 alias / expireTime</li>
+ *   <li>POST   /api/app-credential/{id}/reveal                查看密钥明文（T14：需当前账号密码二次确认）</li>
  * </ul></p>
  *
- * <p>安全约束：除 create / rotate 响应外，<strong>任何接口绝不返回 appSecret 明文</strong>。</p>
+ * <p>安全约束：明文 appSecret 只在三个窗口出现 —— create / rotate / <b>reveal（须密码二次确认）</b>；
+ * 其余任何接口绝不返回明文。</p>
  *
  * @author GateKeeper
  * @since T03a (APIM V2)
@@ -46,6 +51,9 @@ import java.util.List;
 public class AppCredentialController {
 
     private final AppCredentialService appCredentialService;
+
+    /** T14 二次查看密钥的「当前账号密码」闸门 */
+    private final AccountPasswordVerifier passwordVerifier;
 
     /**
      * 按 app/env/status 筛选凭证列表。
@@ -133,5 +141,46 @@ public class AppCredentialController {
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody AppCredentialDto dto) {
         appCredentialService.update(id, dto);
         return Result.success();
+    }
+
+    /**
+     * 二次查看密钥明文（T14 新增）。
+     *
+     * <p>这是除 create / rotate 之外的<b>第三个明文返回窗口</b>，因此设了两道闸：</p>
+     * <ol>
+     *   <li><b>权限闸</b>：{@code @RequirePerm("app_credential:rotate", risk = true)}。
+     *       复用 rotate 而非新开权限点，理由是<b>信息暴露面完全相同</b>——rotate 的响应里本来
+     *       就带一份崭新的明文 secret，所以「能 rotate 的人」本来就能拿到明文。若给 reveal 配一个
+     *       更弱的码，等于<b>降低</b>了拿到明文的门槛；反之给更强/新码，又要额外播种
+     *       {@code sys_menu} + {@code sys_role_menu} 并清权限缓存，收益为零。
+     *       <b>若将来想把二者拆开</b>（例如允许「只读密钥」角色），需新增
+     *       {@code app_credential:reveal} 权限点并照抄 rotate 的持有角色集合补授权。</li>
+     *   <li><b>身份闸</b>：必须提交当前登录账号的密码（{@link AccountPasswordVerifier}），
+     *       防止「有人趁管理员没锁屏顺手看一眼」。</li>
+     * </ol>
+     *
+     * <p>⚠️ 密码错误一律回 {@code code=400}（而非 401）：前端 {@code api/index.js} 把 HTTP 401
+     * 当作登录过期处理（清 token + 跳登录页），密码打错一次就登出是不能接受的。</p>
+     *
+     * @param id      凭证 ID
+     * @param body    {@code {"password": "当前登录账号的密码"}}
+     * @param request 用于取 {@code X-USER-ID}（由 {@code JwtAuthInterceptor} 写入）
+     * @return 含明文 {@code appSecret} 的凭证 DTO
+     */
+    @RequirePerm(value = "app_credential:rotate", risk = true)
+    @Operation(summary = "查看密钥明文（需当前账号密码二次确认）")
+    @PostMapping("/{id}/reveal")
+    public Result<AppCredentialDto> reveal(@PathVariable Long id,
+                                          @RequestBody(required = false) Map<String, String> body,
+                                          HttpServletRequest request) {
+        Long uid = passwordVerifier.currentUid(request);
+        String password = body == null ? null : body.get("password");
+        String err = passwordVerifier.check(uid, password);
+        if (err != null) {
+            return AccountPasswordVerifier.ERR_NOT_LOGIN.equals(err)
+                    ? Result.error(401, err)
+                    : Result.error(400, err);
+        }
+        return Result.success(appCredentialService.reveal(id));
     }
 }

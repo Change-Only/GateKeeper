@@ -504,6 +504,11 @@ export function revokeAppCredential(id) {
 export function updateAppCredential(id, data) {
   return request.put(`/app-credential/${id}/update`, data)
 }
+// 查看密钥明文（T14 二次查看）：必须提交当前登录账号的密码做二次确认
+// 后端校验密码，错误时返回 code=400（不是 401 —— 401 会被拦截器当成登录过期直接登出）
+export function revealAppCredential(id, data) {
+  return request.post(`/app-credential/${id}/reveal`, data)
+}
 
 // ============ 接口发布（interface 子域 · T05 Phase 1） ============
 // 发布接口（高危）

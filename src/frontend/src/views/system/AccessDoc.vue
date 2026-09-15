@@ -1,8 +1,12 @@
 <template>
-  <!-- 接入文档页：公开可访问（无需登录），风格对齐登录页品牌 -->
-  <div class="doc-wrap">
-    <!-- 顶部品牌条 -->
-    <header class="doc-header">
+  <!-- 接入文档页
+       双形态：
+         · 公开形态（默认）：顶层独立路由 /access-doc，整屏、带深色品牌条，未登录也能看；
+         · 内嵌形态（embedded=true）：Layout 子路由 /sys/sys-access-doc，由右侧内容区承载。
+       两种形态共用同一套内容（来自 @/utils/accessDoc），避免「页面讲的」与「导出文件里写的」发散。 -->
+  <div :class="['doc-wrap', { 'doc-embedded': embedded }]">
+    <!-- 顶部品牌条：仅公开形态显示 -->
+    <header v-if="!embedded" class="doc-header">
       <div class="header-inner">
         <div class="brand">
           <svg viewBox="0 0 48 48" fill="none" class="logo">
@@ -11,7 +15,7 @@
           </svg>
           <div>
             <div class="t1">GateKeeper 接入文档</div>
-            <div class="t2">API 集中权限管理与安全网关 · 调用方接入指南</div>
+            <div class="t2">APIM 统一接口管理平台 · 调用方接入指南</div>
           </div>
         </div>
         <el-button v-if="!loggedIn" size="small" round @click="$router.push('/login')">返回登录</el-button>
@@ -19,13 +23,21 @@
     </header>
 
     <main class="doc-main">
+      <!-- 内嵌形态的动作条 -->
+      <div v-if="embedded" class="doc-actions">
+        <div class="da-text">
+          下面所有内容与「创建应用 → 下载接入文档」导出的 Markdown 完全一致。
+        </div>
+        <el-button size="small" type="primary" plain icon="el-icon-download" @click="downloadGeneric">导出通用文档</el-button>
+      </div>
+
       <!-- 概要卡 -->
       <section class="hero">
         <h1>三步完成接入</h1>
-        <p>所有业务接口统一通过网关入口 <code>POST /gateway/&lt;接口路径&gt;</code> 调用。你需要先向管理员申请 <b>AppKey / AppSecret</b>，再按下述规则为每次请求生成签名。</p>
+        <p>所有业务接口统一通过网关入口 <code>POST &lt;网关地址&gt;/gateway/&lt;接口路径&gt;</code> 调用。你需要先向管理员申请 <b>AppKey / AppSecret</b>，再按下述规则为每次请求生成签名。</p>
         <div class="steps">
-          <div class="step"><div class="no">1</div><div><b>申请密钥</b><span>管理员在「应用管理」创建应用，获得 AppKey 与 AppSecret（Secret 仅展示一次，请妥善保存）</span></div></div>
-          <div class="step"><div class="no">2</div><div><b>获得授权</b><span>管理员在「权限管理」为你的应用授予目标接口的调用权限</span></div></div>
+          <div class="step"><div class="no">1</div><div><b>申请密钥</b><span>管理员在「应用管理」创建应用与凭证，获得 AppKey 与 AppSecret</span></div></div>
+          <div class="step"><div class="no">2</div><div><b>获得授权</b><span>管理员在「接口授权总览」为你的应用授予目标接口的调用权限</span></div></div>
           <div class="step"><div class="no">3</div><div><b>签名调用</b><span>每次请求携带 4 个认证请求头，签名通过后即可调用已授权接口</span></div></div>
         </div>
       </section>
@@ -53,16 +65,64 @@
           <li>四个参数按上述顺序<b>直接字符串拼接</b>（无分隔符），对拼接结果做 <b>SM3 摘要</b>，取<b>十六进制小写</b>输出。</li>
           <li><b>Timestamp</b> 为毫秒级时间戳，与服务器时间偏差超过 <b>5 分钟</b>将被拒绝。</li>
           <li><b>Nonce</b> 为每次请求唯一的随机串（建议 UUID），同一 Nonce <b>5 分钟内只允许使用一次</b>（防重放）。</li>
-          <li>AppSecret 仅参与本地签名计算，<b>切勿在网络中传输</b>。</li>
+          <li>AppSecret 仅参与本地签名计算，<b>切勿在网络中传输，切勿提交到代码库</b>。</li>
         </ul>
+      </section>
+
+      <!-- 工具类 -->
+      <section class="block">
+        <h2><i class="el-icon-suitcase"></i> 工具类（可直接复制）</h2>
+        <p class="desc">两份工具类已把「生成 Nonce → 拼串 → SM3 签名 → 组装请求头 → 发起调用」完整封装，复制到项目里改一下密钥即可跑通。</p>
+        <el-tabs v-model="utilTab">
+          <el-tab-pane label="Java 工具类 GkSigner.java" name="java">
+            <el-alert type="info" :closable="false" show-icon
+                      title="依赖：cn.hutool:hutool-all + org.bouncycastle:bcprov-jdk15to18（SM3 由 BouncyCastle 提供实现）" />
+            <pre><code class="java">{{ javaUtilCode }}</code></pre>
+          </el-tab-pane>
+          <el-tab-pane label="JavaScript 工具类 gk-sign.js" name="js">
+            <el-alert type="info" :closable="false" show-icon
+                      title="依赖：npm i sm-crypto（浏览器可直引 unpkg 上的 UMD 包，把 require 换成 window.smCrypto.sm3）" />
+            <pre><code class="javascript">{{ jsUtilCode }}</code></pre>
+          </el-tab-pane>
+        </el-tabs>
+      </section>
+
+      <!-- 调用方法 -->
+      <section class="block">
+        <h2><i class="el-icon-guide"></i> 调用方法</h2>
+        <p class="desc">工具类对外暴露的方法一览：</p>
+        <el-tabs v-model="methodTab">
+          <el-tab-pane label="Java" name="java">
+            <el-table :data="javaMethods" size="small" border>
+              <el-table-column prop="sig" label="方法" min-width="330">
+                <template slot-scope="{ row }"><code>{{ row.sig }}</code></template>
+              </el-table-column>
+              <el-table-column prop="desc" label="说明" />
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane label="JavaScript" name="js">
+            <el-table :data="jsMethods" size="small" border>
+              <el-table-column prop="sig" label="方法" min-width="330">
+                <template slot-scope="{ row }"><code>{{ row.sig }}</code></template>
+              </el-table-column>
+              <el-table-column prop="desc" label="说明" />
+            </el-table>
+          </el-tab-pane>
+        </el-tabs>
       </section>
 
       <!-- 调用示例 -->
       <section class="block">
         <h2><i class="el-icon-document-copy"></i> 调用示例</h2>
-        <el-tabs value="java">
-          <el-tab-pane label="Java (Hutool)" name="java">
-            <pre><code class="java">{{ javaCode }}</code></pre>
+        <el-tabs v-model="sampleTab">
+          <el-tab-pane label="Java" name="java">
+            <pre><code class="java">{{ javaCallCode }}</code></pre>
+          </el-tab-pane>
+          <el-tab-pane label="JavaScript" name="js">
+            <pre><code class="javascript">{{ jsCallCode }}</code></pre>
+          </el-tab-pane>
+          <el-tab-pane label="Node.js" name="node">
+            <pre><code class="javascript">{{ nodeCallCode }}</code></pre>
           </el-tab-pane>
           <el-tab-pane label="curl" name="curl">
             <pre><code class="bash">{{ curlCode }}</code></pre>
@@ -86,7 +146,7 @@
         <ul class="rules">
           <li>若你的应用或目标接口在「加解密管理」中配置了加密策略，请求 Body 需按配置的算法（SM2 / SM4 / AES）加密后传输，响应同样为密文。</li>
           <li>网关内置限流、高频调用检测、异常入参检测与 IP 封禁，请合理控制调用频率。</li>
-          <li>连续鉴权失败会触发来源 IP 自动封禁，如被误封请联系管理员在「IP 封禁」中解封。</li>
+          <li>连续鉴权失败会触发来源 IP 自动封禁，如被误封请联系管理员在「封禁管理」中解封。</li>
         </ul>
       </section>
 
@@ -98,59 +158,49 @@
 </template>
 
 <script>
+/**
+ * 接入文档页（T05 建；T14 重构）
+ *
+ * T14 改动：
+ *   1. 支持 embedded 形态，挂到 Layout 里做左侧菜单「接入文档」的落点；
+ *   2. 代码片段 / 表数据全部搬到 @/utils/accessDoc —— 与「创建应用后导出的 Markdown」
+ *      共用同一份内容，避免两边各写一份导致算法说明发散；
+ *   3. 补齐 Java 工具类、JavaScript 工具类、调用方法、多语言调用示例。
+ */
+import {
+  GK_HEADERS, GK_ERRORS, JAVA_METHODS, JS_METHODS,
+  JAVA_UTIL_CODE, JAVA_CALL_CODE, JS_UTIL_CODE, JS_CALL_CODE, NODE_CALL_CODE, CURL_CODE,
+  exportAccessDoc
+} from '@/utils/accessDoc'
+
 export default {
   name: 'AccessDoc',
+  props: {
+    /** true = 内嵌在 Layout 内容区（隐藏品牌条、取消整屏高度） */
+    embedded: { type: Boolean, default: false }
+  },
   data() {
     return {
       loggedIn: !!localStorage.getItem('gatekeeper_token'),
-      headers: [
-        { name: 'X-App-Key', desc: '应用唯一标识，管理员创建应用时分配', example: 'ak_9f2c8e1b...' },
-        { name: 'X-Timestamp', desc: '毫秒级时间戳，偏差超过 5 分钟拒绝', example: '1772438400000' },
-        { name: 'X-Nonce', desc: '随机串（建议 UUID），5 分钟内不可重复', example: 'e7b8a4d0-...' },
-        { name: 'X-Signature', desc: '请求签名，算法见下文', example: 'SM3 摘要的十六进制串' }
-      ],
-      errors: [
-        { code: '400', msg: '参数错误', desc: '请求参数缺失或格式不正确' },
-        { code: '401', msg: '鉴权失败', desc: 'AppKey 无效 / 缺少请求头 / 时间戳过期 / Nonce 重复 / 签名不匹配，请检查密钥与签名算法' },
-        { code: '403', msg: '无权限或被拒绝', desc: '应用停用/过期、IP 不在白名单、IP 被封禁或未获接口授权' },
-        { code: '404', msg: '接口不存在', desc: '接口路径错误或接口已下线' },
-        { code: '429', msg: '请求过于频繁', desc: '触发限流，请按响应中的提示降低调用频率' },
-        { code: '502', msg: '上游服务异常', desc: '后端业务服务返回异常，请联系管理员' },
-        { code: '504', msg: '上游服务超时', desc: '后端业务服务响应超时，请稍后重试' }
-      ],
-      javaCode: `// Maven 依赖：cn.hutool:hutool-crypto:5.8.x（内置国密 SM3，需配合 BouncyCastle）
-import cn.hutool.crypto.SmUtil;
-import cn.hutool.core.util.IdUtil;
-
-String appKey  = "你的AppKey";
-String secret  = "你的AppSecret";              // 仅本地使用，切勿传输
-long   ts      = System.currentTimeMillis();   // 毫秒时间戳
-String nonce   = IdUtil.fastSimpleUUID();      // 每次请求唯一
-
-// 签名：SM3(AppKey + AppSecret + Timestamp + Nonce)，十六进制小写
-String sign = SmUtil.sm3(appKey + secret + ts + nonce);
-
-// 携带认证请求头调用网关
-// POST http://<网关地址>/gateway/<接口路径>
-// X-App-Key: appKey
-// X-Timestamp: ts
-// X-Nonce: nonce
-// X-Signature: sign`,
-      curlCode: `# 1. 生成签名（示例使用 openssl 不支持 SM3，可用 hutool / gmssl 等工具生成）
-APP_KEY="你的AppKey"
-APP_SECRET="你的AppSecret"
-TIMESTAMP=$(date +%s%3N)
-NONCE=$(cat /proc/sys/kernel/random/uuid | tr -d '-')
-SIGN=$(echo -n "\${APP_KEY}\${APP_SECRET}\${TIMESTAMP}\${NONCE}" | gmssl sm3)
-
-# 2. 调用网关
-curl -X POST "http://<网关地址>/gateway/<接口路径>" \\
-  -H "X-App-Key: \${APP_KEY}" \\
-  -H "X-Timestamp: \${TIMESTAMP}" \\
-  -H "X-Nonce: \${NONCE}" \\
-  -H "X-Signature: \${SIGN}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"bizParam":"value"}'`
+      headers: GK_HEADERS,
+      errors: GK_ERRORS,
+      javaMethods: JAVA_METHODS,
+      jsMethods: JS_METHODS,
+      javaUtilCode: JAVA_UTIL_CODE,
+      javaCallCode: JAVA_CALL_CODE,
+      jsUtilCode: JS_UTIL_CODE,
+      jsCallCode: JS_CALL_CODE,
+      nodeCallCode: NODE_CALL_CODE,
+      curlCode: CURL_CODE,
+      utilTab: 'java',
+      methodTab: 'java',
+      sampleTab: 'java'
+    }
+  },
+  methods: {
+    downloadGeneric() {
+      const name = exportAccessDoc({ appName: 'GateKeeper' })
+      this.$message.success('已导出 ' + name)
     }
   }
 }
@@ -158,6 +208,8 @@ curl -X POST "http://<网关地址>/gateway/<接口路径>" \\
 
 <style scoped>
 .doc-wrap { min-height: 100vh; background: #f4f6fa; }
+/* 内嵌形态：Layout 已经提供了背景与侧栏，这里只做内容区容器 */
+.doc-embedded { min-height: auto; background: transparent; }
 
 /* 顶部品牌条 */
 .doc-header {
@@ -172,6 +224,15 @@ curl -X POST "http://<网关地址>/gateway/<接口路径>" \\
 .brand .t2 { font-size: 12px; color: #8ea4c6; margin-top: 2px; }
 
 .doc-main { max-width: 960px; margin: 0 auto; padding: 28px 24px 40px; }
+.doc-embedded .doc-main { max-width: none; padding: 16px 20px 28px; }
+
+/* 内嵌形态动作条 */
+.doc-actions {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: #fff; border: 1px solid #e8edf5; border-radius: 10px;
+  padding: 10px 16px; margin-bottom: 16px;
+}
+.da-text { font-size: 12px; color: #7d93b8; }
 
 /* 概要卡 */
 .hero {
@@ -181,8 +242,8 @@ curl -X POST "http://<网关地址>/gateway/<接口路径>" \\
 }
 .hero h1 { font-size: 22px; color: #17233d; margin-bottom: 10px; }
 .hero p { color: #5c6b8a; font-size: 14px; line-height: 1.8; margin-bottom: 20px; }
-.steps { display: flex; gap: 16px; }
-.step { flex: 1; display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 10px; background: #f7f9fc; border: 1px solid #edf1f7; }
+.steps { display: flex; gap: 16px; flex-wrap: wrap; }
+.step { flex: 1; min-width: 220px; display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 10px; background: #f7f9fc; border: 1px solid #edf1f7; }
 .step .no {
   width: 26px; height: 26px; border-radius: 50%; flex: none;
   background: #2563eb; color: #fff; font-size: 13px; font-weight: 600;
@@ -213,10 +274,14 @@ code.hd { color: #2563eb; font-weight: 600; }
 .rules { margin: 0; padding-left: 18px; color: #5c6b8a; font-size: 13px; line-height: 2; }
 .rules b { color: #17233d; }
 
+/* 表格里的代码不换行溢出 */
+.block .el-table code { white-space: nowrap; }
+
 /* 代码块 */
 pre {
   background: #0b1c33; color: #e8eefb; border-radius: 10px;
-  padding: 18px 20px; overflow: auto; margin: 0;
+  padding: 18px 20px; overflow: auto; margin: 12px 0 0;
+  max-height: 560px;
 }
 pre code { background: transparent; color: inherit; padding: 0; font-size: 12.5px; line-height: 1.8; }
 

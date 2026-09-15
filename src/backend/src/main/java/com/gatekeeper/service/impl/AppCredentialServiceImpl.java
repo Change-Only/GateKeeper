@@ -308,6 +308,27 @@ public class AppCredentialServiceImpl extends ServiceImpl<AppCredentialMapper, A
         log.info("AppCredential updated: id={}", id);
     }
 
+    @Override
+    public AppCredentialDto reveal(Long id) {
+        if (id == null) {
+            throw GatewayException.badRequest("凭证ID不能为空");
+        }
+        AppCredential c = baseMapper.selectById(id);
+        if (c == null) {
+            throw GatewayException.notFound("凭证不存在: id=" + id);
+        }
+        // 已吊销的凭证不再可取明文：它的存在意义只剩审计留痕
+        if (c.getStatus() != null && c.getStatus() == 3) {
+            throw GatewayException.badRequest("该凭证已被吊销，无法查看密钥");
+        }
+        String plainSecret = decryptSecret(c.getAppSecret());
+        AppCredentialDto dto = toDto(c, true);
+        dto.setAppSecret(plainSecret);
+        log.info("AppCredential revealed(T14 二次查看): id={}, appId={}, envCode={}",
+                c.getId(), c.getAppId(), c.getEnvCode());
+        return dto;
+    }
+
     // =====================================================================
     // CredentialFacadeService（T03a 仅暴露，T04 由 AppAuthHandler 启用）
     // =====================================================================
@@ -418,6 +439,26 @@ public class AppCredentialServiceImpl extends ServiceImpl<AppCredentialMapper, A
             // 加密失败：抛业务异常（FAIL-CLOSED，避免明文落库）
             log.error("Encrypt appSecret failed: {}", e.getMessage(), e);
             throw GatewayException.badGateway("凭证加密失败");
+        }
+    }
+
+    /**
+     * AES-256 ECB 解密（T14 二次查看用）。参数必须与 {@link #encryptSecret} 严格对称：
+     * 同一个 KEK（{@code gatekeeper.crypto.aes-key}）、AES/ECB/PKCS5Padding。
+     *
+     * <p>解密失败一律 FAIL-CLOSED（抛业务异常），绝不把密文当明文返回 ——
+     * 否则前端会把一串 Base64 密文当密钥保存下来，等调用失败才发现。</p>
+     */
+    private String decryptSecret(String cipherText) {
+        if (!StringUtils.hasText(cipherText)) {
+            throw GatewayException.badGateway("凭证密钥密文缺失，无法查看");
+        }
+        try {
+            String key = CryptoKeyUtil.toBase64Key(aesDbKey);
+            return cryptoService.decrypt("AES", cipherText, key, null, "ECB", "PKCS5Padding");
+        } catch (Exception e) {
+            log.error("Decrypt appSecret failed: {}", e.getMessage(), e);
+            throw GatewayException.badGateway("凭证密钥解密失败，请联系管理员检查加密密钥配置");
         }
     }
 

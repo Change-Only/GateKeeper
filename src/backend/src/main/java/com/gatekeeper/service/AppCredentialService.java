@@ -100,4 +100,22 @@ public interface AppCredentialService extends IService<AppCredential> {
      * @param dto 入参（alias / expireTime 可改）
      */
     void update(Long id, AppCredentialDto dto);
+
+    /**
+     * 查看密钥明文（T14「二次查看」）。
+     *
+     * <p>语义：把库中 AES-256-ECB 密文形式的 {@code appSecret} <b>解密后返回</b>，
+     * <b>不是</b>重新生成 —— 重新生成属 {@link #rotate} / {@link #revoke} 的能力范围。</p>
+     *
+     * <p>🔴 <b>调用方必须先做「当前账号密码」的二次确认</b>（{@code AccountPasswordVerifier}）。
+     * 本方法只负责取密钥，不负责鉴权 —— 它假定调用方已经校验过。这是刻意的关注点分离：
+     * 认证在 security 层，取数在业务层。</p>
+     *
+     * <p>已吊销（status=3）的凭证拒绝查看：历史密钥不应再被取出使用。</p>
+     *
+     * @param id 凭证 ID
+     * @return 含明文 {@code appSecret} 的 DTO（对应 create / rotate 的「明文返回窗口」）
+     * @throws com.gatekeeper.exception.GatewayException 凭证不存在 / 已吊销 / 密文缺失或解密失败
+     */
+    AppCredentialDto reveal(Long id);
 }

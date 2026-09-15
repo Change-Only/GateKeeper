@@ -46,7 +46,12 @@ export const MENU_TREE = [
       { title: '告警记录', path: '/mon/mon-alarm', perm: 'alarm:list' },
       { title: '封禁管理', path: '/mon/mon-block', perm: 'block:list' }
     ]
-  }
+  },
+  // ===== 开发者中心（T14）=====
+  // 「接入文档」是只读说明页 ⇒ 不配权限点（perm:'' 会被 hasPerm 判为「无需权限」恒真），
+  // 登录后左侧菜单即出现。刻意不新增 sys_menu 权限点：只读页面新增权限点会带来
+  // 「播种 + 补授权 + 清权限缓存」三件套，收益为零（详见 MEMORY.md §4 权限点契约）。
+  { title: '接入文档', icon: 'el-icon-document', path: '/sys/sys-access-doc', perm: '' }
 ]
 
 /**

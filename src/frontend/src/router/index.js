@@ -58,7 +58,13 @@ const routes = [
       { path: 'mon/mon-alarm', name: 'MonAlarm', component: () => import('@/views/monitor/MonAlarm.vue'), meta: { title: '告警记录', perm: 'alarm:list', module: '监控与审计' } },
       { path: 'mon/mon-block', name: 'MonBlock', component: () => import('@/views/monitor/MonBlock.vue'), meta: { title: '封禁管理', perm: 'block:list', module: '监控与审计' } },
       // 保留但不进侧边菜单的旧页面（后续并入 sys-security / 保留独立入口）
-      { path: 'encryption', name: 'EncryptionConfig', component: () => import('@/views/encryption/Index.vue'), meta: { title: '加解密管理' } }
+      { path: 'encryption', name: 'EncryptionConfig', component: () => import('@/views/encryption/Index.vue'), meta: { title: '加解密管理' } },
+      // ===== 开发者中心（T14）=====
+      // 左侧菜单「接入文档」的落点：复用公开页组件 + props.embedded=true，
+      // 由 Layout 的右侧内容区承载（去掉整屏品牌条与「返回登录」按钮）。
+      // ⚠️ 必须与顶层公开路由 /access-doc 用**不同** path，否则 vue-router 只认第一条。
+      // 刻意不挂 meta.perm：这是只读说明页，登录即可见，不新增权限点（不触碰权限红线）。
+      { path: 'sys/sys-access-doc', name: 'SysAccessDoc', component: () => import('@/views/system/AccessDoc.vue'), props: { embedded: true }, meta: { title: '接入文档', module: '开发者中心' } }
     ]
   }
 ]

@@ -35,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -392,6 +393,75 @@ class AppCredentialServiceTest {
     void getActiveCredential_noActive() {
         stubRows(null, null);
         assertNull(service.getActiveCredential(1L, "prod"));
+    }
+
+    // =================================================================
+    // T14：reveal（二次查看密钥明文）
+    // =================================================================
+
+    @Test
+    @DisplayName("reveal 解密库中密文并返回明文（不是重新生成）")
+    void reveal_decryptsStoredCiphertext() {
+        AppCredential c = sample(9L, "ak_prod_9999999999999999", 1, 0);
+        when(appCredentialMapper.selectById(9L)).thenReturn(c);
+        when(cryptoService.decrypt(any(), any(), any(), any(), any(), any()))
+                .thenReturn("PLAIN_SECRET_64_HEX");
+
+        AppCredentialDto dto = service.reveal(9L);
+        assertEquals("PLAIN_SECRET_64_HEX", dto.getAppSecret(), "应返回解密后的明文");
+        assertEquals("ak_prod_9999999999999999", dto.getAppKey());
+        // 掩码字段照旧保留（前端列表仍然只看掩码）
+        assertNotNull(dto.getSecretMask());
+        // 关键：解密入参必须是库里的那份密文，且算法/模式/填充与 encryptSecret 严格对称
+        verify(cryptoService, times(1)).decrypt(
+                eq("AES"), eq("AES_CIPHERTEXT_BASE64"), any(), eq(null), eq("ECB"), eq("PKCS5Padding"));
+        // 绝不能借「查看」之名落库改数据
+        verify(appCredentialMapper, times(0)).updateById(any(AppCredential.class));
+        verify(appCredentialMapper, times(0)).insert(any(AppCredential.class));
+    }
+
+    @Test
+    @DisplayName("reveal 已吊销（status=3）凭证 → 拒绝")
+    void reveal_rejectsRevoked() {
+        AppCredential revoked = sample(9L, "ak_prod_9999999999999999", 3, 0);
+        when(appCredentialMapper.selectById(9L)).thenReturn(revoked);
+
+        GatewayException ex = assertThrows(GatewayException.class, () -> service.reveal(9L));
+        assertTrue(ex.getMessage().contains("吊销"));
+        verify(cryptoService, times(0)).decrypt(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("reveal 凭证不存在 → 404")
+    void reveal_notFound() {
+        when(appCredentialMapper.selectById(9L)).thenReturn(null);
+        GatewayException ex = assertThrows(GatewayException.class, () -> service.reveal(9L));
+        assertTrue(ex.getMessage().contains("不存在"));
+    }
+
+    @Test
+    @DisplayName("reveal id 为空 → 400")
+    void reveal_nullId() {
+        GatewayException ex = assertThrows(GatewayException.class, () -> service.reveal(null));
+        assertTrue(ex.getMessage().contains("不能为空"));
+    }
+
+    @Test
+    @DisplayName("🔴 reveal 密文缺失 / 解密失败 → 抛业务异常，绝不把密文当明文返回（FAIL-CLOSED）")
+    void reveal_failsClosed() {
+        // 密文缺失
+        AppCredential blank = sample(9L, "ak_prod_9999999999999999", 1, 0);
+        blank.setAppSecret("");
+        when(appCredentialMapper.selectById(9L)).thenReturn(blank);
+        assertThrows(GatewayException.class, () -> service.reveal(9L));
+
+        // 解密抛异常（KEK 被换过 / 密文被截断）
+        AppCredential broken = sample(10L, "ak_prod_0000000000000000", 1, 0);
+        when(appCredentialMapper.selectById(10L)).thenReturn(broken);
+        when(cryptoService.decrypt(any(), any(), any(), any(), any(), any()))
+                .thenThrow(new RuntimeException("bad key"));
+        GatewayException ex = assertThrows(GatewayException.class, () -> service.reveal(10L));
+        assertTrue(ex.getMessage().contains("解密失败"));
     }
 
     // =================================================================

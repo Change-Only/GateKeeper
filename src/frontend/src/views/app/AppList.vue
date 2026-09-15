@@ -35,6 +35,7 @@
       </template>
       <template #actions="{ row }">
         <PermButton perm="" type="text" @click="openDetail(row)">详情</PermButton>
+        <PermButton perm="" type="text" @click="downloadDoc(row)">接入文档</PermButton>
         <PermButton perm="app:update" type="text" @click="openEdit(row)">编辑</PermButton>
         <PermButton perm="app:disable" type="text" @click="toggleStatus(row)">{{ row.status === 1 ? '停用' : '启用' }}</PermButton>
         <PermButton perm="app:delete" type="text" class="danger-link" @click="remove(row)">删除</PermButton>
@@ -47,6 +48,8 @@
         <div class="dh-name">{{ currentApp.appName }}</div>
         <code class="mono dh-key">{{ currentApp.appKey }}</code>
         <StatusTag entity="app" :value="currentApp.status" />
+        <span class="dh-spacer" />
+        <el-button size="mini" plain icon="el-icon-download" @click="downloadDoc(currentApp)">接入文档</el-button>
       </div>
       <el-tabs v-model="activeTab" class="detail-tabs">
         <el-tab-pane label="密钥凭证" name="cred"><CredentialTab :app-id="currentAppId" /></el-tab-pane>
@@ -70,6 +73,25 @@
       width="560px"
       @submit="submit"
     />
+
+    <!-- T14 创建成功后的「接入材料」弹窗：让用户建完应用立刻拿到能交付给调用方的东西 -->
+    <el-dialog title="应用已创建" :visible.sync="createdVisible" width="560px" :close-on-click-modal="false" append-to-body>
+      <el-alert type="success" :closable="false" show-icon title="应用已创建，且已自动生成 AppKey" />
+      <div class="created-body">
+        <div class="cb-row"><span class="cb-k">应用名称</span><span>{{ createdApp.appName }}</span></div>
+        <div class="cb-row"><span class="cb-k">AppKey</span><code class="mono">{{ createdApp.appKey || '—' }}</code></div>
+      </div>
+      <el-alert type="warning" :closable="false" show-icon>
+        <template #title>
+          真正用于调用网关的密钥在「详情 → 密钥凭证」里按环境创建；AppSecret 明文只在创建凭证 /
+          灰度轮换时展示一次，之后可在凭证列表用「查看密钥」+ 当前账号密码二次确认再次查看。
+        </template>
+      </el-alert>
+      <template #footer>
+        <el-button @click="createdVisible = false">关闭</el-button>
+        <el-button type="primary" icon="el-icon-download" @click="downloadDoc(createdApp)">下载接入文档</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -82,6 +104,9 @@
  *       与原型计划的 appCode/lineId/appType/ownerName/envScope 等字段不同，表单以真实后端字段为准。
  */
 import { getAppList, createApp, updateApp, updateAppStatus, deleteApp } from '@/api/modules'
+// T14：接入文档的正文与「页面右侧展示的那份」共用同一来源（@/utils/accessDoc），
+// 避免导出文件里写的签名算法与页面讲的不是一回事
+import { exportAccessDoc } from '@/utils/accessDoc'
 import StatusTag from '@/components/common/StatusTag.vue'
 import CredentialTab from './tabs/CredentialTab.vue'
 import QuotaTab from './tabs/QuotaTab.vue'
@@ -104,6 +129,9 @@ export default {
       drawerVisible: false,
       activeTab: 'cred',
       currentApp: null,
+      // T14：创建成功后的接入材料弹窗
+      createdVisible: false,
+      createdApp: {},
       dialogVisible: false,
       dialogTitle: '新建应用',
       submitting: false,
@@ -161,8 +189,15 @@ export default {
           await updateApp(payload.id, payload)
           this.$message.success('应用已更新')
         } else {
-          await createApp(payload)
+          const res = await createApp(payload)
+          const created = (res && res.data) || {}
           this.$message.success('应用已创建（已自动生成 AppKey）')
+          // T14：建完立刻把「可交付给调用方的东西」摆出来（AppKey + 一键下载接入文档）。
+          // ⚠️ 刻意不把 createApp 响应里的明文 app.appSecret 写进文档：
+          //    网关鉴权走的是 app_credential（按环境），legacy 的 app.app_secret 不是调用凭证，
+          //    写进文件只会误导调用方。
+          this.createdApp = created
+          this.createdVisible = true
         }
         this.dialogVisible = false
         this.reload()
@@ -192,6 +227,19 @@ export default {
     },
     goGrant() {
       this.$router.push('/perm/perm-matrix')
+    },
+    /**
+     * 导出该应用的接入文档（Markdown）。
+     * 纯前端生成：文档正文来自 @/utils/accessDoc，与本应用无关的内容不会带出去。
+     */
+    downloadDoc(app) {
+      if (!app || !app.id) return
+      try {
+        const name = exportAccessDoc(app)
+        this.$message.success('已导出 ' + name)
+      } catch (e) {
+        this.$message.error('导出失败：' + (e && e.message ? e.message : '未知错误'))
+      }
     }
   }
 }
@@ -202,9 +250,14 @@ export default {
 .danger-link { color: #c03337; }
 .danger-link:hover { color: #e05559; }
 .drawer-head { display: flex; align-items: center; gap: 12px; padding: 0 4px 12px; border-bottom: 1px solid #eef1f7; margin-bottom: 8px; }
+.dh-spacer { flex: 1; }
 .dh-name { font-size: 15px; font-weight: 600; color: #17233d; }
 .dh-key { color: #5c6b8a; }
 .detail-tabs { margin-top: 4px; }
 .grant-tip { padding: 16px; color: #5c6b8a; line-height: 1.8; }
 .grant-tip p { margin: 0 0 12px; }
+/* T14 创建成功弹窗 */
+.created-body { margin: 14px 0; }
+.cb-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px; color: #17233d; }
+.cb-k { width: 76px; color: #7d93b8; flex: none; }
 </style>
