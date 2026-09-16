@@ -4,11 +4,14 @@ import com.gatekeeper.aspect.ApiChangeLog;
 import com.gatekeeper.common.PageResult;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.dto.InterfaceDetailVo;
+import com.gatekeeper.dto.InterfaceImportRequest;
+import com.gatekeeper.dto.InterfaceImportResult;
 import com.gatekeeper.dto.InterfaceListVo;
 import com.gatekeeper.dto.InterfaceTestRequest;
 import com.gatekeeper.dto.InterfaceTestResult;
 import com.gatekeeper.entity.ApiInterface;
 import com.gatekeeper.security.RequirePerm;
+import com.gatekeeper.service.InterfaceImportService;
 import com.gatekeeper.service.InterfaceService;
 import com.gatekeeper.service.InterfaceTestService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -26,6 +29,7 @@ import javax.servlet.http.HttpServletRequest;
  *   <li>GET    /interface/list                列表带分组名/业务线名（跨表冗余）</li>
  *   <li>GET    /interface/{apiId}             详情聚合（基本信息 + 参数 + 版本 + 环境配置 + 最近变更）</li>
  *   <li>POST   /interface                     新增接口（自动写变更历史 CREATE）</li>
+ *   <li>POST   /interface/import              导入 OpenAPI 3.x / Swagger 3.0 文档（T18，groupId 必填）</li>
  *   <li>PUT    /interface/{apiId}             编辑接口（自动写变更历史 UPDATE）</li>
  *   <li>PUT    /interface/{apiId}/status/{status} 启用/停用接口</li>
  *   <li>POST   /interface/{apiId}/publish     发布接口（{@code api:publish} 高危）</li>
@@ -46,6 +50,8 @@ public class InterfaceController {
 
     private final InterfaceService interfaceService;
     private final InterfaceTestService interfaceTestService;
+    /** T18：OpenAPI 3.x 文档导入 */
+    private final InterfaceImportService interfaceImportService;
 
     /**
      * 分页查询接口列表（T03b 增强：行内含分组名 groupName）。
@@ -90,6 +96,65 @@ public class InterfaceController {
     @PostMapping
     public Result<ApiInterface> create(@RequestBody ApiInterface apiInterface) {
         return Result.success(interfaceService.createInterface(apiInterface));
+    }
+
+    /**
+     * 导入 OpenAPI 3.x / Swagger 3.0 文档（T18）。
+     *
+     * <p><b>权限点复用 {@code api:create}</b>：导入的产物就是新建的接口资产，
+     * 与「逐条新建接口」是同一种能力，只是入口批量化了。刻意不新开 {@code api:import} ——
+     * 那会让"能建的人不能导、能导的人不能建"这种同能力双码的怪状态出现，
+     * 也要多维护一条权限播种记录。</p>
+     *
+     * <p><b>为什么不加 {@code @ApiChangeLog}</b>：该注解的 apiId 解析依赖
+     * 「入参是接口实体 / 返回体是 ApiInterface」，而导入一次会创建 N 条接口、
+     * 返回的是统计结果，无法归属到某一个 apiId。硬塞进去只会写出 N 条
+     * 指向同一个 apiId 的错误变更记录。导入动作本身由操作日志（OperationLog）留痕。</p>
+     *
+     * <p>🔴 <b>groupId 必填</b>（需求硬约束「导入时必须先选择分组」）由服务层校验并返回 400；
+     * 前端禁用提交按钮只是体验层闸门，脚本可绕，故后端必须独立拦一道。</p>
+     *
+     * @param req         导入请求（groupId 必填 + 文档正文 + 可选文件名）
+     * @param httpRequest 用于取 {@code X-USER-ID} / {@code X-USERNAME}（由 {@code JwtAuthInterceptor} 写入），
+     *                    作为导入接口的 owner
+     * @return 导入结果（计数 + 逐条明细 + 后续待办提示）
+     */
+    @Operation(summary = "导入 OpenAPI 3.0 文档")
+    @RequirePerm(value = "api:create", risk = true)
+    @PostMapping("/import")
+    public Result<InterfaceImportResult> importSpec(@RequestBody InterfaceImportRequest req,
+                                                     HttpServletRequest httpRequest) {
+        return Result.success(interfaceImportService.importSpec(
+                req, currentUserId(httpRequest), currentUserName(httpRequest)));
+    }
+
+    /**
+     * 从请求属性解析当前用户 id。
+     *
+     * <p>与 {@code OperationLogAspect} / {@code ApiChangeLogAspect} 同一口径：
+     * {@code JwtAuthInterceptor} 把 JWT 的 {@code uid} claim 写进请求属性（Long 类型）。
+     * 解析不出来时返回 null —— 导入仍可继续，只是接口没有 owner；
+     * 这比因为一个附加字段而让整个导入 500 合理。</p>
+     */
+    private Long currentUserId(HttpServletRequest request) {
+        Object v = request.getAttribute("X-USER-ID");
+        if (v instanceof Number) {
+            return ((Number) v).longValue();
+        }
+        if (v != null) {
+            try {
+                return Long.valueOf(v.toString());
+            } catch (NumberFormatException ignore) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** 从请求属性解析当前登录名（JWT subject），作为导入接口的 owner_name。 */
+    private String currentUserName(HttpServletRequest request) {
+        Object v = request.getAttribute("X-USERNAME");
+        return v == null ? null : v.toString();
     }
 
     /**

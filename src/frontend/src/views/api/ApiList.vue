@@ -35,6 +35,10 @@
           <el-option :value="0" label="停用" />
         </el-select>
         <span class="spacer" />
+        <!-- T18：导入 OpenAPI 3.0。权限点与「新建接口」同为 api:create ——
+             导入的产物就是新建出来的接口资产，是同一能力
+             （详见后端 InterfaceController#importSpec 的说明）。 -->
+        <PermButton perm="api:create" icon="el-icon-upload2" @click="openImport">导入</PermButton>
         <PermButton perm="api:create" type="primary" icon="el-icon-plus" @click="openCreate">新建接口</PermButton>
       </template>
 
@@ -133,6 +137,9 @@
 
     <!-- 接口测试弹窗（T13 · 需求第 2 条）：弹窗内可切换「直连后端 / 走网关」两种模式 -->
     <InterfaceTestDialog :visible.sync="testVisible" :api="testApi" />
+
+    <!-- OpenAPI 3.0 导入弹窗（T18）：分组树由本页已加载的 groupTree 透传，避免重复请求 -->
+    <InterfaceImportDialog :visible.sync="importVisible" :group-tree="groupTree" @imported="onImported" />
   </div>
 </template>
 
@@ -153,6 +160,7 @@ import ApiVersionTab from './tabs/ApiVersionTab.vue'
 import ApiEnvConfigTab from './tabs/ApiEnvConfigTab.vue'
 import ApiChangeLogTab from './tabs/ApiChangeLogTab.vue'
 import InterfaceTestDialog from './InterfaceTestDialog.vue'
+import InterfaceImportDialog from './InterfaceImportDialog.vue'
 
 const METHOD_OPTIONS = [
   { value: 'GET', label: 'GET' },
@@ -168,7 +176,7 @@ const PARAM_TYPE_OPTIONS = [
 
 export default {
   name: 'ApiList',
-  components: { ApiParamTab, ApiVersionTab, ApiEnvConfigTab, ApiChangeLogTab, InterfaceTestDialog },
+  components: { ApiParamTab, ApiVersionTab, ApiEnvConfigTab, ApiChangeLogTab, InterfaceTestDialog, InterfaceImportDialog },
   data() {
     return {
       groupTree: [],
@@ -204,6 +212,8 @@ export default {
       // 接口测试弹窗（T13）
       testVisible: false,
       testApi: null,
+      // OpenAPI 导入弹窗（T18）
+      importVisible: false,
       fields: [
         { prop: 'interfaceName', label: '接口名称', type: 'input', required: true, maxlength: 64, span: 12 },
         { prop: 'interfacePath', label: '网关路径', type: 'input', required: true, placeholder: '/gateway/xxx', maxlength: 128, span: 12 },
@@ -293,6 +303,22 @@ export default {
     openTest(row) {
       this.testApi = row
       this.testVisible = true
+    },
+    /**
+     * 打开 OpenAPI 导入弹窗（T18）。
+     *
+     * <p>分组树若还没加载完（用户一进页面就点导入），先补一次请求 ——
+     * 否则弹窗里的分组下拉是空的，而「必须先选分组」就变成了死路。</p>
+     */
+    async openImport() {
+      if (!this.groupTree || this.groupTree.length === 0) {
+        await this.loadGroups()
+      }
+      this.importVisible = true
+    },
+    /** 导入完成：结果面板由弹窗内部展示，这里只负责把列表刷新到最新。 */
+    onImported() {
+      this.reload()
     },
     onDrawerOpen() {},
     openCreate() {

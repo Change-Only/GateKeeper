@@ -95,6 +95,10 @@ export function updateInterfaceStatus(id, status) {
 export function deleteInterface(id) {
   return request.delete(`/interface/${id}`)
 }
+// 导入 OpenAPI 3.0 文档（T18）：data = { groupId, content, fileName }，groupId 必填
+export function importOpenApi(data) {
+  return request.post('/interface/import', data)
+}
 
 // ============ 接口分组（多层级） ============
 // 获取多层级分组树

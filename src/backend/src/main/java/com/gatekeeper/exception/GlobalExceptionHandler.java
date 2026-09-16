@@ -4,6 +4,7 @@ import com.gatekeeper.common.Result;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -74,6 +75,28 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public Result<Void> handleIllegalArgument(IllegalArgumentException e) {
         return Result.error(400, e.getMessage());
+    }
+
+    /**
+     * 处理请求体无法解析异常（JSON 语法错误、字段类型不匹配、必填体缺失等）。
+     *
+     * <p>这类问题由<b>调用方</b>引起，属客户端错误，必须返回 400，而不是落到
+     * 兜底的 {@link #handleException} 变成 500「系统繁忙」——否则调用方无法区分
+     * 「我传错了」与「服务端炸了」，会把参数问题当成故障上报。
+     * 触发场景实例：{@code {"groupId": [12]}}（数组塞进 Long 字段）在 T18 导入
+     * 链路上曾表现为 500，实为请求体类型错误。</p>
+     *
+     * <p>安全：对外只给通用提示；具体解析细节（含内部 DTO 类名与字段引用链）
+     * 仅写入日志，遵循本类「不向调用方暴露内部异常细节」的一贯口径。</p>
+     *
+     * @param e 请求体解析异常
+     * @return 400 统一错误响应
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleMessageNotReadable(HttpMessageNotReadableException e) {
+        log.warn("Unreadable request body: {}", e.getMessage());
+        return Result.error(400, "请求体格式不正确，请检查 JSON 语法及字段类型");
     }
 
     /**
