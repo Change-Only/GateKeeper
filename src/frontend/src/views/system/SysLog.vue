@@ -50,18 +50,17 @@
 </template>
 
 <script>
-import { getOperationLogList, exportOperationLog } from '@/api/modules'
-
-const TYPE_OPTIONS = ['CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT']
-const MODULE_OPTIONS = ['APP', 'INTERFACE', 'PERMISSION', 'SECURITY', 'SYSTEM']
-const TYPE_TAG = { CREATE: 'success', UPDATE: 'warning', DELETE: 'danger', LOGIN: 'info', LOGOUT: 'info' }
+import { getOperationLogList, exportOperationLog, getOperationLogFilterOptions } from '@/api/modules'
+import { OPERATION_MODULE_OPTIONS, OPERATION_TYPE_OPTIONS, OPERATION_TYPE_TAG } from '@/utils/enum'
 
 export default {
   name: 'SysLog',
   data() {
     return {
-      TYPE_OPTIONS,
-      MODULE_OPTIONS,
+      // 初值用 enum.js 的本地兜底；created 里再用后端 DISTINCT 覆盖（见 loadFilterOptions）。
+      // 🔴 两个下拉的取值不得在前端写死为"完整清单"——模块值域由后端 controller 路径首段决定。
+      TYPE_OPTIONS: OPERATION_TYPE_OPTIONS.slice(),
+      MODULE_OPTIONS: OPERATION_MODULE_OPTIONS.slice(),
       query: { operationType: undefined, operationModule: undefined },
       total: 0,
       exporting: false,
@@ -76,7 +75,26 @@ export default {
       ]
     }
   },
+  created() {
+    this.loadFilterOptions()
+  },
   methods: {
+    /**
+     * 拉取审计筛选候选项（后端按库里 DISTINCT 下发真实的模块/类型）。
+     *
+     * 🔴 失败时**静默回退**到 enum.js 的本地兜底常量 —— 筛选下拉只是辅助功能，
+     *    不能因为它拉不到就让整页不可用；也**不弹错误**（用户没做错任何事）。
+     */
+    async loadFilterOptions() {
+      try {
+        const res = await getOperationLogFilterOptions()
+        const data = (res && res.data) || {}
+        if (Array.isArray(data.modules) && data.modules.length) this.MODULE_OPTIONS = data.modules
+        if (Array.isArray(data.types) && data.types.length) this.TYPE_OPTIONS = data.types
+      } catch (e) {
+        // 静默：保留本地兜底
+      }
+    },
     async fetchData(params) {
       const { page, size, ...rest } = params
       const res = await getOperationLogList({ current: page, size, ...rest })
@@ -85,7 +103,7 @@ export default {
       return { list: data.records || [], total: data.total || 0 }
     },
     typeTag(t) {
-      return TYPE_TAG[t] || 'info'
+      return OPERATION_TYPE_TAG[t] || 'info'
     },
     reload() {
       this.$nextTick(() => {

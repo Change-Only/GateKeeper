@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import com.gatekeeper.common.PageResult;
 import com.gatekeeper.common.Result;
+import com.gatekeeper.dto.OperationLogOptionsVo;
 import com.gatekeeper.entity.SysOperationLog;
 import com.gatekeeper.entity.SysRole;
 import com.gatekeeper.entity.SysUser;
@@ -201,6 +202,29 @@ public class SystemController {
     }
 
     // === 操作审计日志 ===
+
+    /**
+     * 查询审计页筛选下拉的候选项（操作模块 / 操作类型）。
+     *
+     * <p>返回库里**真实出现过**的去重值，供「操作模块」「操作类型」两个下拉渲染。</p>
+     *
+     * <p><b>为何必须服务端下发</b>：{@code operation_module} 取值由
+     * {@code OperationLogAspect#firstSegment(requestURI)} 从 controller 路径首段推导，
+     * 值域**随 controller 增减而变**；前端写死必然过期（2026-09-17 实测：前端 5 项 vs 库里 18 项，
+     * 14 个模块的记录无法筛选；且前端写死的 {@code LOGIN}/{@code LOGOUT} 永远不会出现）。</p>
+     *
+     * <p><b>权限点：不加。</b>与同文件的 {@code /operation-log/list} 保持同一裁定 ——
+     * 只读且不涉及任何写操作/敏感字段，能查到列表的人本就能看到这些取值，
+     * 加权限点只会让下拉变空（"无权查候选项但有权查数据"是自相矛盾的闸门）。
+     * 对齐先例：T11 {@code GET /alarm-rule/target-options} 同样零新增权限点。</p>
+     *
+     * @return 候选项，两个字段均非 null
+     */
+    @Operation(summary = "查询审计筛选候选项（操作模块 / 操作类型）")
+    @GetMapping("/operation-log/filter-options")
+    public Result<OperationLogOptionsVo> operationLogFilterOptions() {
+        return Result.success(sysOperationLogService.filterOptions());
+    }
 
     /**
      * 分页查询操作审计日志

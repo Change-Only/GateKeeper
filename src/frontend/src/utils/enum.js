@@ -242,6 +242,30 @@ export const ENUM_OPTIONS = {
   ]
 }
 
+/**
+ * 操作审计（sys_operation_log）筛选下拉 —— 本地兜底常量 + 类型标签色
+ * ------------------------------------------------------------------
+ * 🔴 **权威来源是后端**：`GET /system/operation-log/filter-options` 返回库里**真实出现过**的
+ *    DISTINCT `operation_module` / `operation_type`（见后端 `OperationLogOptionsVo`）。
+ *    下面这份常量**只是接口不可用时的兜底**，不是完整清单，也不要当清单维护：
+ *    `operation_module` 由后端 `OperationLogAspect#firstSegment(requestURI)` 从 controller
+ *    路径首段推导 ⇒ **值域随 controller 增减而变化**。
+ *    2026-09-17 实测：库里真实有 **18** 个模块值，而当时前端写死的 5 项只覆盖其中 4 个
+ *    （14 个模块的记录"能看到、筛不出"）。⇒ **"往这里再补几个模块名"永远是错修法**，
+ *    正确修法是把取值交给后端（本次即如此）。
+ */
+// 兜底：对齐后端 `OperationLogAspect#MODULE_MAP` 的 7 个映射值
+export const OPERATION_MODULE_OPTIONS = [
+  'APP', 'INTERFACE', 'PERMISSION', 'SYSTEM', 'SECURITY', 'ENCRYPTION', 'GROUP'
+]
+// 兜底：`OperationLogAspect` 只产出 CREATE(POST) / UPDATE(PUT) / DELETE(DELETE)；
+//       LOGIN / LOGOUT **永远不会被写入**（登录已由该切面排除），故刻意不列。
+export const OPERATION_TYPE_OPTIONS = ['CREATE', 'UPDATE', 'DELETE']
+// 操作类型标签色（审计页两处共用；未知类型回退 info）。保留 LOGIN/LOGOUT 仅为防御性渲染。
+export const OPERATION_TYPE_TAG = {
+  CREATE: 'success', UPDATE: 'warning', DELETE: 'danger', LOGIN: 'info', LOGOUT: 'info'
+}
+
 // 四套环境（固定维度；前端仅作查看维度，不下发到网关请求）
 export const ENV_LIST = [
   { code: 'dev', label: '开发环境', sort: 1 },

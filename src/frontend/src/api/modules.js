@@ -256,6 +256,13 @@ export function getOperationLogList(params) {
   return request.get('/system/operation-log/list', { params })
 }
 
+// 审计页筛选下拉候选项（操作模块 / 操作类型）——后端按库里 DISTINCT 下发
+// 🔴 不要在前端写死这两个下拉的取值：operation_module 由后端从 controller 路径首段推导，
+//    值域随 controller 增减而变（2026-09-17：前端 5 项 vs 库里 18 项）。
+export function getOperationLogFilterOptions() {
+  return request.get('/system/operation-log/filter-options')
+}
+
 // ============ 安全规则 ============
 // 查询安全规则列表
 export function getRuleList() {

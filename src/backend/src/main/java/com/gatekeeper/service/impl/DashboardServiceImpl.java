@@ -143,6 +143,13 @@ public class DashboardServiceImpl implements DashboardService {
         Map<String, Long> counts = new HashMap<>();
         Map<String, Long> appIds = new HashMap<>();
         for (ApiCallLog log : logs) {
+            // 🔴 MyBatis 默认 returnInstanceForEmptyRow=false：当某行的**所选列全为 NULL** 时，
+            //    selectList 放进结果里的不是"空实体"而是 **null 元素**，直接解引用即 NPE。
+            //    本方法只 select(app_id, app_name) 且不选主键 ⇒ 网关未解析出应用的调用日志
+            //    （app_id/app_name 双 NULL）正好命中该形态，/dashboard/screen/app-rank 曾恒 500。
+            if (log == null) {
+                continue; // 无应用归属的行不参与应用排行
+            }
             String name = log.getAppName() != null ? log.getAppName() : "未知";
             counts.merge(name, 1L, Long::sum); // 按应用名累加调用次数
             if (log.getAppId() != null) {
@@ -181,6 +188,11 @@ public class DashboardServiceImpl implements DashboardService {
 
         Map<String, Long> counts = new HashMap<>();
         for (ApiCallLog log : logs) {
+            // 🔴 同 appRank：只 select(interface_id, interface_path) 且不选主键，整行双 NULL 时
+            //    MyBatis 会给出 null 元素（returnInstanceForEmptyRow 默认 false）⇒ 必须跳过。
+            if (log == null) {
+                continue; // 无接口归属的行不参与接口排行
+            }
             String path = log.getInterfacePath() != null ? log.getInterfacePath() : "未知";
             counts.merge(path, 1L, Long::sum); // 按接口路径累加调用次数
         }
