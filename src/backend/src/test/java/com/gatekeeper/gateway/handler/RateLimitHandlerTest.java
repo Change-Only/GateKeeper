@@ -1,6 +1,7 @@
 package com.gatekeeper.gateway.handler;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.gatekeeper.config.SysConfigAccessor;
 import com.gatekeeper.entity.AppRateLimit;
 import com.gatekeeper.gateway.dto.GatewayContext;
 import com.gatekeeper.mapper.AppRateLimitMapper;
@@ -17,12 +18,18 @@ import org.springframework.data.redis.core.ValueOperations;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * 频率限制降级单元测试
+ * 频率限制单元测试
  *
- * <p>覆盖：Redis 故障时并发限制与日调用限制降级放行（fail-open），业务链路不中断。</p>
+ * <p>覆盖：Redis 故障时并发限制与日调用限制降级放行（fail-open）、
+ * 以及 T19 新增的 {@code gateway.ratelimit.enabled} 总开关（关闭时整环跳过）。</p>
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -34,12 +41,17 @@ class RateLimitHandlerTest {
     private StringRedisTemplate redisTemplate;
     @Mock
     private ValueOperations<String, String> valueOps;
+    @Mock
+    private SysConfigAccessor sysConfigAccessor;
 
     private RateLimitHandler handler;
 
     @BeforeEach
     void setUp() {
-        handler = new RateLimitHandler(rateLimitMapper, redisTemplate);
+        // 默认视为「配置表里没有该键」⇒ 一律回退调用方传入的默认值（即限流开启）
+        when(sysConfigAccessor.getBoolean(anyString(), anyBoolean()))
+                .thenAnswer(inv -> inv.getArgument(1));
+        handler = new RateLimitHandler(rateLimitMapper, redisTemplate, sysConfigAccessor);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
     }
 
@@ -71,5 +83,27 @@ class RateLimitHandlerTest {
         when(valueOps.increment(any(String.class))).thenThrow(new RedisConnectionFailureException("connection refused"));
 
         assertDoesNotThrow(() -> handler.handle(ctx()), "Redis 故障时日调用限制应降级放行");
+    }
+
+    /** T19：gateway.ratelimit.enabled=false 时整环跳过，且完全不触碰限流配置表 */
+    @Test
+    void handle_whenSwitchDisabled_shouldSkipWholeStage() {
+        when(sysConfigAccessor.getBoolean(
+                eq(SysConfigAccessor.KEY_GATEWAY_RATELIMIT_ENABLED), anyBoolean())).thenReturn(false);
+
+        assertDoesNotThrow(() -> handler.handle(ctx()), "限流开关关闭时不应抛异常");
+        verifyNoInteractions(rateLimitMapper);
+        verifyNoInteractions(redisTemplate);
+    }
+
+    /** T19：开关默认开启（配置缺失回退 true），限流逻辑应照常执行 */
+    @Test
+    void handle_whenSwitchAbsent_shouldKeepRateLimiting() {
+        when(rateLimitMapper.selectOne(any(QueryWrapper.class))).thenReturn(config(0, 10, 0));
+        when(valueOps.increment(any(String.class))).thenReturn(1L);
+
+        assertDoesNotThrow(() -> handler.handle(ctx()), "开关默认开启时不应跳过限流");
+        verify(rateLimitMapper).selectOne(any(QueryWrapper.class));
+        verify(valueOps).increment(any(String.class));
     }
 }

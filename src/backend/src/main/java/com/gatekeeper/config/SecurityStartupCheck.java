@@ -47,6 +47,14 @@ public class SecurityStartupCheck implements InitializingBean {
     private final Environment environment;
 
     /**
+     * 系统参数读取器（T19 新增）—— 仅用于「危险开关巡检」。
+     *
+     * <p>它读的是 DB 里的 {@code sys_config}，而 {@link SysConfigAccessor} 自身 fail-open
+     * （读不到就用默认值 true），因此本类不会因为数据库尚未就绪而启动失败。</p>
+     */
+    private final SysConfigAccessor sysConfigAccessor;
+
+    /**
      * Bean 初始化阶段执行校验：先于 Web 端口开启，配置不达标则整个应用启动失败
      */
     @Override
@@ -82,6 +90,34 @@ public class SecurityStartupCheck implements InitializingBean {
             throw new IllegalStateException(sb.toString());
         }
         log.info("Security startup check passed: jwt/aes/db secrets are properly configured");
+
+        // T19：危险开关巡检（不阻断启动，只留痕）
+        warnOnUnsafeSwitches();
+    }
+
+    /**
+     * 危险开关巡检 —— 检查 {@code sys_config} 里两个「应急逃生口」是否被遗留在关闭状态。
+     *
+     * <p><b>刻意只记 ERROR 日志、不阻断启动</b>：这两个开关的语义就是「应急临时关闭」，
+     * 若因此拒绝启动，运维在最需要重启的时刻反而起不来服务，与设计意图相悖。
+     * 但它必须显眼 —— 所以用 ERROR 级别，且每次启动都会重新告警（不会像请求侧那样只打一次）。</p>
+     *
+     * <p>整段包在 try/catch 里：配置读取本身已 fail-open（返回默认 true，即「视为已开启」），
+     * 这里再兜一层，确保任何异常都不可能影响启动流程。</p>
+     */
+    private void warnOnUnsafeSwitches() {
+        try {
+            if (!sysConfigAccessor.getBoolean(SysConfigAccessor.KEY_GATEWAY_AUTH_ENABLED, true)) {
+                log.error("[安全告警] 网关签名校验处于关闭状态（sys_config.gateway.auth.enabled=false）："
+                        + "防伪造/防重放已失效，任何持有 AppKey 的调用方都能通行。若为应急临时关闭，请尽快改回 true");
+            }
+            if (!sysConfigAccessor.getBoolean(SysConfigAccessor.KEY_GATEWAY_RATELIMIT_ENABLED, true)) {
+                log.error("[安全告警] 网关限流处于关闭状态（sys_config.gateway.ratelimit.enabled=false）："
+                        + "QPS/并发/日配额全部失效。若为应急临时关闭，请尽快改回 true");
+            }
+        } catch (Exception e) {
+            log.warn("危险开关巡检跳过（不影响启动）: {}", e.getMessage());
+        }
     }
 
     /**

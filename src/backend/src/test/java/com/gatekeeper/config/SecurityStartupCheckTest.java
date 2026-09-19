@@ -18,6 +18,7 @@ import static org.mockito.Mockito.when;
 class SecurityStartupCheckTest {
 
     private Environment environment;
+    private SysConfigAccessor sysConfigAccessor;
     private SecurityStartupCheck check;
 
     /** 32 位合法密钥样例 */
@@ -26,7 +27,11 @@ class SecurityStartupCheckTest {
     @BeforeEach
     void setUp() {
         environment = Mockito.mock(Environment.class);
-        check = new SecurityStartupCheck(environment);
+        // T19：危险开关巡检依赖配置读取器；默认视为「配置缺失 ⇒ 开关均开启」
+        sysConfigAccessor = Mockito.mock(SysConfigAccessor.class);
+        Mockito.when(sysConfigAccessor.getBoolean(Mockito.anyString(), Mockito.anyBoolean()))
+                .thenAnswer(inv -> inv.getArgument(1));
+        check = new SecurityStartupCheck(environment, sysConfigAccessor);
         // 默认返回空串（与 yml 的空默认值一致），单个用例按需覆盖
         when(environment.getProperty(Mockito.anyString(), Mockito.anyString())).thenReturn("");
     }

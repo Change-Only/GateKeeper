@@ -1,10 +1,15 @@
 package com.gatekeeper.gateway.handler;
 
+import com.gatekeeper.config.SysConfigAccessor;
 import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.gateway.dto.EffectiveEnvConfig;
 import com.gatekeeper.gateway.dto.GatewayContext;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -23,13 +28,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>mockEnabled=1 时**不发起任何网络请求**，直接返回配置的状态码与报文；</li>
  *   <li>mockEnabled=0 时必须走真实转发（用不可达地址验证它确实去连了，而不是也返回 Mock）。</li>
  * </ol></p>
+ *
+ * <p>T19：构造多了一个 {@link SysConfigAccessor} 依赖（默认超时改为可配）。
+ * 这里用 mock 并让它回退调用方默认值，等价于接线前的硬编码 5000ms。</p>
  */
 @DisplayName("ForwardHandler：Mock 短路 / 未开启时真实转发")
 class ForwardHandlerTest {
 
     /** 连接池参数与生产解耦，测试只关心行为 */
     private ForwardHandler newHandler() {
-        return new ForwardHandler(4, 2);
+        SysConfigAccessor accessor = Mockito.mock(SysConfigAccessor.class);
+        Mockito.when(accessor.getInt(anyString(), anyInt())).thenAnswer(inv -> inv.getArgument(1));
+        return new ForwardHandler(4, 2, accessor);
     }
 
     @Test

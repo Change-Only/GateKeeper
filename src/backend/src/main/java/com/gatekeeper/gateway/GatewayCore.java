@@ -59,8 +59,23 @@ public class GatewayCore {
     private List<GatewayHandler> sortedHandlers;
 
     /**
-     * 初始化责任链：按处理器上的 @Order 注解升序排序，
-     * 保证请求按 白名单→封禁→认证→限流→权限→解密→转发 的顺序执行
+     * 初始化责任链：按处理器上的 {@code @Order} 注解升序排序。
+     *
+     * <p>实际执行顺序（T19 校正注释，此前此处写作「白名单→封禁→认证→…」，把封禁排在了认证之前，
+     * 与 {@code @Order} 注解不符，属笔误；权威顺序以各 Handler 的 {@code @Order} 为准）：</p>
+     * <pre>
+     * 0  SysAccessWhitelistHandler  系统级访问白名单
+     * 1  AppAuthHandler             应用认证（AppKey/状态/到期/签名/时间戳/Nonce/环境）
+     * 2  IpWhitelistHandler         应用级 IP 白名单
+     * 3  IpBanCheckHandler          封禁检查
+     * 4  RateLimitHandler           限流（QPS/并发/日配额）
+     * 5  PermissionHandler          接口匹配 + 生效环境配置 + 授权校验
+     * 6  EncryptionHandler          入参解密
+     * 6  VersionRouteHandler        灰度版本路由（与上者 @Order 同值，先后不作契约）
+     * 7  AbnormalParamCheckHandler  异常入参检测
+     * 8  ForwardHandler             转发上游（或 Mock 短路）
+     * 9  LogHandler                 调用日志（循环内跳过，finally 中异步执行）
+     * </pre>
      */
     @PostConstruct
     public void init() {

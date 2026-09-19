@@ -1,5 +1,6 @@
 package com.gatekeeper.gateway.handler;
 
+import com.gatekeeper.config.SysConfigAccessor;
 import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.gateway.EnvConfigResolver;
 import com.gatekeeper.gateway.dto.EffectiveEnvConfig;
@@ -34,7 +35,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * 这正是「开启 Mock 不起作用」的根因。现在统一改为：
  * <ol>
  *   <li>目标地址：生效配置有服务前缀 ⇒ {@code 前缀 + 接口URI}；否则回退接口默认后端地址；</li>
- *   <li>超时：生效配置的 connectTimeout / readTimeout（缺失时回退接口自身 timeoutMs / 5000ms）；</li>
+ *   <li>超时：生效配置的 connectTimeout / readTimeout（缺失时回退接口自身 timeoutMs，
+ *       再缺失回退 {@code sys_config.gateway.default.read.timeout}，最后回退 5000ms）；</li>
  *   <li>重试：生效配置的 retryCount（仅对**连接/读取异常**重试，不对 4xx/5xx 重试，
  *       避免把"后端返回了错误"误当成"没打通"而重复写库）；</li>
  *   <li><b>Mock 短路</b>：生效配置 mockEnabled=1 时**不转发**，直接返回配置的状态码与报文。</li>
@@ -54,8 +56,11 @@ import java.util.concurrent.ConcurrentHashMap;
 @Order(8)
 public class ForwardHandler implements GatewayHandler {
 
-    /** 未配置任何超时时的默认值（毫秒） */
+    /** 未配置任何超时时的兜底默认值（毫秒）；可由 sys_config.gateway.default.read.timeout 覆盖 */
     private static final int DEFAULT_TIMEOUT_MS = 5000;
+
+    /** 系统参数运行时读取器（T19 接线：gateway.default.read.timeout） */
+    private final SysConfigAccessor sysConfigAccessor;
 
     /** 转发连接池：全局共享，避免每次请求新建 TCP 连接 */
     private final PoolingHttpClientConnectionManager connectionManager;
@@ -76,12 +81,15 @@ public class ForwardHandler implements GatewayHandler {
     /**
      * 构造转发处理器，初始化转发连接池
      *
-     * @param maxTotal    连接池最大连接数
-     * @param maxPerRoute 单个后端路由最大连接数
+     * @param maxTotal          连接池最大连接数
+     * @param maxPerRoute       单个后端路由最大连接数
+     * @param sysConfigAccessor 系统参数读取器（解析默认超时）
      */
     public ForwardHandler(
             @Value("${gatekeeper.gateway.pool-max-total:500}") int maxTotal,
-            @Value("${gatekeeper.gateway.pool-max-per-route:100}") int maxPerRoute) {
+            @Value("${gatekeeper.gateway.pool-max-per-route:100}") int maxPerRoute,
+            SysConfigAccessor sysConfigAccessor) {
+        this.sysConfigAccessor = sysConfigAccessor;
         this.connectionManager = new PoolingHttpClientConnectionManager();
         this.connectionManager.setMaxTotal(maxTotal);
         this.connectionManager.setDefaultMaxPerRoute(maxPerRoute);
@@ -195,7 +203,15 @@ public class ForwardHandler implements GatewayHandler {
     }
 
     /**
-     * 超时取值：生效配置 → 接口自身 timeoutMs → 默认 5000ms。
+     * 超时取值：生效配置 → 接口自身 timeoutMs → {@code sys_config.gateway.default.read.timeout}
+     * → 硬编码兜底 {@link #DEFAULT_TIMEOUT_MS}。
+     *
+     * <p>T19 接线：倒数第二级此前是直接写死的 5000ms，现在改为读配置；配置缺失/非法时
+     * 仍回退 5000ms，因此接线不改变默认行为。</p>
+     *
+     * @param fromConfig    生效环境配置里的超时（可空）
+     * @param fromInterface 接口自身 timeoutMs（可空）
+     * @return 最终生效的超时毫秒数
      */
     private int pickTimeout(Integer fromConfig, Integer fromInterface) {
         if (fromConfig != null && fromConfig > 0) {
@@ -204,7 +220,9 @@ public class ForwardHandler implements GatewayHandler {
         if (fromInterface != null && fromInterface > 0) {
             return fromInterface;
         }
-        return DEFAULT_TIMEOUT_MS;
+        int configured = sysConfigAccessor.getInt(
+                SysConfigAccessor.KEY_GATEWAY_DEFAULT_READ_TIMEOUT, DEFAULT_TIMEOUT_MS);
+        return configured > 0 ? configured : DEFAULT_TIMEOUT_MS;
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.gatekeeper.gateway.handler;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.gatekeeper.config.SysConfigAccessor;
 import com.gatekeeper.entity.AppRateLimit;
 import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.gateway.dto.GatewayContext;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Step 4: 频率限制 (令牌桶 + Redis)
@@ -60,14 +62,32 @@ public class RateLimitHandler implements GatewayHandler {
 
     private final AppRateLimitMapper rateLimitMapper;
     private final StringRedisTemplate redisTemplate;
+    /** 系统参数运行时读取器（T19 接线：gateway.ratelimit.enabled 总开关） */
+    private final SysConfigAccessor sysConfigAccessor;
+
+    /** 限流被关闭时只记一次 WARN，避免每请求刷屏 */
+    private final AtomicBoolean disabledWarned = new AtomicBoolean(false);
 
     /**
      * 执行频率限制检查
+     *
+     * <p>T19 接线 {@code sys_config.gateway.ratelimit.enabled}（默认 true）：
+     * 置 false 时本环节整体跳过（QPS / 并发 / 日配额三维全部失效）。
+     * 该开关是运维应急口子（例如误配的限流规则把正常业务打死时临时放开），
+     * 因此关闭期间记 WARN 留痕，并由启动自检打 ERROR。</p>
      *
      * @param ctx 网关上下文（需已由 AppAuthHandler 写入 appId）
      */
     @Override
     public void handle(GatewayContext ctx) {
+        if (!sysConfigAccessor.getBoolean(SysConfigAccessor.KEY_GATEWAY_RATELIMIT_ENABLED, true)) {
+            if (disabledWarned.compareAndSet(false, true)) {
+                log.warn("⚠️ 网关限流已被配置关闭（sys_config.gateway.ratelimit.enabled=false）："
+                        + "QPS/并发/日配额全部失效，仅限应急临时使用，请尽快改回 true");
+            }
+            return;
+        }
+
         Long appId = ctx.getAppId();
         if (appId == null) return;
 

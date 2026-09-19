@@ -246,26 +246,32 @@ INSERT IGNORE INTO sys_dict_item (dict_code, item_value, item_label, sort_order,
 
 -- ---------------------------------------------------------------------------
 -- 1.8 参数配置（sys_config）—— 原型 MOCK.configs
+--     ⚠️ T19 起生效口径变更（2026-09-18 实测修正）：
+--       此前全表 19 项【没有任何 Java 运行时读取点】，参数配置页改了不生效。
+--       T19 引入 config/SysConfigAccessor 后，标注「读取点 xxx」的 6 项真正生效；
+--       其余项一律在 remark 前加「⚠️ 未接线（预留）：」，如实告知管理员不可用。
+--       同时修正 3 处与实现不符的种子值（见 docs/sql/t19-config-wiring.sql 说明）。
+--       两处种子（本文件 + src/backend/src/main/resources/sql/init.sql）必须保持一致。
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO sys_config (id, config_key, config_value, config_group, config_name, `sensitive`, built_in, remark) VALUES
-(1,  'sign.algorithm',                  'HmacSHA256',   'SECURITY', '签名算法',                 0, 1, '支持 HmacSHA256 / HmacSHA512'),
-(2,  'sign.timestamp.tolerance',        '300000',       'SECURITY', '时间戳容差（毫秒）',       0, 1, '默认 ±5 分钟，超出直接拒绝'),
-(3,  'sign.nonce.ttl',                  '600',          'SECURITY', 'Nonce 有效期（秒）',       0, 1, '应 ≥ 2 倍时间戳容差'),
-(4,  'secret.length',                   '32',           'SECURITY', 'Secret 长度',              0, 1, '生成时的随机串长度'),
-(5,  'secret.encrypt.algo',             'AES-256-GCM',  'SECURITY', 'Secret 存储加密算法',      1, 1, '可逆加密，签名校验需原始值'),
-(6,  'key.rotate.period',               '180',          'SECURITY', '密钥强制轮换周期（天）',   0, 1, '超期在概览页告警'),
-(7,  'key.max.valid.days',              '365',          'SECURITY', '密钥最长有效期（天）',     0, 1, '到期自动失效'),
-(8,  'external.ip.whitelist.required',  'true',         'SECURITY', '外部应用强制 IP 白名单',   0, 1, ''),
-(9,  'login.fail.threshold',            '5',            'SECURITY', '登录失败锁定阈值',         0, 1, ''),
-(10, 'session.timeout',                 '480',          'SECURITY', '会话超时（分钟）',         0, 1, ''),
-(11, 'log.desensitize',                 'true',         'SECURITY', '日志敏感字段脱敏',         0, 1, '手机号/身份证/银行卡'),
-(12, 'gateway.auth.enabled',            'true',         'GATEWAY',  '是否开启签名校验',         1, 1, '关闭等于裸奔，仅应急临时关闭'),
-(13, 'gateway.ratelimit.enabled',       'true',         'GATEWAY',  '是否开启限流',             0, 1, ''),
-(14, 'gateway.default.read.timeout',    '3000',         'GATEWAY',  '默认读取超时（毫秒）',     0, 1, ''),
-(15, 'audit.log.retention.days',        '180',          'LOG',      '审计日志保留天数',         0, 1, '等保三级要求 ≥180 天'),
-(16, 'call.log.hot.days',               '30',           'LOG',      '调用日志热数据保留天数',   0, 1, 'MySQL 保留时长'),
-(17, 'approval.enabled',                'false',        'DEFAULT',  '是否开启审批流',           0, 1, 'MVP 关闭，V2 开启'),
-(18, 'export.max.rows',                 '50000',        'DEFAULT',  '单次导出最大行数',         0, 1, '');
+(1,  'sign.algorithm',                  'SM3',                  'SECURITY', '签名算法',                 0, 1, '客户端契约：固定 SM3（国密摘要），与客户端 SDK/接入文档一致，不支持运行时切换 · 读取点 AppAuthHandler（T19 已接线）'),
+(2,  'sign.timestamp.tolerance',        '300000',               'SECURITY', '时间戳容差（毫秒）',       0, 1, '时间戳容差(毫秒)，默认 ±5 分钟 · 读取点 AppAuthHandler（T19 已接线）'),
+(3,  'sign.nonce.ttl',                  '600',                  'SECURITY', 'Nonce 有效期（秒）',       0, 1, 'Nonce 有效期(秒)，应 ≥ 2 倍时间戳容差 · 读取点 AppAuthHandler（T19 已接线）'),
+(4,  'secret.length',                   '32',                   'SECURITY', 'Secret 长度',              0, 1, '⚠️ 未接线（预留）：生成应用密钥时的随机串长度'),
+(5,  'secret.encrypt.algo',             'AES/ECB/PKCS5Padding', 'SECURITY', 'Secret 存储加密算法',      1, 1, '⚠️ 未接线（预留）：AppSecret 存储加密算法；当前实现为 AES/ECB/PKCS5Padding（历史值 AES-256-GCM 与实现不符）'),
+(6,  'key.rotate.period',               '180',                  'SECURITY', '密钥强制轮换周期（天）',   0, 1, '⚠️ 未接线（预留）：密钥强制轮换周期(天)，超期应在概览页告警'),
+(7,  'key.max.valid.days',              '365',                  'SECURITY', '密钥最长有效期（天）',     0, 1, '⚠️ 未接线（预留）：密钥最长有效期(天)，到期应自动失效'),
+(8,  'external.ip.whitelist.required',  'true',                 'SECURITY', '外部应用强制 IP 白名单',   0, 1, '⚠️ 未接线（预留）：外部应用强制 IP 白名单'),
+(9,  'login.fail.threshold',            '5',                    'SECURITY', '登录失败锁定阈值',         0, 1, '⚠️ 未接线：本项不生效——登录失败锁定阈值实际由 application.yml 的 gatekeeper.security.login-fail-threshold 控制'),
+(10, 'session.timeout',                 '480',                  'SECURITY', '会话超时（分钟）',         0, 1, '⚠️ 未接线（预留）：会话超时(分钟)'),
+(11, 'log.desensitize',                 'true',                 'SECURITY', '日志敏感字段脱敏',         0, 1, '⚠️ 未接线（预留）：日志敏感字段脱敏（手机号/身份证/银行卡）'),
+(12, 'gateway.auth.enabled',            'true',                 'GATEWAY',  '是否开启签名校验',         1, 1, '是否开启签名校验；关闭后跳过防伪造/防重放（AppKey/应用状态/到期仍强制校验）· 读取点 AppAuthHandler（T19 已接线）'),
+(13, 'gateway.ratelimit.enabled',       'true',                 'GATEWAY',  '是否开启限流',             0, 1, '是否开启限流；关闭后 QPS/并发/日配额全部失效 · 读取点 RateLimitHandler（T19 已接线）'),
+(14, 'gateway.default.read.timeout',    '5000',                 'GATEWAY',  '默认读取超时（毫秒）',     0, 1, '网关默认超时(ms)：接口与环境配置都未指定时生效 · 读取点 ForwardHandler（T19 已接线；历史值 3000 与实现默认 5000 不符，已按实现对齐）'),
+(15, 'audit.log.retention.days',        '180',                  'LOG',      '审计日志保留天数',         0, 1, '⚠️ 未接线（预留）：审计日志保留天数（等保三级要求 ≥180 天）'),
+(16, 'call.log.hot.days',               '30',                   'LOG',      '调用日志热数据保留天数',   0, 1, '⚠️ 未接线（预留）：调用日志热数据保留天数；当前实际由 application.yml 的 gatekeeper.log.retention-days（默认 90）控制'),
+(17, 'approval.enabled',                'false',                'DEFAULT',  '是否开启审批流',           0, 1, '⚠️ 未接线（预留）：是否开启接口授权审批流'),
+(18, 'export.max.rows',                 '50000',                'DEFAULT',  '单次导出最大行数',         0, 1, '⚠️ 未接线（预留）：单次导出最大行数');
 
 -- ---------------------------------------------------------------------------
 -- 1.9 通知渠道（notify_channel）—— 原型 MOCK.notifyChannels
@@ -485,7 +491,7 @@ SET user_count = (SELECT COUNT(*) FROM sys_user_role ur WHERE ur.role_id = r.id)
 -- 五、迁移完成标记（可用于应用启动自检）
 -- ############################################################################
 INSERT IGNORE INTO sys_config (id, config_key, config_value, config_group, config_name, `sensitive`, built_in, remark)
-VALUES (1000, 'gk.schema.version', 'v2', 'DEFAULT', '数据模型版本', 0, 1, '由 migrate-v2.sql 写入，用于应用启动自检');
+VALUES (1000, 'gk.schema.version', 'v2', 'DEFAULT', '数据模型版本', 0, 1, '⚠️ 未接线（预留）：数据模型版本，由 migrate-v2.sql 写入');
 
 -- ============================================================================
 -- 迁移自检（可选）：执行后人工核对

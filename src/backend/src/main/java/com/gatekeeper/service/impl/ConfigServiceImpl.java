@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.gatekeeper.common.PageResult;
+import com.gatekeeper.config.SysConfigAccessor;
 import com.gatekeeper.dto.SysConfigDto;
 import com.gatekeeper.entity.SysConfig;
 import com.gatekeeper.exception.GatewayException;
@@ -41,6 +42,15 @@ public class ConfigServiceImpl extends ServiceImpl<SysConfigMapper, SysConfig> i
 
     /** 敏感配置响应脱敏占位符 */
     private static final String MASKED_VALUE = "******";
+
+    /**
+     * 运行时配置读取器 —— 写侧负责「写后主动失效」。
+     *
+     * <p>T19 接线：{@link SysConfigAccessor} 在网关热路径上按 60s TTL 缓存配置值，
+     * 若不在此处主动失效，管理员在「参数配置」页改完要等最多 1 分钟才生效，
+     * 应急场景（如临时关闭签名校验）会误判为「改了没用」。因此三个写路径统一 evictAll。</p>
+     */
+    private final SysConfigAccessor sysConfigAccessor;
 
     @Override
     public PageResult<SysConfig> pageQuery(int pageNum, int pageSize, String keyword, String configGroup, Integer status) {
@@ -114,6 +124,8 @@ public class ConfigServiceImpl extends ServiceImpl<SysConfigMapper, SysConfig> i
         cfg.setCreatedAt(LocalDateTime.now());
         cfg.setUpdatedAt(LocalDateTime.now());
         baseMapper.insert(cfg);
+        // T19：写后主动失效配置缓存（否则网关最多 60s 才看到新值）
+        sysConfigAccessor.evictAll();
         log.info("SysConfig created: id={}, configKey={}", cfg.getId(), cfg.getConfigKey());
         return applyMask(cfg);
     }
@@ -158,6 +170,8 @@ public class ConfigServiceImpl extends ServiceImpl<SysConfigMapper, SysConfig> i
         existing.setRemark(dto.getRemark());
         existing.setUpdatedAt(LocalDateTime.now());
         baseMapper.updateById(existing);
+        // T19：写后主动失效配置缓存 —— 全清（键名可能被改，按需清易漏）
+        sysConfigAccessor.evictAll();
         log.info("SysConfig updated: id={}", existing.getId());
     }
 
@@ -175,6 +189,8 @@ public class ConfigServiceImpl extends ServiceImpl<SysConfigMapper, SysConfig> i
             throw GatewayException.badRequest("内置配置不可删除");
         }
         baseMapper.deleteById(id);
+        // T19：写后主动失效配置缓存
+        sysConfigAccessor.evictAll();
         log.info("SysConfig deleted: id={}, configKey={}", id, existing.getConfigKey());
     }
 
