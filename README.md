@@ -10,7 +10,7 @@ GateKeeper 把企业内部各后端系统的接口统一登记、集中授权，
 
 | 模块 | 说明 |
 |------|------|
-| 业务线与环境 | 业务线 / 环境（dev/test/prod）多级隔离，接口按环境配置差异化参数与地址 |
+| 环境隔离 | 环境（dev/test/prod）多级隔离，接口按环境配置差异化参数与地址；应用凭证与授权均带 `env_code` |
 | 接口资产 | 接口注册、分组、版本管理、参数定义（含导入）、环境配置、上下线、变更历史与灰度 |
 | 应用与凭证 | 应用注册、AppKey/AppSecret 签发、多环境凭证、凭证轮换/吊销、到期时间管理 |
 | 授权关系 | 应用-接口授权、按分组批量授权、授权审批与回收、数据权限（DataScope） |
@@ -20,7 +20,7 @@ GateKeeper 把企业内部各后端系统的接口统一登记、集中授权，
 | 告警中心 | 按等级（INFO/WARNING/CRITICAL）汇聚网关内部错误、限流、自动封禁、异常入参等告警；未读统计、已读处置、顶栏铃铛实时提示 |
 | 调用日志 | 全链路记录：应用、接口、入参、响应、耗时、状态码、来源 IP、加密算法、限流/拦截标记；支持异步导出 CSV |
 | 统计与大屏 | 调用量趋势、应用排行、接口热度、错误率、耗时分布（P50/P90/P99）；大屏投屏展示 |
-| 权限体系 | RBAC 菜单/按钮权限（86 个权限点）、`@RequirePerm` 注解式服务端强校验、Redis 权限缓存 |
+| 权限体系 | RBAC 菜单/按钮权限（`sys_menu` 当前播种 **91** 个权限码）、`@RequirePerm` 注解式服务端强校验、Redis 权限缓存 |
 | 系统管理 | 系统参数、数据字典、用户/角色、操作审计日志、安全策略 |
 
 ---
@@ -43,7 +43,9 @@ GateKeeper 把企业内部各后端系统的接口统一登记、集中授权，
 | 前端构建 | Vue CLI（`@vue/cli-service`） | ~5.0.0 |
 | 部署 | Docker Compose（MySQL + Redis + 后端 + Nginx） | — |
 
-**代码规模**：后端主代码 248 个 `.java`，单元测试 61 个 `.java`；前端 56 个 `.vue`。
+**代码规模**：后端主代码 **297** 个 `.java`，单元测试 **86** 个 `.java`（`mvn -o test` 跑 **773** 个用例，全绿）；前端 **50** 个 `.vue`。
+
+> 📌 本节所有数字核对于 2026-09-18。业务全景与核心流程另见 [`docs/GateKeeper-业务与核心流程.md`](docs/GateKeeper-业务与核心流程.md)。
 
 ---
 
@@ -74,7 +76,7 @@ GateKeeper/
 │   │       │   ├── application.yml          # 🔴 本地真实配置（.gitignore 忽略，不入库）
 │   │       │   ├── mapper/                  # 预留目录（当前无 XML）
 │   │       │   └── sql/init.sql             # 数据库初始化脚本（建表 + 基础种子数据）
-│   │       └── test/java/                   # 61 个单元测试
+│   │       └── test/java/                   # 86 个单元测试文件（773 个用例）
 │   └── frontend/                    # Vue 2 前端
 │       ├── package.json             # scripts: serve / build / lint
 │       ├── vue.config.js            # devServer 端口 8081，/api → http://localhost:8080
@@ -109,7 +111,7 @@ GateKeeper/
 | 其余各平台 Redis/MySQL 启动命令 | ⚠️ **未实测** | 属于各平台通用标准命令，非在单一机器上逐条执行 |
 
 > 上表中「已实测」的前提是：后端与前端在本机已按步骤 3 配置并启动过。**步骤 1 的数据库导入是本流程中
-> 唯一未实测的关键环节**——请在首次部署时优先验证它（导入后可用 `SHOW TABLES` 确认 36 张表）。
+> 唯一未实测的关键环节**——请在首次部署时优先验证它（导入后可用 `SHOW TABLES` 确认 **42** 张表）。
 
 ### 0. 前置依赖
 
@@ -141,7 +143,7 @@ mysql -h <MySQL主机> -P <MySQL端口> -u <用户名> -p \
 mysql -h 127.0.0.1 -P 3306 -u root -p < src/backend/src/main/resources/sql/init.sql
 ```
 
-执行后会提示输入密码。验证导入结果（**期望列出 36 张表**）：
+执行后会提示输入密码。验证导入结果（**仅 `init.sql` 时期望 36 张表**）：
 
 ```bash
 mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
@@ -149,8 +151,16 @@ mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
 
 > ⚠️ **本步骤未在本仓库开发环境中实测**（该环境未安装 `mysql` 客户端）。上面两条命令是按 MySQL 官方
 > 语法与 `init.sql` 实际头部语句（`SET NAMES utf8mb4;` / `CREATE DATABASE IF NOT EXISTS` / `USE`）核对得出。
-> 请首次部署时优先执行并确认表数为 **36**。可参考已验证的脚本静态事实：1513 行、36 张表、
+> 请首次部署时优先执行并确认表数为 **36**。可参考已验证的脚本静态事实：1508 行、36 张表、
 > 全部 `CREATE TABLE IF NOT EXISTS`（幂等）、种子数据落在 9 张系统域表上。
+>
+> 🔴 **要把表数凑到完整的 42 张，还需按需执行后续迁移脚本**（都是 `CREATE TABLE IF NOT EXISTS`，可重复执行）：
+> `docs/sql/t13-group-env-config.sql`（`api_group_env_config`）、
+> `docs/sql/t15-1-group-encryption.sql`（`api_group_encryption_config`）、
+> `docs/sql/t15-4-whitelist.sql`（`sys_ip_whitelist`）、
+> `docs/sql/t16-1-encryption-master-switch.sql`（`sys_encryption_config`）、
+> `docs/sql/t17-interface-crypto.sql`（`sys_interface_visibility`、`sys_interface_crypto_config`）。
+> 线上库实测为 **42 张表**（2026-09-18）。
 >
 > ⚠️ **切勿把 `init.sql` 直接导入已存在数据的库**：脚本第 25–26 行是 `CREATE DATABASE IF NOT EXISTS \`gatekeeper\``
 > + `USE \`gatekeeper\``，会**指向 `gatekeeper` 库本身**。若你想在别处试用，请先做文本替换改成临时库名，
@@ -448,7 +458,8 @@ docker compose up -d
 > 结构校正与数据迁移语句，**并非纯 no-op**，属"历史回放"性质。
 >
 > ⚠️ 这条初始化链**未在本环境实测**（无 Docker）。若你想简化，也可只用 `init.sql` 单独导入
-> （见上一节的本地启动步骤 1）——它已能独立构建出完整的 36 张表与基础种子数据。
+> （见上一节的本地启动步骤 1）——它已能独立构建出 36 张表与基础种子数据；
+> 完整 42 张表还需叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本（见步骤 1 的说明）。
 
 ---
 
@@ -634,26 +645,36 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 
 ## 数据库设计
 
-初始化脚本为 [`src/backend/src/main/resources/sql/init.sql`](src/backend/src/main/resources/sql/init.sql)，覆盖 **36 张表**，按域划分如下：
+初始化脚本为 [`src/backend/src/main/resources/sql/init.sql`](src/backend/src/main/resources/sql/init.sql)，**单独执行可建 36 张表**；
+叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本后共 **42 张表**（线上实测口径，2026-09-18）。
+按域划分如下：
 
 | 域 | 表 | 说明 |
 |----|-------|------|
-| 业务线 / 环境 | `biz_line`、`env`、`api_env_config` | 多业务线隔离，接口按环境差异化配置 |
-| 接口资产 | `api_interface`、`api_group`、`api_version`、`api_param`、`api_change_log` | 接口注册、分组、版本、参数、变更审计 |
-| 应用与凭证 | `app`、`app_credential`、`app_ip_whitelist`、`app_rate_limit`、`app_quota` | 应用身份、多环境凭证、白名单、限流与配额 |
-| 授权关系 | `app_api_permission`、`app_api_grant` | 应用-接口授权、授权申请与审批流转 |
-| 加解密 | `api_encryption_config`、`app_encryption_config` | 按接口/应用维度的算法与密钥配置（密钥密文落库） |
-| 网关调用 | `api_call_log`、`export_task` | 全链路调用日志与异步导出任务 |
-| 安全防护 | `ip_ban`、`block_rule`、`security_event`、`security_rule` | 封禁名单、封禁规则、安全事件与检测规则 |
+| 环境 | `env` | 环境字典（dev/test/prod）；网关与配置按 `env_code` 隔离 |
+| 接口资产 | `api_group`、`api_interface`、`api_param`、`api_version`、`api_env_config`、`api_group_env_config`、`api_change_log` | 接口注册、分组、版本、参数、环境配置（接口级 + 分组级）、变更审计 |
+| 应用身份 | `app`、`app_credential`、`app_ip_whitelist`、`app_rate_limit`、`app_quota` | 应用主体、多环境凭证、IP 白名单、限流与配额 |
+| 授权关系 | `app_api_permission`、`app_api_grant` | 应用-接口授权；前者为存量快照（网关回退用），后者带审批流 / 有效期 / 环境 |
+| 加解密 | `sys_encryption_config`、`api_encryption_config`、`api_group_encryption_config`、`app_encryption_config`、`sys_interface_crypto_config`、`sys_interface_visibility` | 平台总开关、接口/分组/应用三级加解密配置、接口信息存储加密开关与可见性白名单 |
+| 调用与导出 | `api_call_log`、`export_task` | 全链路调用日志（25 列）与异步导出任务 |
+| 安全防护 | `ip_ban`、`block_rule`、`security_event`、`security_rule` | 封禁名单、动态封禁规则、安全事件与检测规则 |
 | 告警 | `alert`、`alarm_rule`、`notify_channel` | 告警记录、告警规则、通知渠道 |
-| 系统管理 | `sys_user`、`sys_role`、`sys_user_role`、`sys_menu`、`sys_role_menu`、`sys_role_datascope`、`sys_dict`、`sys_dict_item`、`sys_config`、`sys_operation_log` | RBAC、菜单权限、数据权限、字典、参数、操作审计 |
+| 系统管理 | `sys_user`、`sys_role`、`sys_user_role`、`sys_menu`、`sys_role_menu`、`sys_role_datascope`、`sys_dict`、`sys_dict_item`、`sys_config`、`sys_operation_log`、`sys_ip_whitelist` | RBAC、菜单权限点、数据权限、字典、参数、操作审计、系统级访问白名单 |
+| 已下线保留 | `biz_line` | **T15 已下线**：表与 `app.line_id` / `api_interface.line_id` 列按"只加列不删列"铁律物理保留，代码层已不再映射与展示 |
 
-全部建表语句均为 `CREATE TABLE IF NOT EXISTS`，脚本可**重复执行**（幂等）；脚本规模 **1513 行**。
+全部建表语句均为 `CREATE TABLE IF NOT EXISTS`，脚本可**重复执行**（幂等）；`init.sql` 规模 **1508 行**。
 种子数据仅包含**基础运行数据**，落在 **9 张系统域表**上：
 `sys_user`（管理员 `admin`）、`sys_role`、`sys_menu`（全部权限点，含菜单与按钮）、`sys_user_role`、
 `sys_role_menu`、`sys_role_datascope`（数据权限）、`sys_dict`、`sys_dict_item`、`sys_config`。
 ——**不含任何业务数据**（无应用、接口、调用日志）。
-更详细的表结构说明见 [`docs/database-design.md`](docs/database-design.md)。
+更详细的表结构说明见 [`docs/database-design.md`](docs/database-design.md)，
+业务视角的表域划分与核心流程见 [`docs/GateKeeper-业务与核心流程.md`](docs/GateKeeper-业务与核心流程.md)。
+
+> ⚠️ **`sys_config` 的生效范围**（T19，2026-09-18 实测）：全表 19 项中只有 **6 项**已被代码读取并真正生效
+> （`sign.algorithm`、`sign.timestamp.tolerance`、`sign.nonce.ttl`、`gateway.auth.enabled`、
+> `gateway.ratelimit.enabled`、`gateway.default.read.timeout`），其余项在 `remark` 中统一以
+> 「⚠️ 未接线（预留）：」标注 —— **在参数配置页改它们不会有任何效果**。
+> 新增读取点请通过 `config/SysConfigAccessor`，并在 `docs/sql/t19-config-wiring.sql` 同步备注。
 
 ---
 
@@ -661,11 +682,12 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 
 | 文档 | 内容 |
 |------|------|
+| [`docs/GateKeeper-业务与核心流程.md`](docs/GateKeeper-业务与核心流程.md) | **业务全景与核心流程**（定位、角色、业务域、网关链路、资产生命周期、授权状态机、安全闭环、数据模型、已知边界） |
 | [`docs/PRD-APIM重新设计.md`](docs/PRD-APIM重新设计.md) | 产品需求文档（APIM 重新设计） |
 | [`docs/APIM重新设计-总纲.md`](docs/APIM重新设计-总纲.md) | 总体设计总纲 |
 | [`docs/架构设计-APIM重新设计.md`](docs/架构设计-APIM重新设计.md) | 系统架构设计 |
 | [`docs/database-design.md`](docs/database-design.md) | 数据库设计说明 |
-| [`docs/T05-权限点契约对齐方案.md`](docs/T05-权限点契约对齐方案.md) | 权限点契约（86 个权限点） |
+| [`docs/T05-权限点契约对齐方案.md`](docs/T05-权限点契约对齐方案.md) | 权限点契约对齐方案 |
 | [`docs/T08-权限执行缺口-契约记录.md`](docs/T08-权限执行缺口-契约记录.md) | 服务端权限执行缺口修复记录 |
 | [`docs/启动记录与缺陷修复.md`](docs/启动记录与缺陷修复.md) | 启动过程记录与缺陷修复 |
 | [`docs/告警功能说明.md`](docs/告警功能说明.md) | 告警中心功能说明 |
