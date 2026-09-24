@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.entity.ApiEncryptionConfig;
 import com.gatekeeper.entity.AppEncryptionConfig;
+import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.ApiEncryptionConfigService;
 import com.gatekeeper.service.AppEncryptionConfigService;
 import lombok.RequiredArgsConstructor;
@@ -48,9 +49,14 @@ public class EncryptionConfigController {
     /**
      * 保存接口级加解密配置
      *
+     * <p>P0-4：请求体直接反序列化为配置并落库（含算法/密钥/开关），改写后可使报文明文传输或
+     * 写入攻击者已知的密钥 ⇒ 补 {@code @RequirePerm}。复用同域既有的 {@code api:env:update}
+     * （零新增码；该码本就是「配置环境」类写权限，同码不同 risk 是既存设计）。</p>
+     *
      * @param config 接口级加解密配置实体
      * @return 操作结果（无业务数据返回）
      */
+    @RequirePerm(value = "api:env:update", risk = true)
     @Operation(summary = "保存接口加密配置")
     @PostMapping("/interface")
     public Result<Void> saveInterfaceConfig(@RequestBody ApiEncryptionConfig config) {
@@ -75,9 +81,12 @@ public class EncryptionConfigController {
     /**
      * 保存应用级加解密配置
      *
+     * <p>P0-4：同 {@link #saveInterfaceConfig}，补同一个 {@code api:env:update} 权限点。</p>
+     *
      * @param config 应用级加解密配置实体
      * @return 操作结果（无业务数据返回）
      */
+    @RequirePerm(value = "api:env:update", risk = true)
     @Operation(summary = "保存应用加密配置")
     @PostMapping("/app")
     public Result<Void> saveAppConfig(@RequestBody AppEncryptionConfig config) {

@@ -86,6 +86,7 @@ public class GrantController {
         return Result.success(grantService.revoke(id, req.getRevokeReason(), null, null));
     }
 
+    @RequirePerm(value = "grant:approve", risk = true)
     @Operation(summary = "延期授权")
     @PostMapping("/{id}/renew")
     public Result<AppApiGrant> renew(@PathVariable Long id, @Valid @RequestBody GrantRenewRequest req) {

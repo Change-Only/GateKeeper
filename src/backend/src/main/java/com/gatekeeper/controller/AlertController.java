@@ -70,9 +70,14 @@ public class AlertController {
     /**
      * 标记单条告警为已读
      *
+     * <p>P0-3：清空未读＝掩盖入侵痕迹，补 {@code @RequirePerm}。库中<b>未播种</b>
+     * {@code alert:read}，复用同域既有的告警处置码 {@code alarm:handle}
+     * （与同文件 {@link #handle} 一致；两者持有角色集合相同，不会造成功能回归）。</p>
+     *
      * @param id 告警 ID
      * @return 操作结果
      */
+    @RequirePerm(value = "alarm:handle", risk = false)
     @Operation(summary = "标记告警已读")
     @PutMapping("/{id}/read")
     public Result<Void> markRead(@PathVariable Long id) {
@@ -83,8 +88,11 @@ public class AlertController {
     /**
      * 一键全部标记已读
      *
+     * <p>P0-3：批量掩盖告警，补 {@code @RequirePerm}（复用 {@code alarm:handle}）。</p>
+     *
      * @return 操作结果
      */
+    @RequirePerm(value = "alarm:handle", risk = false)
     @Operation(summary = "全部标记已读")
     @PutMapping("/read-all")
     public Result<Void> markAllRead() {

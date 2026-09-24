@@ -94,7 +94,7 @@ class GlobalExceptionHandlerTest {
     @DisplayName("未预期异常仍是兜底 500，且不外泄异常细节")
     void unexpectedException_fallsBackToGenericFiveHundred() {
         Result<Void> r = handler.handleException(
-                new IllegalStateException("连接 MySQL 失败: jdbc:mysql://192.168.132.143:13306/gatekeeper"));
+                new IllegalStateException("连接 MySQL 失败: jdbc:mysql://<db-host>:<db-port>/gatekeeper"));
 
         assertEquals(500, r.getCode());
         assertEquals("系统繁忙，请稍后重试", r.getMessage(), "兜底提示应固定为通用文案");

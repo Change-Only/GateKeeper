@@ -76,7 +76,12 @@ public class BlockRuleController {
 
     /**
      * 修改封禁规则（不影响主键与时间戳）。
+     *
+     * <p>P0-3：篡改封禁阈值可静默削弱防护，补 {@code @RequirePerm}。库中<b>未播种</b>
+     * {@code block_rule:update}，按「复用既有码、零新增」红线复用同域同风险级的
+     * {@code block_rule:create}（修改规则与新建规则同属高风险的规则维护）。</p>
      */
+    @RequirePerm(value = "block_rule:create", risk = true)
     @Operation(summary = "修改封禁规则")
     @PutMapping("/{id}/update")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody BlockRule rule) {
@@ -88,7 +93,11 @@ public class BlockRuleController {
      * 启用/停用封禁规则。
      *
      * <p>enabled 传 1/0 显式设置；不传则翻转当前状态。</p>
+     *
+     * <p>P0-3：关闭自动封禁＝削弱防护，补 {@code @RequirePerm}（复用 {@code block_rule:create}，
+     * 理由同 {@link #update}）。</p>
      */
+    @RequirePerm(value = "block_rule:create", risk = true)
     @Operation(summary = "启用/停用封禁规则（enable=1 / disable=0）")
     @PostMapping("/{id}/toggle")
     public Result<BlockRule> toggle(@PathVariable Long id, @RequestParam(required = false) Integer enabled) {

@@ -30,8 +30,8 @@
             <StatusTag :entity="'blockRule'" :value="row.enabled" />
           </template>
           <template #actions="{row}">
-            <el-button type="text" size="mini" @click="onEditRule(row)">编辑</el-button>
-            <el-button type="text" size="mini" @click="onToggleRule(row)">{{ row.enabled === 1 ? '停用' : '启用' }}</el-button>
+            <PermButton perm="block_rule:create" type="text" size="mini" @click="onEditRule(row)">编辑</PermButton>
+            <PermButton perm="block_rule:create" type="text" size="mini" @click="onToggleRule(row)">{{ row.enabled === 1 ? '停用' : '启用' }}</PermButton>
             <PermButton perm="block_rule:manual" type="text" size="mini" class="danger-link" @click="onManualBlock(row)">手动封禁</PermButton>
           </template>
         </CrudTable>

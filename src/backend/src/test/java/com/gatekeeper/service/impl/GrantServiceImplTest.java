@@ -246,4 +246,76 @@ class GrantServiceImplTest {
         when(grantMapper.selectById(1L)).thenReturn(g);
         assertThrows(GatewayException.class, () -> service.renew(1L, LocalDate.now().plusDays(30)));
     }
+
+    // =================================================================
+    // renew 业务约束（P0-2 纵深防御）
+    // =================================================================
+
+    @Test
+    @DisplayName("P0-2：renew 新到期日早于当前有效期 → 400（防「缩短后伪造」）")
+    void renew_targetBeforeCurrentValidTo_rejected() {
+        AppApiGrant g = new AppApiGrant();
+        g.setId(1L);
+        g.setStatus(1);
+        g.setValidTo(LocalDate.now().plusDays(100));
+        when(grantMapper.selectById(1L)).thenReturn(g);
+
+        GatewayException ex = assertThrows(GatewayException.class,
+                () -> service.renew(1L, LocalDate.now().plusDays(50)));
+        assertTrue(ex.getMessage().contains("不能早于当前有效期"));
+    }
+
+    @Test
+    @DisplayName("P0-2：renew 到期日早于今天 → 400")
+    void renew_targetInPast_rejected() {
+        AppApiGrant g = new AppApiGrant();
+        g.setId(1L);
+        g.setStatus(1);
+        when(grantMapper.selectById(1L)).thenReturn(g);
+
+        GatewayException ex = assertThrows(GatewayException.class,
+                () -> service.renew(1L, LocalDate.now().minusDays(1)));
+        assertTrue(ex.getMessage().contains("不能早于今天"));
+    }
+
+    @Test
+    @DisplayName("P0-2：renew 单次延期超 365 天上限 → 400")
+    void renew_targetBeyondMaxWindow_rejected() {
+        AppApiGrant g = new AppApiGrant();
+        g.setId(1L);
+        g.setStatus(1);
+        when(grantMapper.selectById(1L)).thenReturn(g);
+
+        GatewayException ex = assertThrows(GatewayException.class,
+                () -> service.renew(1L, LocalDate.now().plusDays(400)));
+        assertTrue(ex.getMessage().contains("不得超过"));
+    }
+
+    @Test
+    @DisplayName("P0-2：renew 合法延期（在时限内、不短于当前）→ 成功，validTo 被更新")
+    void renew_withinLimit_succeeds() {
+        AppApiGrant g = new AppApiGrant();
+        g.setId(1L);
+        g.setStatus(1);
+        g.setValidTo(LocalDate.now().plusDays(10));
+        when(grantMapper.selectById(1L)).thenReturn(g);
+
+        LocalDate target = LocalDate.now().plusDays(200);
+        AppApiGrant result = service.renew(1L, target);
+        assertEquals(target, result.getValidTo());
+        assertEquals(Integer.valueOf(1), result.getStatus());
+        verify(grantMapper, times(1)).updateById(any(AppApiGrant.class));
+    }
+
+    @Test
+    @DisplayName("P0-2：renew 未传 validTo → 默认 +30 天（既有行为保持）")
+    void renew_nullValidTo_defaultsTo30Days() {
+        AppApiGrant g = new AppApiGrant();
+        g.setId(1L);
+        g.setStatus(1);
+        when(grantMapper.selectById(1L)).thenReturn(g);
+
+        AppApiGrant result = service.renew(1L, null);
+        assertEquals(LocalDate.now().plusDays(30), result.getValidTo());
+    }
 }

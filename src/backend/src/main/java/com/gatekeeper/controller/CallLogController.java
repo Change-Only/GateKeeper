@@ -50,7 +50,12 @@ public class CallLogController {
 
     /**
      * 分页查询调用日志
+     *
+     * <p>P0-6：调用日志含 {@code requestParams} / {@code responseData} <b>报文原文</b>，
+     * 原 4 个端点零权限注解 ⇒ 任意登录账号可跨全部应用/接口读取。补 {@code @RequirePerm}
+     * （复用既有播种码 {@code log:call:list}，零新增）。</p>
      */
+    @RequirePerm(value = "log:call:list")
     @Operation(summary = "分页查询调用日志列表")
     @GetMapping("/list")
     public Result<PageResult<ApiCallLog>> list(
@@ -70,7 +75,10 @@ public class CallLogController {
 
     /**
      * 查询单条调用日志详情
+     *
+     * <p>P0-6：详情<b>必然包含报文原文</b>，补 {@code @RequirePerm}（复用 {@code log:call:detail}）。</p>
      */
+    @RequirePerm(value = "log:call:detail")
     @Operation(summary = "查询调用日志详情")
     @GetMapping("/{id}")
     public Result<ApiCallLog> detail(@PathVariable Long id) {
@@ -115,7 +123,11 @@ public class CallLogController {
 
     /**
      * 查询导出任务列表（当前登录人创建的任务，按创建时间倒序）
+     *
+     * <p>P0-6：枚举导出任务属「导出能力」的一部分，与同文件 {@code POST /log/export} 同门，
+     * 复用既有播种码 {@code audit:export}（零新增）。</p>
      */
+    @RequirePerm(value = "audit:export", risk = true)
     @Operation(summary = "查询导出任务列表")
     @GetMapping("/export/tasks")
     public Result<PageResult<ExportTask>> tasks(
@@ -127,7 +139,10 @@ public class CallLogController {
 
     /**
      * 下载导出文件：仅任务 SUCCESS、文件存在且为本人创建时允许，流式返回不占内存
+     *
+     * <p>P0-6：一次下载即全量报文数据，复用既有播种码 {@code audit:export}（零新增）。</p>
      */
+    @RequirePerm(value = "audit:export", risk = true)
     @Operation(summary = "下载导出文件")
     @GetMapping("/export/{taskId}/download")
     public ResponseEntity<Resource> download(@PathVariable Long taskId,

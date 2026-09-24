@@ -138,8 +138,9 @@ public class PermissionController {
     }
 
     /**
-     * 延期授权。
+     * 延期授权（高危 —— P0-2：延期实质是「重新批准有效期」，与审批同风险级，复用 {@code grant:approve}）。
      */
+    @RequirePerm(value = "grant:approve", risk = true)
     @Operation(summary = "延期授权")
     @PostMapping("/{id}/renew")
     public Result<AppApiGrant> renewById(@PathVariable Long id,

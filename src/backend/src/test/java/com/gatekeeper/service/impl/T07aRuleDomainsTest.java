@@ -228,32 +228,24 @@ class T07aRuleDomainsTest {
         assertTrue(blockManual.risk());
     }
 
-    // ===================== 4) 权限策略：读 / 改 / 启停 不加权限点 =====================
+    // ===================== 4) 权限策略：读端点不加权限点 =====================
 
     @Test
-    @DisplayName("list / detail / update / toggle 一律不加 @RequirePerm")
-    void readAndUpdateEndpoints_haveNoPermAnnotation() throws NoSuchMethodException {
+    @DisplayName("读端点 list / detail / target-options 一律不加 @RequirePerm（读侧策略不变）")
+    void readEndpoints_haveNoPermAnnotation() throws NoSuchMethodException {
         // 告警规则：toggle 参数名为 status
         assertNull(AlarmRuleController.class.getMethod("list", Integer.class)
                 .getAnnotation(RequirePerm.class));
         assertNull(AlarmRuleController.class.getMethod("detail", Long.class)
                 .getAnnotation(RequirePerm.class));
-        assertNull(AlarmRuleController.class.getMethod("update", Long.class, AlarmRule.class)
-                .getAnnotation(RequirePerm.class));
-        assertNull(AlarmRuleController.class.getMethod("toggle", Long.class, Integer.class)
-                .getAnnotation(RequirePerm.class));
         // T11 新增的评估对象候选（只读，沿用不加权限点的策略）
         assertNull(AlarmRuleController.class.getMethod("targetOptions", String.class)
                 .getAnnotation(RequirePerm.class));
 
-        // 阻断规则：toggle 参数名为 enabled（与告警域的 status 不同，此处只校验方法签名存在且无权限点）
+        // 阻断规则：toggle 参数名为 enabled（与告警域的 status 不同）
         assertNull(BlockRuleController.class.getMethod("list")
                 .getAnnotation(RequirePerm.class));
         assertNull(BlockRuleController.class.getMethod("detail", Long.class)
-                .getAnnotation(RequirePerm.class));
-        assertNull(BlockRuleController.class.getMethod("update", Long.class, BlockRule.class)
-                .getAnnotation(RequirePerm.class));
-        assertNull(BlockRuleController.class.getMethod("toggle", Long.class, Integer.class)
                 .getAnnotation(RequirePerm.class));
 
         // 通知渠道：list / detail 仍不加；update 在 T08 已补 sys:notify:update（见下一个用例）
@@ -261,6 +253,40 @@ class T07aRuleDomainsTest {
                 .getAnnotation(RequirePerm.class));
         assertNull(NotifyChannelController.class.getMethod("detail", Long.class)
                 .getAnnotation(RequirePerm.class));
+    }
+
+    /**
+     * T-SEC-1 P0-3（2026-09-19 安全审计）<b>反转</b>了 T07-A 的「update / toggle 不加权限点」策略：
+     * 关闭封禁规则 / 关闭告警规则 = 让攻击者「在被告警系统合法静音的前提下持续攻击」。
+     * 库中<b>未播种</b> {@code block_rule:update} / {@code alarm_rule:update}，按红线复用同域
+     * 「创建」码（零新增）。
+     */
+    @Test
+    @DisplayName("T-SEC-1 P0-3：封禁/告警规则的 update / toggle 已补 @RequirePerm（反转 T07-A 策略）")
+    void updateAndToggleEndpoints_nowAnnotated() throws NoSuchMethodException {
+        RequirePerm blockUpdate = BlockRuleController.class
+                .getMethod("update", Long.class, BlockRule.class).getAnnotation(RequirePerm.class);
+        assertNotNull(blockUpdate, "P0-3：封禁规则 update 必须补权限");
+        assertEquals("block_rule:create", blockUpdate.value());
+        assertTrue(blockUpdate.risk());
+
+        RequirePerm blockToggle = BlockRuleController.class
+                .getMethod("toggle", Long.class, Integer.class).getAnnotation(RequirePerm.class);
+        assertNotNull(blockToggle, "P0-3：封禁规则 toggle 必须补权限");
+        assertEquals("block_rule:create", blockToggle.value());
+        assertTrue(blockToggle.risk());
+
+        RequirePerm alarmUpdate = AlarmRuleController.class
+                .getMethod("update", Long.class, AlarmRule.class).getAnnotation(RequirePerm.class);
+        assertNotNull(alarmUpdate, "P0-3：告警规则 update 必须补权限");
+        assertEquals("alarm_rule:create", alarmUpdate.value());
+        assertTrue(alarmUpdate.risk());
+
+        RequirePerm alarmToggle = AlarmRuleController.class
+                .getMethod("toggle", Long.class, Integer.class).getAnnotation(RequirePerm.class);
+        assertNotNull(alarmToggle, "P0-3：告警规则 toggle 必须补权限");
+        assertEquals("alarm_rule:create", alarmToggle.value());
+        assertTrue(alarmToggle.risk());
     }
 
     @Test

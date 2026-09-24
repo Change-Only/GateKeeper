@@ -138,7 +138,7 @@
         <PermButton v-if="row.status === 0" perm="grant:approve" type="text" size="mini" @click="onApprove(row)">通过</PermButton>
         <PermButton v-if="row.status === 0" perm="grant:reject" type="text" size="mini" class="danger-link" @click="onReject(row)">驳回</PermButton>
         <PermButton v-if="row.status === 1" perm="grant:revoke" type="text" size="mini" class="danger-link" @click="onRevoke(row)">撤销</PermButton>
-        <el-button v-if="row.status === 1" type="text" size="mini" @click="onRenew(row)">续期</el-button>
+        <PermButton v-if="row.status === 1" perm="grant:approve" type="text" size="mini" @click="onRenew(row)">续期</PermButton>
       </template>
     </CrudTable>
 

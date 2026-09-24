@@ -29,8 +29,8 @@
         <StatusTag :entity="'alarmRule'" :value="row.status" />
       </template>
       <template #actions="{row}">
-        <el-button type="text" size="mini" @click="onEdit(row)">编辑</el-button>
-        <el-button type="text" size="mini" @click="onToggle(row)">{{ row.status === 1 ? '停用' : '启用' }}</el-button>
+        <PermButton perm="alarm_rule:create" type="text" size="mini" @click="onEdit(row)">编辑</PermButton>
+        <PermButton perm="alarm_rule:create" type="text" size="mini" @click="onToggle(row)">{{ row.status === 1 ? '停用' : '启用' }}</PermButton>
         <PermButton perm="alarm_rule:test" type="text" size="mini" @click="onTest(row)">测试</PermButton>
       </template>
     </CrudTable>

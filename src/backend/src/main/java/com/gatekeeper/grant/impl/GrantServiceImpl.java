@@ -38,6 +38,14 @@ public class GrantServiceImpl extends ServiceImpl<AppApiGrantMapper, AppApiGrant
 
     private static final String DEFAULT_ENV = "prod";
 
+    /**
+     * 单次延期的最大天数（P0-2 业务约束）。
+     *
+     * <p>延期不再允许由请求体任意指定「超长/无上限」的到期日；超过该上限一律 400。
+     * 「累计延期上限」需记录原始到期日，属后续独立课题（本轮未实现，已知限制）。</p>
+     */
+    private static final long MAX_RENEW_DAYS = 365L;
+
     // =====================================================================
     // 查询
     // =====================================================================
@@ -185,7 +193,27 @@ public class GrantServiceImpl extends ServiceImpl<AppApiGrantMapper, AppApiGrant
         if (grant.getStatus() != GrantStateMachine.ACTIVE && grant.getStatus() != GrantStateMachine.EXPIRED) {
             throw GatewayException.badRequest("仅生效中或已过期的授权可延期");
         }
-        LocalDate target = validTo != null ? validTo : LocalDate.now().plusDays(30);
+        LocalDate today = LocalDate.now();
+        LocalDate target = validTo != null ? validTo : today.plusDays(30);
+
+        // P0-2 纵深防御：不依赖单一权限点（Controller 层的 @RequirePerm 是第一道闸），
+        // 服务层再对「新到期日」加业务约束，防止「有延期权限的人」把有效期改坏。
+        // 1) 到期日不得早于今天（拒绝过去时间）
+        if (target.isBefore(today)) {
+            throw GatewayException.badRequest("延期到期日不能早于今天：" + target);
+        }
+        // 2) 不得早于当前有效期（防「缩短后伪造」）
+        LocalDate current = grant.getValidTo();
+        if (current != null && target.isBefore(current)) {
+            throw GatewayException.badRequest("延期到期日不能早于当前有效期：" + current);
+        }
+        // 3) 单次延期上限（防止一次把授权延成事实永不过期）
+        LocalDate maxAllowed = today.plusDays(MAX_RENEW_DAYS);
+        if (target.isAfter(maxAllowed)) {
+            throw GatewayException.badRequest("单次延期不得超过 " + MAX_RENEW_DAYS
+                    + " 天（新到期日 " + target + " 超出上限 " + maxAllowed + "）");
+        }
+
         grant.setValidTo(target);
         grant.setStatus(GrantStateMachine.ACTIVE); // 延期后视为生效
         grant.setUpdatedAt(LocalDateTime.now());

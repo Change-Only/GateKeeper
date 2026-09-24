@@ -10,7 +10,10 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -260,5 +263,151 @@ class PermissionInterceptorTest {
 
         interceptor.preHandle(req, resp, methodHighRisk);
         assertEquals(200, resp.getStatus(), "HTTP 状态始终 200，业务码区分");
+    }
+
+    // ============================================================
+    // P0-1：无 @RequirePerm 的写方法默认拒绝、只读默认放行
+    // ============================================================
+
+    /** 无注解写端点的发现用 Controller（P0-1 回归） */
+    @RestController
+    static class WriteTestController {
+        @PostMapping("/api/write/post")
+        public String post() {
+            return "ok";
+        }
+
+        @PutMapping("/api/write/put")
+        public String put() {
+            return "ok";
+        }
+
+        @DeleteMapping("/api/write/delete")
+        public String delete() {
+            return "ok";
+        }
+
+        @GetMapping("/api/write/get")
+        public String get() {
+            return "ok";
+        }
+
+        @PostMapping("/api/write/annotated")
+        @RequirePerm(value = "grant:approve", risk = true)
+        public String annotated() {
+            return "ok";
+        }
+
+        @PostMapping("/api/write/empty-value")
+        @RequirePerm("")
+        public String emptyValue() {
+            return "ok";
+        }
+
+        @PostMapping("/auth/login")
+        public String authLogin() {
+            return "ok";
+        }
+    }
+
+    @Test
+    @DisplayName("P0-1：无注解 POST → 默认拒绝 403")
+    void unannotatedPost_denied() throws Exception {
+        HandlerMethod m = new HandlerMethod(new WriteTestController(), "post");
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/write/post");
+        req.setAttribute("X-USER-ID", 1L);
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+
+        boolean ok = interceptor.preHandle(req, resp, m);
+        assertFalse(ok, "无注解写方法必须默认拒绝");
+        assertTrue(resp.getContentAsString().contains("\"code\":403"));
+    }
+
+    @Test
+    @DisplayName("P0-1：无注解 PUT → 默认拒绝 403")
+    void unannotatedPut_denied() throws Exception {
+        HandlerMethod m = new HandlerMethod(new WriteTestController(), "put");
+        MockHttpServletRequest req = new MockHttpServletRequest("PUT", "/api/write/put");
+        req.setAttribute("X-USER-ID", 1L);
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+
+        assertFalse(interceptor.preHandle(req, resp, m));
+        assertTrue(resp.getContentAsString().contains("\"code\":403"));
+    }
+
+    @Test
+    @DisplayName("P0-1：无注解 DELETE → 默认拒绝 403")
+    void unannotatedDelete_denied() throws Exception {
+        HandlerMethod m = new HandlerMethod(new WriteTestController(), "delete");
+        MockHttpServletRequest req = new MockHttpServletRequest("DELETE", "/api/write/delete");
+        req.setAttribute("X-USER-ID", 1L);
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+
+        assertFalse(interceptor.preHandle(req, resp, m));
+        assertTrue(resp.getContentAsString().contains("\"code\":403"));
+    }
+
+    @Test
+    @DisplayName("P0-1（防过度收紧）：无注解 GET → 仍放行（读侧维持默认允许）")
+    void unannotatedGet_stillAllowed() throws Exception {
+        HandlerMethod m = new HandlerMethod(new WriteTestController(), "get");
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/write/get");
+        req.setAttribute("X-USER-ID", 1L);
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+
+        assertTrue(interceptor.preHandle(req, resp, m), "只读端点不应被收紧");
+    }
+
+    @Test
+    @DisplayName("P0-1（防过度收紧）：白名单公开写端点 POST /auth/login → 放行")
+    void publicWriteEndpoint_allowed() throws Exception {
+        HandlerMethod m = new HandlerMethod(new WriteTestController(), "authLogin");
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/auth/login");
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+
+        assertTrue(interceptor.preHandle(req, resp, m), "登录接口必须保持可访问");
+    }
+
+    @Test
+    @DisplayName("P0-1：带 context-path 时白名单精确匹配业务路径（/api/auth/login）")
+    void publicWriteEndpoint_withContextPath_allowed() throws Exception {
+        HandlerMethod m = new HandlerMethod(new WriteTestController(), "authLogin");
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/auth/login");
+        req.setContextPath("/api");
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+
+        assertTrue(interceptor.preHandle(req, resp, m), "业务路径需剥离 context-path 后精确匹配");
+    }
+
+    @Test
+    @DisplayName("P0-1：无注解写方法 + 有注解的写方法对照 —— 有权限才放行")
+    void annotatedWrite_withPerm_allowed() throws Exception {
+        HandlerMethod m = new HandlerMethod(new WriteTestController(), "annotated");
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/write/annotated");
+        req.setAttribute("X-USER-ID", 1L);
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+        Set<String> perms = new HashSet<>();
+        perms.add("grant:approve");
+        when(permissionCacheService.getUserPerms(1L)).thenReturn(perms);
+
+        assertTrue(interceptor.preHandle(req, resp, m));
+    }
+
+    // ============================================================
+    // P2-9：@RequirePerm.value() 为空 → fail-closed 拒绝
+    // ============================================================
+
+    @Test
+    @DisplayName("P2-9：@RequirePerm 空 value → 拒绝 403（原为 fail-open 放行）")
+    void emptyValuePerm_denied() throws Exception {
+        HandlerMethod m = new HandlerMethod(new WriteTestController(), "emptyValue");
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/write/empty-value");
+        req.setAttribute("X-USER-ID", 1L);
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+        when(permissionCacheService.getUserPerms(1L)).thenReturn(Collections.emptySet());
+
+        boolean ok = interceptor.preHandle(req, resp, m);
+        assertFalse(ok, "空 value 必须 fail-closed");
+        assertTrue(resp.getContentAsString().contains("\"code\":403"));
     }
 }

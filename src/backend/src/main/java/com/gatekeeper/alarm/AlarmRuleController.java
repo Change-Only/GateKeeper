@@ -89,7 +89,12 @@ public class AlarmRuleController {
 
     /**
      * 修改告警规则（名称/阈值/窗口/等级/渠道/接收人等）。
+     *
+     * <p>P0-3：篡改阈值/静默告警可让攻击行为不留痕，补 {@code @RequirePerm}。库中<b>未播种</b>
+     * {@code alarm_rule:update}，按审计报告 §2.1 的口径复用 {@code alarm_rule:create}
+     * （从「可静默告警」看，风险等同创建）。</p>
      */
+    @RequirePerm(value = "alarm_rule:create", risk = true)
     @Operation(summary = "修改告警规则")
     @PutMapping("/{id}/update")
     public Result<Void> update(@PathVariable Long id, @RequestBody AlarmRule dto) {
@@ -100,8 +105,11 @@ public class AlarmRuleController {
     /**
      * 启用/停用告警规则。
      *
+     * <p>P0-3：关闭告警规则＝被安全系统「合法静音」，补 {@code @RequirePerm}（复用 {@code alarm_rule:create}）。</p>
+     *
      * @param status 1=启用, 0=停用
      */
+    @RequirePerm(value = "alarm_rule:create", risk = true)
     @Operation(summary = "启用/停用告警规则")
     @PostMapping("/{id}/toggle")
     public Result<Void> toggle(@PathVariable Long id, @RequestParam Integer status) {
