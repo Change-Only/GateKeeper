@@ -223,7 +223,8 @@ public class SecurityStartupCheck implements InitializingBean {
     /**
      * 从属性源里解析某配置项占位符的内置默认值；取不到（或值不是占位符）返回 {@code null}。
      *
-     * <p>只读<b>原始</b>属性值（如 {@code "${GATEKEEPER_AES_KEY:Gk9#..."}），因此不依赖任何硬编码字面量。</p>
+     * <p>只读<b>原始</b>属性值（形如 {@code ${ENV_VAR:内置默认值}}，此处刻意不写出任何真实默认值），
+     * 因此不依赖任何硬编码字面量。</p>
      *
      * @param propertyKey 配置键
      * @return 内置默认值；无法解析时为 {@code null}
