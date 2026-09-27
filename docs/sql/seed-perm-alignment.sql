@@ -181,7 +181,12 @@ WHERE r1.role_code = 'SECURITY_AUDITOR';
 -- LEFT JOIN sys_menu m ON m.perm_code = x.code AND m.type = 3 AND m.status = 1
 -- WHERE m.id IS NULL;
 
--- F3. Class B：后端 @RequirePerm 30 值是否全部播种（期望返回空集）
+-- ⚠️ F3 清单为 2026-09 快照，**后续删除的码不会自动从中移除**，请以源码为准：
+--    · T15 已删 biz_line:*
+--    · T20 已删 api_env_config:create|delete、api_change_log:append、app:credential:create
+--    · 重新生成清单：
+--      grep -ohE '@RequirePerm\([^)]*\)' -r src/backend/src/main | grep -oE '"[^"]+"' | sort -u
+-- F3. Class B：后端 @RequirePerm 值是否全部播种（期望返回空集）
 -- SELECT x.code FROM (
 --   SELECT 'api:delete' code UNION ALL SELECT 'api_param:create' UNION ALL SELECT 'api_param:delete'
 --   UNION ALL SELECT 'api_version:create' UNION ALL SELECT 'api_env_config:create'

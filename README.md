@@ -151,7 +151,7 @@ mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
 
 > ⚠️ **本步骤未在本仓库开发环境中实测**（该环境未安装 `mysql` 客户端）。上面两条命令是按 MySQL 官方
 > 语法与 `init.sql` 实际头部语句（`SET NAMES utf8mb4;` / `CREATE DATABASE IF NOT EXISTS` / `USE`）核对得出。
-> 请首次部署时优先执行并确认表数为 **36**。可参考已验证的脚本静态事实：1508 行、36 张表、
+> 请首次部署时优先执行并确认表数为 **36**。可参考已验证的脚本静态事实：1461 行、36 张表、
 > 全部 `CREATE TABLE IF NOT EXISTS`（幂等）、种子数据落在 9 张系统域表上。
 >
 > 🔴 **要把表数凑到完整的 42 张，还需按需执行后续迁移脚本**（都是 `CREATE TABLE IF NOT EXISTS`，可重复执行）：
@@ -161,6 +161,10 @@ mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
 > `docs/sql/t16-1-encryption-master-switch.sql`（`sys_encryption_config`）、
 > `docs/sql/t17-interface-crypto.sql`（`sys_interface_visibility`、`sys_interface_crypto_config`）。
 > 线上库实测为 **42 张表**（2026-09-18）。
+>
+> 🧹 **清理类脚本**（做「减法」，须在**所有**种子脚本之后执行；`init.sql` 已同步移除对应种子，用于修复已建库）：
+> `docs/sql/t15-remove-bizline.sql`（下线业务线功能，表保留）、
+> `docs/sql/t20-remove-dead-perms.sql`（移除 8 个无引用权限点 + 39 条角色授权，表保留）。
 >
 > ⚠️ **切勿把 `init.sql` 直接导入已存在数据的库**：脚本第 25–26 行是 `CREATE DATABASE IF NOT EXISTS \`gatekeeper\``
 > + `USE \`gatekeeper\``，会**指向 `gatekeeper` 库本身**。若你想在别处试用，请先做文本替换改成临时库名，
@@ -662,7 +666,7 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 | 系统管理 | `sys_user`、`sys_role`、`sys_user_role`、`sys_menu`、`sys_role_menu`、`sys_role_datascope`、`sys_dict`、`sys_dict_item`、`sys_config`、`sys_operation_log`、`sys_ip_whitelist` | RBAC、菜单权限点、数据权限、字典、参数、操作审计、系统级访问白名单 |
 | 已下线保留 | `biz_line` | **T15 已下线**：表与 `app.line_id` / `api_interface.line_id` 列按"只加列不删列"铁律物理保留，代码层已不再映射与展示 |
 
-全部建表语句均为 `CREATE TABLE IF NOT EXISTS`，脚本可**重复执行**（幂等）；`init.sql` 规模 **1508 行**。
+全部建表语句均为 `CREATE TABLE IF NOT EXISTS`，脚本可**重复执行**（幂等）；`init.sql` 规模 **1461 行**。
 种子数据仅包含**基础运行数据**，落在 **9 张系统域表**上：
 `sys_user`（管理员 `admin`）、`sys_role`、`sys_menu`（全部权限点，含菜单与按钮）、`sys_user_role`、
 `sys_role_menu`、`sys_role_datascope`（数据权限）、`sys_dict`、`sys_dict_item`、`sys_config`。

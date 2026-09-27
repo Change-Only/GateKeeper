@@ -743,17 +743,27 @@ graph LR
 
 实现走 MyBatis-Plus 内置 `DataPermissionInterceptor`，**白名单表才生效**——这保证了既有查询零回归。
 
-### 10.5 当前权限执行基线（2026-09-18 实测）
+### 10.5 当前权限执行基线（2026-09-27 重测）
 
-| 指标 | 值 |
-|---|---|
-| 后端 `@RequirePerm` 用法数 | **113** 处 |
-| 源码不同权限码 | **71** 个 |
-| `sys_menu` 播种权限码（`type=3 AND status=1`） | **91** 个（91 行） |
-| `sys_menu` 总行数 / MAX id | 116 行 / 359 |
-| `sys_role_menu` 授权行 | **433** 行 |
-| **🔴 红线：源码权限码 ⊆ 播种码** | **越界 0 个** ✅ |
-| 仅播种未使用的码 | 20 个（多为只读 / 仅菜单可见性的**豁免码**，属正常） |
+| 指标 | 值 | 较 `046380a` |
+|---|---|---|
+| 后端 `@RequirePerm` 用法数 | **105** 处 | ↓ 23 |
+| 源码不同权限码 | **67** 个 | ↓ 6 |
+| `init.sql` 播种权限码 | **74** 个 | ↓ 8 |
+| `init.sql` `sys_menu` 行数 / MAX id | 99 行 / 350 | ↓ 8 |
+| `init.sql` `sys_role_menu` 授权行 | **369** 行 | ↓ 39 |
+| **🔴 红线：源码权限码 ⊆ 播种码** | **越界 0 个** ✅ | 不变 |
+| 播种但源码未用 | 16 个（只读**豁免码** + 仅前端菜单引用的码，属正常） | ↓ 2 |
+
+> **2026-09-27 清理（f06c7b9 + C 层）**：`@RequirePerm` 用法 128 → 105、源码码 73 → 67，
+> 来源是删除 **49 个无调用端点**；播种侧由 `docs/sql/t20-remove-dead-perms.sql` 移除
+> **8 个无引用权限点**（`app:credential:create`、`app_credential:list`、`api_param:import`、
+> `api_version:gray`、`api_env_config:create|delete|test`、`api_change_log:append`）
+> 及其 **39 条** `sys_role_menu` 授权。`app_quota` / `biz_line` 两表按铁律**保留**。
+>
+> ⚠️ **判定「权限点是否有用」必须同时覆盖三面**：源码 `@RequirePerm`、前端 `perm:` / `hasPerm()`、
+> 播种码本身。只查源码注解会把 `dashboard:view`、`app:list`、`api:list` 等 **18 个纯菜单码**
+> 误判为死码 —— 它们由前端静态菜单 `src/frontend/src/router/menu.js` 的 `perm:` 字段引用。
 
 > 全仓 `@RequirePerm` 统一使用 `value = "..."` 写法（另有 `risk = true/false` 标识高危操作，供 `OperationLogAspect` 强制写审计）。
 > 核对脚本口径：遍历 `src/backend/src/main/java/**/*.java`，正则提取 `@RequirePerm((…))` 内全部字符串字面量，与 `sys_menu.perm_code` 做集合差集。
