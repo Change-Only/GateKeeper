@@ -3,7 +3,6 @@ package com.gatekeeper.controller;
 import com.gatekeeper.aspect.ApiChangeLog;
 import com.gatekeeper.common.PageResult;
 import com.gatekeeper.common.Result;
-import com.gatekeeper.dto.InterfaceDetailVo;
 import com.gatekeeper.dto.InterfaceImportRequest;
 import com.gatekeeper.dto.InterfaceImportResult;
 import com.gatekeeper.dto.InterfaceListVo;
@@ -71,19 +70,6 @@ public class InterfaceController {
             @RequestParam(required = false) Long groupId) {
         return Result.success(interfaceService.pageQueryEnriched(current, size, interfaceName, groupId));
     }
-
-    /**
-     * 接口详情聚合（T03b 新增）。
-     *
-     * @param apiId 接口 ID
-     * @return 聚合详情（基本信息 + 4 类参数 + 版本列表 + 环境配置 + 最近 5 条变更）
-     */
-    @Operation(summary = "接口详情聚合")
-    @GetMapping("/{apiId}")
-    public Result<InterfaceDetailVo> detail(@PathVariable Long apiId) {
-        return Result.success(interfaceService.getDetail(apiId));
-    }
-
     /**
      * 新增接口（自动写变更历史 CREATE）。
      *

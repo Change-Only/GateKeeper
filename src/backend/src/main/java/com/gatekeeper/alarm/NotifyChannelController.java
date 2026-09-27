@@ -53,16 +53,6 @@ public class NotifyChannelController {
     public Result<List<NotifyChannel>> list(@RequestParam(required = false) Integer status) {
         return Result.success(notifyChannelService.list(status));
     }
-
-    /**
-     * 通知渠道详情。
-     */
-    @Operation(summary = "通知渠道详情")
-    @GetMapping("/{id}")
-    public Result<NotifyChannel> detail(@PathVariable Long id) {
-        return Result.success(notifyChannelService.get(id));
-    }
-
     /**
      * 创建通知渠道（高危）。
      *

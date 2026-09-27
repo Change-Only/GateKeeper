@@ -5,8 +5,6 @@ import com.gatekeeper.common.PageResult;
 import com.gatekeeper.dto.SysConfigDto;
 import com.gatekeeper.entity.SysConfig;
 
-import java.util.List;
-
 /**
  * 系统参数配置服务接口 — T05 sys-config 参数配置能力
  *
@@ -34,23 +32,6 @@ public interface ConfigService extends IService<SysConfig> {
      * @return 分页结果（sensitive=1 的 config_value 已脱敏）
      */
     PageResult<SysConfig> pageQuery(int pageNum, int pageSize, String keyword, String configGroup, Integer status);
-
-    /**
-     * 查询全量配置（下拉用，可按分组过滤）。
-     *
-     * @param configGroup 配置分组（可空）
-     * @return 配置列表（sensitive=1 的 config_value 已脱敏）
-     */
-    List<SysConfig> listAll(String configGroup);
-
-    /**
-     * 按主键查询配置详情。
-     *
-     * @param id 配置 ID
-     * @return 配置实体（不存在返回 null，Controller 判 notFound）；sensitive=1 时 config_value 脱敏
-     */
-    SysConfig getConfig(Long id);
-
     /**
      * 新建配置。
      *

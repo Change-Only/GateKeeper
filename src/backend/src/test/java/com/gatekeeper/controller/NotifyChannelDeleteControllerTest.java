@@ -87,11 +87,10 @@ class NotifyChannelDeleteControllerTest {
     }
 
     @Test
-    @DisplayName("端点契约回归：notify-channel(6) + alarm-rule(6) 必备方法齐全（block-rule 见既有 BlockRuleControllerTest）")
+    @DisplayName("端点契约回归：notify-channel(5) + alarm-rule(5) 必备方法齐全（block-rule 见既有 BlockRuleControllerTest）")
     void allRuleEndpointsExist() throws NoSuchMethodException {
         Class<?> nc = NotifyChannelController.class;
         assertNotNull(nc.getMethod("list", Integer.class));
-        assertNotNull(nc.getMethod("detail", Long.class));
         assertNotNull(nc.getMethod("create", NotifyChannel.class));
         assertNotNull(nc.getMethod("update", Long.class, NotifyChannel.class));
         assertNotNull(nc.getMethod("delete", Long.class));
@@ -99,7 +98,6 @@ class NotifyChannelDeleteControllerTest {
 
         Class<?> ar = AlarmRuleController.class;
         assertNotNull(ar.getMethod("list", Integer.class));
-        assertNotNull(ar.getMethod("detail", Long.class));
         assertNotNull(ar.getMethod("create", com.gatekeeper.entity.AlarmRule.class));
         assertNotNull(ar.getMethod("update", Long.class, com.gatekeeper.entity.AlarmRule.class));
         assertNotNull(ar.getMethod("toggle", Long.class, Integer.class));

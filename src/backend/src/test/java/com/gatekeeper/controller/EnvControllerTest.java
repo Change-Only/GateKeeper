@@ -64,15 +64,6 @@ class EnvControllerTest {
         assertEquals(1, r.getData().size());
         assertEquals("prod", r.getData().get(0).getEnvCode());
     }
-
-    @Test
-    @DisplayName("detail 不存在 404")
-    void detail_notFound() {
-        when(envService.getEnv(99L)).thenReturn(null);
-        Result<Env> r = controller.detail(99L);
-        assertEquals(404, r.getCode());
-    }
-
     @Test
     @DisplayName("create 走 service.createEnv")
     void create_ok() {

@@ -75,15 +75,6 @@ public class EnvServiceImpl extends ServiceImpl<EnvMapper, Env> implements EnvSe
         }
         return result;
     }
-
-    @Override
-    public Env getEnv(Long id) {
-        if (id == null) {
-            return null;
-        }
-        return baseMapper.selectById(id);
-    }
-
     @Override
     public Env getByEnvCode(String envCode) {
         if (!StringUtils.hasText(envCode)) {

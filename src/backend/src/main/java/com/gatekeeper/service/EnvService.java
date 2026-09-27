@@ -44,15 +44,6 @@ public interface EnvService extends IService<Env> {
      * @return 启用环境列表
      */
     List<EnvDto> listEnabled();
-
-    /**
-     * 按主键查询环境详情。
-     *
-     * @param id 环境 ID
-     * @return 环境实体（不存在返回 null）
-     */
-    Env getEnv(Long id);
-
     /**
      * 按 envCode 查询环境（用于内部关联 / 校验）。
      *

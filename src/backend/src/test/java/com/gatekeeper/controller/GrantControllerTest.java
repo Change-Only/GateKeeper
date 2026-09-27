@@ -62,19 +62,6 @@ class GrantControllerTest {
         assertEquals(1, r.getData().size());
         verify(grantService, times(1)).listGrants(eq(1L), eq(2L), eq("prod"), any());
     }
-
-    @Test
-    @DisplayName("detail 调用 grantService.getGrant")
-    void detail_callsService() {
-        AppApiGrant g = new AppApiGrant();
-        g.setId(1L);
-        when(grantService.getGrant(1L)).thenReturn(g);
-
-        Result<AppApiGrant> r = controller.detail(1L);
-        assertEquals(200, r.getCode());
-        verify(grantService, times(1)).getGrant(1L);
-    }
-
     @Test
     @DisplayName("create 调用 grantService.createGrant")
     void create_callsService() {
@@ -148,17 +135,6 @@ class GrantControllerTest {
         assertEquals(200, r.getCode());
         verify(grantService, times(1)).renew(eq(1L), any(LocalDate.class));
     }
-
-    @Test
-    @DisplayName("pending 调用 grantService.listPending")
-    void pending_callsService() {
-        when(grantService.listPending(eq("prod"))).thenReturn(Collections.emptyList());
-
-        Result<java.util.List<AppApiGrant>> r = controller.pending("prod");
-        assertEquals(200, r.getCode());
-        verify(grantService, times(1)).listPending(eq("prod"));
-    }
-
     @Test
     @DisplayName("create 标注 @RequirePerm grant:create 高危")
     void create_hasPermAnnotation() throws NoSuchMethodException {
@@ -208,12 +184,10 @@ class GrantControllerTest {
         // 防止后续重构悄悄改 endpoint 名
         Class<?> c = GrantController.class;
         assertNotNull(c.getMethod("list", Long.class, Long.class, String.class, Integer.class));
-        assertNotNull(c.getMethod("detail", Long.class));
         assertNotNull(c.getMethod("create", AppApiGrant.class));
         assertNotNull(c.getMethod("approve", Long.class, GrantController.GrantAuditRequest.class));
         assertNotNull(c.getMethod("reject", Long.class, GrantController.GrantRejectRequest.class));
         assertNotNull(c.getMethod("revoke", Long.class, GrantController.GrantRevokeRequest.class));
         assertNotNull(c.getMethod("renew", Long.class, GrantController.GrantRenewRequest.class));
-        assertNotNull(c.getMethod("pending", String.class));
     }
 }

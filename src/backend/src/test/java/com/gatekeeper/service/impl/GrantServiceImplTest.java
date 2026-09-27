@@ -7,7 +7,6 @@ import com.gatekeeper.grant.GrantStateMachine;
 import com.gatekeeper.grant.impl.GrantServiceImpl;
 import com.gatekeeper.mapper.AppApiGrantMapper;
 import com.gatekeeper.service.AlertService;
-import com.gatekeeper.service.ApiGroupService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -47,14 +46,11 @@ class GrantServiceImplTest {
     @Mock
     private AlertService alertService;
 
-    @Mock
-    private ApiGroupService apiGroupService;
-
     private GrantServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new GrantServiceImpl(apiGroupService, alertService);
+        service = new GrantServiceImpl(alertService);
         // 注入 baseMapper（ServiceImpl 受 MyBatis-Plus 自动装配；单测下手动注入）
         try {
             Field baseMapperField = com.baomidou.mybatisplus.extension.service.impl.ServiceImpl.class

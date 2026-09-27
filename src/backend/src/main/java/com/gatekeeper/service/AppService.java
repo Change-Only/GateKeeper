@@ -104,23 +104,4 @@ public interface AppService extends IService<App> {
      * @param rateLimit 限流配置实体
      */
     void updateRateLimit(Long appId, AppRateLimit rateLimit);
-
-    /**
-     * 重置应用密钥
-     *
-     * @param id 应用 ID
-     * @return 更新后的应用实体（含新生成的密钥）
-     */
-    App resetSecret(Long id);
-
-    /**
-     * 吊销应用密钥（高危）
-     *
-     * <p>T02 收尾：为覆盖原型 {@code app:credential:revoke} 权限点新增的轻量实现。
-     * MVP 阶段语义：吊销凭证 = 将应用 status 置为停用（即使有旧凭证也无法调用）。
-     * T03 完整凭证域上线后，将替换为对 {@code app_credential} 表的状态翻转。</p>
-     *
-     * @param id 应用 ID
-     */
-    void revokeCredential(Long id);
 }

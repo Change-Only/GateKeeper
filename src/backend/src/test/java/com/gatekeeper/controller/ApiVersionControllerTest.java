@@ -58,34 +58,6 @@ class ApiVersionControllerTest {
         assertEquals(1, r.getData().size());
         verify(apiVersionService, times(1)).list(eq(1L));
     }
-
-    @Test
-    @DisplayName("current 调用 service.current")
-    void current_ok() {
-        ApiVersionDto dto = new ApiVersionDto();
-        dto.setId(1L);
-        dto.setVersion("v1");
-        dto.setIsCurrent(1);
-        when(apiVersionService.current(1L)).thenReturn(dto);
-
-        Result<ApiVersionDto> r = controller.current(1L);
-        assertEquals(200, r.getCode());
-        assertEquals(Integer.valueOf(1), r.getData().getIsCurrent());
-    }
-
-    @Test
-    @DisplayName("detail 调用 service.get")
-    void detail_ok() {
-        ApiVersionDto dto = new ApiVersionDto();
-        dto.setId(2L);
-        dto.setVersion("v2");
-        when(apiVersionService.get(2L)).thenReturn(dto);
-
-        Result<ApiVersionDto> r = controller.detail(2L);
-        assertEquals(200, r.getCode());
-        assertEquals("v2", r.getData().getVersion());
-    }
-
     @Test
     @DisplayName("create 调用 service.create 并标注 api_version:create 高危")
     void create_callsServiceAndHasPermAnnotation() throws NoSuchMethodException {
@@ -133,12 +105,10 @@ class ApiVersionControllerTest {
     }
 
     @Test
-    @DisplayName("7 个接口全部存在（端到端路由核查）")
-    void all7EndpointsExist() throws NoSuchMethodException {
+    @DisplayName("5 个接口全部存在（端到端路由核查）")
+    void all5EndpointsExist() throws NoSuchMethodException {
         Class<?> c = ApiVersionController.class;
         assertNotNull(c.getMethod("list", Long.class));
-        assertNotNull(c.getMethod("current", Long.class));
-        assertNotNull(c.getMethod("detail", Long.class));
         assertNotNull(c.getMethod("create", ApiVersionDto.class));
         assertNotNull(c.getMethod("setCurrent", Long.class));
         assertNotNull(c.getMethod("deprecate", Long.class));

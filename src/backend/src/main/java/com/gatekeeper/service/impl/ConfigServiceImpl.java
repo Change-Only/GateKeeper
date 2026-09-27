@@ -80,30 +80,6 @@ public class ConfigServiceImpl extends ServiceImpl<SysConfigMapper, SysConfig> i
         }
         return PageResult.of(records, page.getTotal(), page.getCurrent(), page.getSize());
     }
-
-    @Override
-    public List<SysConfig> listAll(String configGroup) {
-        QueryWrapper<SysConfig> wrapper = new QueryWrapper<>();
-        if (StringUtils.hasText(configGroup)) {
-            wrapper.eq("config_group", configGroup);
-        }
-        wrapper.orderByAsc("id");
-        List<SysConfig> list = baseMapper.selectList(wrapper);
-        List<SysConfig> result = new ArrayList<>(list.size());
-        for (SysConfig c : list) {
-            result.add(applyMask(c));
-        }
-        return result;
-    }
-
-    @Override
-    public SysConfig getConfig(Long id) {
-        if (id == null) {
-            return null;
-        }
-        return applyMask(baseMapper.selectById(id));
-    }
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     public SysConfig createConfig(SysConfigDto dto) {

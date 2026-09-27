@@ -11,7 +11,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -55,25 +54,6 @@ public class ApiVersionController {
     public Result<List<ApiVersionDto>> list(@RequestParam(required = false) Long apiId) {
         return Result.success(apiVersionService.list(apiId));
     }
-
-    /**
-     * 当前默认版本。
-     */
-    @Operation(summary = "查询当前默认版本")
-    @GetMapping("/current")
-    public Result<ApiVersionDto> current(@RequestParam Long apiId) {
-        return Result.success(apiVersionService.current(apiId));
-    }
-
-    /**
-     * 版本详情。
-     */
-    @Operation(summary = "接口版本详情")
-    @GetMapping("/{id}")
-    public Result<ApiVersionDto> detail(@PathVariable Long id) {
-        return Result.success(apiVersionService.get(id));
-    }
-
     /**
      * 创建接口版本（高危）。
      *
@@ -97,36 +77,6 @@ public class ApiVersionController {
         apiVersionService.setCurrent(id);
         return Result.success();
     }
-
-    /**
-     * 发布版本（高危）。
-     *
-     * <p>业务规则：发布前必须已配置至少 1 个「已验证」环境地址（configStatus=2）。
-     * 发布后本版本 isCurrent=1、接口 publishStatus=2。</p>
-     *
-     * <p>权限点复用 T02 的 {@code api:publish}（risk=true），不新增同名权限点。</p>
-     */
-    @ApiChangeLog(value = "发布接口版本", changeType = "PUBLISH", fieldName = "publishStatus", fieldLabel = "发布状态")
-    @RequirePerm(value = "api:publish", risk = true)
-    @Operation(summary = "发布接口版本")
-    @PostMapping("/{id}/publish")
-    public Result<ApiVersionDto> publish(@PathVariable Long id) {
-        return Result.success(apiVersionService.publish(id));
-    }
-
-    /**
-     * 设置灰度比例（高危）。
-     *
-     * <p>T03b 权限点 {@code api_version:gray}（risk=true）。比例 0-100，仅当前版本可设。</p>
-     */
-    @ApiChangeLog(value = "设置版本灰度比例", changeType = "UPDATE", fieldName = "grayRatio", fieldLabel = "灰度比例")
-    @RequirePerm(value = "api_version:gray", risk = true)
-    @Operation(summary = "设置版本灰度比例")
-    @PutMapping("/{id}/gray")
-    public Result<ApiVersionDto> gray(@PathVariable Long id, @RequestParam Integer grayRatio) {
-        return Result.success(apiVersionService.setGray(id, grayRatio));
-    }
-
     /**
      * 弃用版本（status=2）。
      */

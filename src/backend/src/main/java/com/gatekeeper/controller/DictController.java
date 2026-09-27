@@ -8,7 +8,6 @@ import com.gatekeeper.entity.SysDict;
 import com.gatekeeper.entity.SysDictItem;
 import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.DictService;
-import com.gatekeeper.vo.SysDictDetailVo;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -67,26 +66,6 @@ public class DictController {
             @RequestParam(required = false) Integer status) {
         return Result.success(dictService.pageQuery(pageNum, pageSize, keyword, status));
     }
-
-    /**
-     * 全量字典（下拉）。
-     */
-    @Operation(summary = "全量字典（下拉）")
-    @GetMapping("/all")
-    public Result<List<SysDict>> all() {
-        return Result.success(dictService.listAll());
-    }
-
-    /**
-     * 字典详情（含项）。
-     */
-    @Operation(summary = "字典详情（含项）")
-    @GetMapping("/{dictCode}")
-    public Result<SysDictDetailVo> detail(@PathVariable String dictCode) {
-        SysDictDetailVo vo = dictService.getWithItems(dictCode);
-        return vo == null ? Result.notFound("字典不存在") : Result.success(vo);
-    }
-
     /**
      * 字典项列表。
      */

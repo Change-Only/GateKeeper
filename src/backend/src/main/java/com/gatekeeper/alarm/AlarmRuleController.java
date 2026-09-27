@@ -65,16 +65,6 @@ public class AlarmRuleController {
     public Result<List<AlarmTargetVo>> targetOptions(@RequestParam String targetType) {
         return Result.success(alarmRuleService.targetOptions(targetType));
     }
-
-    /**
-     * 告警规则详情。
-     */
-    @Operation(summary = "告警规则详情")
-    @GetMapping("/{id}")
-    public Result<AlarmRule> detail(@PathVariable Long id) {
-        return Result.success(alarmRuleService.get(id));
-    }
-
     /**
      * 创建告警规则（高危）。
      *

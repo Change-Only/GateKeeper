@@ -53,18 +53,6 @@ class NotifyChannelControllerTest {
         assertEquals(200, r.getCode());
         verify(notifyChannelService, times(1)).list(null);
     }
-
-    @Test
-    @DisplayName("detail 调用 service.get")
-    void detail_callsService() {
-        NotifyChannel ch = new NotifyChannel();
-        ch.setId(1L);
-        when(notifyChannelService.get(1L)).thenReturn(ch);
-        Result<NotifyChannel> r = controller.detail(1L);
-        assertEquals(200, r.getCode());
-        assertNotNull(r.getData());
-    }
-
     @Test
     @DisplayName("create 调用 service.create")
     void create_callsService() {
@@ -106,11 +94,10 @@ class NotifyChannelControllerTest {
     }
 
     @Test
-    @DisplayName("5 个接口全部存在（端到端路由核查）")
+    @DisplayName("4 个接口全部存在（端到端路由核查）")
     void allEndpointsExist() throws NoSuchMethodException {
         Class<?> c = NotifyChannelController.class;
         assertNotNull(c.getMethod("list", Integer.class));
-        assertNotNull(c.getMethod("detail", Long.class));
         assertNotNull(c.getMethod("create", NotifyChannel.class));
         assertNotNull(c.getMethod("update", Long.class, NotifyChannel.class));
         assertNotNull(c.getMethod("test", Long.class));

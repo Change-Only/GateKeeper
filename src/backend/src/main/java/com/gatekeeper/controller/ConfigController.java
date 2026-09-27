@@ -20,7 +20,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.validation.Valid;
-import java.util.List;
 
 /**
  * 参数配置 Controller — T05 sys-config 参数配置对外能力
@@ -61,26 +60,6 @@ public class ConfigController {
             @RequestParam(required = false) Integer status) {
         return Result.success(configService.pageQuery(pageNum, pageSize, keyword, configGroup, status));
     }
-
-    /**
-     * 全量配置（下拉）。
-     */
-    @Operation(summary = "全量配置（下拉）")
-    @GetMapping("/all")
-    public Result<List<SysConfig>> all(@RequestParam(required = false) String configGroup) {
-        return Result.success(configService.listAll(configGroup));
-    }
-
-    /**
-     * 配置详情（sensitive=1 脱敏）。
-     */
-    @Operation(summary = "配置详情")
-    @GetMapping("/{id}")
-    public Result<SysConfig> detail(@PathVariable Long id) {
-        SysConfig cfg = configService.getConfig(id);
-        return cfg == null ? Result.notFound("配置不存在") : Result.success(cfg);
-    }
-
     /**
      * 新建配置（高危写）。
      */

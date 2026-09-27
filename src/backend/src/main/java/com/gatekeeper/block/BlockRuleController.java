@@ -52,16 +52,6 @@ public class BlockRuleController {
     public Result<List<BlockRule>> list() {
         return Result.success(blockRuleService.list());
     }
-
-    /**
-     * 封禁规则详情。
-     */
-    @Operation(summary = "封禁规则详情")
-    @GetMapping("/{id}")
-    public Result<BlockRule> detail(@PathVariable Long id) {
-        return Result.success(blockRuleService.getById(id));
-    }
-
     /**
      * 新建封禁规则（高危）。
      *

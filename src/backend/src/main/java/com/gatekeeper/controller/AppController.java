@@ -249,38 +249,4 @@ public class AppController {
         appService.updateRateLimit(id, rateLimit);
         return Result.success();
     }
-
-    /**
-     * 重置应用密钥（高危）
-     *
-     * <p>T02 权限点：{@code app:credential:reset}</p>
-     *
-     * @param id 应用 ID
-     * @return 重置后的应用实体（含新密钥）；若应用不存在则返回错误信息
-     */
-    @RequirePerm(value = "app:credential:reset", risk = true)
-    @Operation(summary = "重置AppSecret")
-    @PostMapping("/{id}/reset-secret")
-    public Result<App> resetSecret(@PathVariable Long id) {
-        App app = appService.resetSecret(id);
-        // 密钥重置失败（应用不存在）时返回错误，否则返回带新密钥的应用信息
-        return app != null ? Result.success(app) : Result.error("应用不存在");
-    }
-
-    /**
-     * 吊销应用凭证（高危）。
-     *
-     * <p>T02 新增接口，覆盖原型 {@code app:credential:revoke} 权限点。
-     * MVP 实现语义等价于停用应用（status=0），T03 凭证域落地后改为精确吊销。</p>
-     *
-     * @param id 应用 ID
-     * @return 操作结果
-     */
-    @RequirePerm(value = "app:credential:revoke", risk = true)
-    @Operation(summary = "吊销应用凭证")
-    @PostMapping("/{id}/revoke-credential")
-    public Result<Void> revokeCredential(@PathVariable Long id) {
-        appService.revokeCredential(id);
-        return Result.success();
-    }
 }

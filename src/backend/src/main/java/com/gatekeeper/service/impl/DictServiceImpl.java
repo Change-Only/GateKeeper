@@ -12,7 +12,6 @@ import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.mapper.SysDictItemMapper;
 import com.gatekeeper.mapper.SysDictMapper;
 import com.gatekeeper.service.DictService;
-import com.gatekeeper.vo.SysDictDetailVo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -65,29 +64,6 @@ public class DictServiceImpl extends ServiceImpl<SysDictMapper, SysDict> impleme
         baseMapper.selectPage(page, wrapper);
         return PageResult.of(page.getRecords(), page.getTotal(), page.getCurrent(), page.getSize());
     }
-
-    @Override
-    public List<SysDict> listAll() {
-        return baseMapper.selectList(new QueryWrapper<SysDict>().orderByAsc("id"));
-    }
-
-    @Override
-    public SysDictDetailVo getWithItems(String dictCode) {
-        if (!StringUtils.hasText(dictCode)) {
-            return null;
-        }
-        SysDict dict = baseMapper.selectOne(new QueryWrapper<SysDict>().eq("dict_code", dictCode));
-        if (dict == null) {
-            return null;
-        }
-        List<SysDictItem> items = sysDictItemMapper.selectList(
-                new QueryWrapper<SysDictItem>().eq("dict_code", dictCode).orderByAsc("sort_order"));
-        SysDictDetailVo vo = new SysDictDetailVo();
-        vo.setDict(dict);
-        vo.setItems(items);
-        return vo;
-    }
-
     @Override
     public List<SysDictItem> listItems(String dictCode) {
         if (!StringUtils.hasText(dictCode)) {

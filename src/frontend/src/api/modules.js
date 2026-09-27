@@ -69,10 +69,6 @@ export function getRateLimit(appId) {
 export function updateRateLimit(appId, data) {
   return request.put(`/app/${appId}/rate-limit`, data)
 }
-// 重置应用的 AppSecret
-export function resetSecret(id) {
-  return request.post(`/app/${id}/reset-secret`)
-}
 
 // ============ 接口管理 ============
 // 分页查询接口列表
@@ -109,10 +105,6 @@ export function getGroupTree() {
 export function getGroupList() {
   return request.get('/group/list')
 }
-// 获取指定分组下的接口列表
-export function getGroupInterfaces(id) {
-  return request.get(`/group/${id}/interfaces`)
-}
 // 创建分组
 export function createGroup(data) {
   return request.post('/group', data)
@@ -127,25 +119,9 @@ export function deleteGroup(id) {
 }
 
 // ============ 权限管理 ============
-// 查询授权列表
-export function getPermissionList(params) {
-  return request.get('/permission/list', { params })
-}
-// 单个接口授权
-export function grantPermission(data) {
-  return request.post('/permission', data)
-}
 // 批量授权
 export function batchGrantPermission(data) {
   return request.post('/permission/batch', data)
-}
-// 按分组整组授权
-export function grantByGroup(data) {
-  return request.post('/permission/grant-by-group', data)
-}
-// 取消应用对接口的授权
-export function revokePermission(appId, interfaceId) {
-  return request.delete('/permission', { params: { appId, interfaceId } })
 }
 
 // ============ 调用日志 ============
@@ -344,14 +320,6 @@ export function handleAlert(id, status, remark) {
 export function getDictList(params) {
   return request.get('/dict/list', { params })
 }
-// 全量字典（下拉）
-export function getDictAll() {
-  return request.get('/dict/all')
-}
-// 字典详情（含项）
-export function getDictDetail(dictCode) {
-  return request.get(`/dict/${dictCode}`)
-}
 // 字典项列表
 export function getDictItems(dictCode) {
   return request.get(`/dict/${dictCode}/items`)
@@ -417,9 +385,6 @@ export function getEnvList(params) {
 export function getEnvAll() {
   return request.get('/env/all')
 }
-export function getEnvDetail(id) {
-  return request.get(`/env/${id}`)
-}
 export function createEnv(data) {
   return request.post('/env/create', data)
 }
@@ -443,10 +408,6 @@ export function getAlarmRuleList(params) {
 export function getApiParamList(params) {
   return request.get('/api-param/list', { params })
 }
-// 按接口查询参数树（嵌套 children）
-export function getApiParamTree(params) {
-  return request.get('/api-param/tree', { params })
-}
 // 创建参数（高危：返回一次明文？参数无密钥，仅落库）
 export function createApiParam(data) {
   return request.post('/api-param/create', data)
@@ -464,10 +425,6 @@ export function deleteApiParam(id) {
 // 按接口查询版本列表
 export function getApiVersionList(params) {
   return request.get('/api-version/list', { params })
-}
-// 查询接口当前生效版本
-export function getApiVersionCurrent(params) {
-  return request.get('/api-version/current', { params })
 }
 // 创建版本（高危）
 export function createApiVersion(data) {
@@ -487,26 +444,6 @@ export function offlineApiVersion(id) {
 }
 
 // ============ 接口环境配置（api-env-config 子域 · T05 Phase 1，list 已声明） ============
-// 创建环境配置
-export function createApiEnvConfig(data) {
-  return request.post('/api-env-config/create', data)
-}
-// 更新环境配置
-export function updateApiEnvConfig(id, data) {
-  return request.put(`/api-env-config/${id}/update`, data)
-}
-// 切换 Mock 开关
-export function toggleApiEnvConfigMock(id) {
-  return request.post(`/api-env-config/${id}/toggle-mock`)
-}
-// 删除环境配置
-export function deleteApiEnvConfig(id) {
-  return request.delete(`/api-env-config/${id}`)
-}
-// 连通性测试（api_env_config:test，诊断动作；通过置 configStatus=2 已验证，失败回 1 已配置，返回更新后的配置）
-export function testApiEnvConfig(id) {
-  return request.post(`/api-env-config/${id}/test`)
-}
 
 // ============ 接口变更历史（api-change-log 子域 · T05 Phase 1，只读） ============
 // 按接口查询变更历史列表
@@ -557,14 +494,6 @@ export function publishInterface(id) {
 export function getConfigList(params) {
   return request.get('/config/list', { params })
 }
-// 全量配置（下拉，可选 configGroup）
-export function getConfigAll(params) {
-  return request.get('/config/all', { params })
-}
-// 配置详情（sensitive=1 返回脱敏）
-export function getConfigDetail(id) {
-  return request.get(`/config/${id}`)
-}
 // 新建配置（高危）
 export function createConfig(data) {
   return request.post('/config/create', data)
@@ -597,10 +526,6 @@ export function saveDataScope(roleId, data) {
 }
 
 // ============ 通知渠道 notify-channel（T05 Phase 2） ============
-// 通知渠道详情
-export function getNotifyChannelDetail(id) {
-  return request.get(`/notify-channel/${id}`)
-}
 // 新建通知渠道
 export function createNotifyChannel(data) {
   return request.post('/notify-channel/create', data)
@@ -622,10 +547,6 @@ export function testNotifyChannel(id) {
 // 授权列表（按 app/api/env/status 筛选；后端返回 List，无分页）
 export function getGrantList(params) {
   return request.get('/grant/list', { params })
-}
-// 待审批列表
-export function getGrantPending(params) {
-  return request.get('/grant/pending', { params })
 }
 // 创建授权（待审批，grant:create 高危）
 export function createGrant(data) {
@@ -661,19 +582,11 @@ export function replaceRoleMenus(roleId, menuIds) {
 export function getMenuList() {
   return request.get('/sys/menu/list')
 }
-// 仅权限点（type=3）
-export function getMenuPermPoints() {
-  return request.get('/sys/menu/perm-points')
-}
 
 // ============ 告警规则 alarm-rule（T04-C · sys-alarm 复用 · T05 Phase 4） ============
 // 评估对象候选（T11 新增）：targetType = APP(按应用) / API(按接口)；返回裸数组 [{id,label,extra}]
 export function getAlarmTargetOptions(targetType) {
   return request.get('/alarm-rule/target-options', { params: { targetType } })
-}
-// 规则详情
-export function getAlarmRuleDetail(id) {
-  return request.get(`/alarm-rule/${id}`)
 }
 // 创建规则（alarm_rule:create 高危）
 export function createAlarmRule(data) {
@@ -696,10 +609,6 @@ export function testAlarmRule(id) {
 // 规则列表（全量，按 id 升序）
 export function getBlockRuleList(params) {
   return request.get('/block-rule/list', { params })
-}
-// 规则详情
-export function getBlockRuleDetail(id) {
-  return request.get(`/block-rule/${id}`)
 }
 // 新建规则（block_rule:create 高危）
 export function createBlockRule(data) {
@@ -725,12 +634,6 @@ export function exportOperationLog(params) {
 }
 
 // ============ 接口分组环境配置 api-group-env-config（T13 · 环境配置下沉到分组侧） ============
-// 说明：T13 起环境配置的**维护入口在接口分组侧**，接口详情里的「环境配置」Tab 只做只读生效预览。
-// 分组树**向上继承**：某分组在某环境没有配置时，取最近的祖先分组配置（见后端 EnvConfigResolver）。
-// 分组自己的配置（不含继承来的；裸数组语义，与 /api-env-config/list 一致）
-export function getGroupEnvConfigList(groupId, envCode) {
-  return request.get('/api-group-env-config/list', { params: { groupId, envCode } })
-}
 // 某分组在 4 个环境下的**生效配置**（含 sourceType / sourcePath 继承链路），供只读预览
 export function getGroupEnvConfigEffective(groupId) {
   return request.get('/api-group-env-config/effective', { params: { groupId } })

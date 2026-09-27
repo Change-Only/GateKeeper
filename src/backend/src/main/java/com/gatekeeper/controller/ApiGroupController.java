@@ -4,7 +4,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import com.gatekeeper.common.Result;
 import com.gatekeeper.entity.ApiGroup;
-import com.gatekeeper.entity.ApiInterface;
 import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.ApiGroupService;
 import lombok.RequiredArgsConstructor;
@@ -57,19 +56,6 @@ public class ApiGroupController {
     public Result<List<ApiGroup>> tree() {
         return Result.success(apiGroupService.listGroupTree());
     }
-
-    /**
-     * 查询指定分组下的接口列表
-     *
-     * @param id 分组 ID
-     * @return 该分组（含子分组）关联的接口列表
-     */
-    @Operation(summary = "查询分组下接口列表")
-    @GetMapping("/{id}/interfaces")
-    public Result<List<ApiInterface>> interfaces(@PathVariable Long id) {
-        return Result.success(apiGroupService.getInterfacesByGroup(id));
-    }
-
     /**
      * 新增接口分组
      *

@@ -5,7 +5,6 @@ import com.gatekeeper.block.BlockRuleController;
 import com.gatekeeper.controller.AlertController;
 import com.gatekeeper.controller.CallLogController;
 import com.gatekeeper.controller.EncryptionConfigController;
-import com.gatekeeper.controller.PermissionController;
 import com.gatekeeper.entity.AlarmRule;
 import com.gatekeeper.entity.ApiEncryptionConfig;
 import com.gatekeeper.entity.AppEncryptionConfig;
@@ -54,13 +53,6 @@ class P0SecurityAnnotationTest {
     @DisplayName("P0-2：GrantController#renew 标注 grant:approve（高危）")
     void grantRenew_annotated() throws Exception {
         assertPerm(GrantController.class, "renew", "grant:approve", true,
-                Long.class, GrantController.GrantRenewRequest.class);
-    }
-
-    @Test
-    @DisplayName("P0-2：PermissionController#renewById 标注 grant:approve（高危）")
-    void permissionRenew_annotated() throws Exception {
-        assertPerm(PermissionController.class, "renewById", "grant:approve", true,
                 Long.class, GrantController.GrantRenewRequest.class);
     }
 

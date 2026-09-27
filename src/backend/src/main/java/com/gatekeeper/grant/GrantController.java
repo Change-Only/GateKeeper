@@ -51,13 +51,6 @@ public class GrantController {
             @RequestParam(required = false) Integer status) {
         return Result.success(grantService.listGrants(appId, apiId, envCode, status));
     }
-
-    @Operation(summary = "授权详情")
-    @GetMapping("/{id}")
-    public Result<AppApiGrant> detail(@PathVariable Long id) {
-        return Result.success(grantService.getGrant(id));
-    }
-
     @RequirePerm(value = "grant:create", risk = true)
     @Operation(summary = "创建授权（待审批）")
     @PostMapping("/create")
@@ -92,13 +85,6 @@ public class GrantController {
     public Result<AppApiGrant> renew(@PathVariable Long id, @Valid @RequestBody GrantRenewRequest req) {
         return Result.success(grantService.renew(id, req.getValidTo()));
     }
-
-    @Operation(summary = "待审批列表")
-    @GetMapping("/pending")
-    public Result<List<AppApiGrant>> pending(@RequestParam(required = false) String envCode) {
-        return Result.success(grantService.listPending(envCode));
-    }
-
     // ===================== 请求体（内联 DTO，供 GrantController / PermissionController 复用） =====================
 
     /** 审批请求：审批人 + 审批意见 */

@@ -17,8 +17,6 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -60,48 +58,10 @@ class ApiChangeLogControllerTest {
         assertEquals(1, r.getData().size());
         verify(apiChangeLogService, times(1)).list(eq(1L), eq("UPDATE"));
     }
-
     @Test
-    @DisplayName("detail 调用 service.get")
-    void detail_ok() {
-        ApiChangeLogDto dto = new ApiChangeLogDto();
-        dto.setId(2L);
-        dto.setChangeType("CREATE");
-        when(apiChangeLogService.get(2L)).thenReturn(dto);
-
-        Result<ApiChangeLogDto> r = controller.detail(2L);
-        assertEquals(200, r.getCode());
-        assertEquals("CREATE", r.getData().getChangeType());
-    }
-
-    @Test
-    @DisplayName("append 调用 service.append 并标注 api_change_log:append 高危")
-    void append_callsServiceAndHasPermAnnotation() throws NoSuchMethodException {
-        ApiChangeLogDto dto = new ApiChangeLogDto();
-        dto.setId(3L);
-        dto.setApiId(1L);
-        dto.setChangeType("UPDATE");
-        when(apiChangeLogService.append(any(ApiChangeLogDto.class))).thenReturn(dto);
-
-        Result<ApiChangeLogDto> r = controller.append(dto);
-        assertEquals(200, r.getCode());
-        assertNotNull(r.getData().getId());
-        verify(apiChangeLogService, times(1)).append(any(ApiChangeLogDto.class));
-
-        com.gatekeeper.security.RequirePerm ann =
-                ApiChangeLogController.class.getMethod("append", ApiChangeLogDto.class)
-                        .getAnnotation(com.gatekeeper.security.RequirePerm.class);
-        assertNotNull(ann, "append 方法必须标注 @RequirePerm");
-        assertEquals("api_change_log:append", ann.value());
-        assertTrue(ann.risk(), "api_change_log:append 必须是高危");
-    }
-
-    @Test
-    @DisplayName("3 个接口全部存在（端到端路由核查）")
-    void all3EndpointsExist() throws NoSuchMethodException {
+    @DisplayName("1 个接口存在（端到端路由核查）")
+    void all1EndpointExists() throws NoSuchMethodException {
         Class<?> c = ApiChangeLogController.class;
         assertNotNull(c.getMethod("list", Long.class, String.class));
-        assertNotNull(c.getMethod("detail", Long.class));
-        assertNotNull(c.getMethod("append", ApiChangeLogDto.class));
     }
 }

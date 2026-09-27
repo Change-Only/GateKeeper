@@ -68,16 +68,6 @@ public class AppCredentialController {
             @RequestParam(required = false) Integer status) {
         return Result.success(appCredentialService.list(appId, envCode, status));
     }
-
-    /**
-     * 凭证详情。
-     */
-    @Operation(summary = "凭证详情")
-    @GetMapping("/{id}")
-    public Result<AppCredentialDto> detail(@PathVariable Long id) {
-        return Result.success(appCredentialService.get(id));
-    }
-
     /**
      * 创建凭证（高危）。
      *

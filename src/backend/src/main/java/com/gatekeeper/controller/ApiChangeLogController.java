@@ -2,20 +2,15 @@ package com.gatekeeper.controller;
 
 import com.gatekeeper.common.Result;
 import com.gatekeeper.dto.ApiChangeLogDto;
-import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.ApiChangeLogService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.validation.Valid;
 import java.util.List;
 
 /**
@@ -50,26 +45,5 @@ public class ApiChangeLogController {
             @RequestParam(required = false) Long apiId,
             @RequestParam(required = false) String changeType) {
         return Result.success(apiChangeLogService.list(apiId, changeType));
-    }
-
-    /**
-     * 变更历史详情。
-     */
-    @Operation(summary = "接口变更历史详情")
-    @GetMapping("/{id}")
-    public Result<ApiChangeLogDto> detail(@PathVariable Long id) {
-        return Result.success(apiChangeLogService.get(id));
-    }
-
-    /**
-     * 追加一条变更记录（高危）。
-     *
-     * <p>createTime 由服务端填充（now）。T03b 权限点 {@code api_change_log:append}（risk=true）。</p>
-     */
-    @RequirePerm(value = "api_change_log:append", risk = true)
-    @Operation(summary = "追加接口变更记录")
-    @PostMapping("/append")
-    public Result<ApiChangeLogDto> append(@Valid @RequestBody ApiChangeLogDto dto) {
-        return Result.success(apiChangeLogService.append(dto));
     }
 }

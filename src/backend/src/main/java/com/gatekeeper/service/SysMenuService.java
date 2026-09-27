@@ -19,24 +19,4 @@ public interface SysMenuService extends IService<SysMenu> {
      * 查询所有启用的菜单权限点（status=1）。
      */
     List<SysMenu> listEnabled();
-
-    /**
-     * 按类型查询菜单（如 type=3 即权限点）。
-     */
-    List<SysMenu> listByType(Integer type);
-
-    /**
-     * 创建菜单/权限点。
-     */
-    SysMenu createMenu(SysMenu menu);
-
-    /**
-     * 更新菜单/权限点。
-     */
-    void updateMenu(Long id, SysMenu menu);
-
-    /**
-     * 删除菜单/权限点（关联的 sys_role_menu 一并删除）。
-     */
-    void deleteMenu(Long id);
 }

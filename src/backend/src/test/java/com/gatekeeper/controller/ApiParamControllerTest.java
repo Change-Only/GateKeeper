@@ -60,34 +60,6 @@ class ApiParamControllerTest {
         assertEquals(1, r.getData().size());
         verify(apiParamService, times(1)).list(eq(1L), eq(3), any());
     }
-
-    @Test
-    @DisplayName("tree 调用 service.tree")
-    void tree_ok() {
-        ApiParamDto root = new ApiParamDto();
-        root.setId(1L);
-        root.setFieldName("items");
-        when(apiParamService.tree(1L)).thenReturn(Collections.singletonList(root));
-
-        Result<List<ApiParamDto>> r = controller.tree(1L);
-        assertEquals(200, r.getCode());
-        assertEquals(1, r.getData().size());
-        verify(apiParamService, times(1)).tree(1L);
-    }
-
-    @Test
-    @DisplayName("detail 调用 service.get")
-    void detail_ok() {
-        ApiParamDto dto = new ApiParamDto();
-        dto.setId(2L);
-        dto.setFieldName("pageNo");
-        when(apiParamService.get(2L)).thenReturn(dto);
-
-        Result<ApiParamDto> r = controller.detail(2L);
-        assertEquals(200, r.getCode());
-        assertEquals("pageNo", r.getData().getFieldName());
-    }
-
     @Test
     @DisplayName("create 调用 service.create 并返回 DTO")
     void create_callsService() {
@@ -141,12 +113,10 @@ class ApiParamControllerTest {
     }
 
     @Test
-    @DisplayName("6 个接口全部存在（端到端路由核查）")
-    void all6EndpointsExist() throws NoSuchMethodException {
+    @DisplayName("4 个接口全部存在（端到端路由核查）")
+    void all4EndpointsExist() throws NoSuchMethodException {
         Class<?> c = ApiParamController.class;
         assertNotNull(c.getMethod("list", Long.class, Integer.class, Long.class));
-        assertNotNull(c.getMethod("tree", Long.class));
-        assertNotNull(c.getMethod("detail", Long.class));
         assertNotNull(c.getMethod("create", ApiParamDto.class));
         assertNotNull(c.getMethod("update", Long.class, ApiParamDto.class));
         assertNotNull(c.getMethod("delete", Long.class));

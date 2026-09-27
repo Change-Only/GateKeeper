@@ -53,18 +53,6 @@ class AlarmRuleControllerTest {
         assertEquals(200, r.getCode());
         verify(alarmRuleService, times(1)).list(null);
     }
-
-    @Test
-    @DisplayName("detail 调用 service.get")
-    void detail_callsService() {
-        AlarmRule rule = new AlarmRule();
-        rule.setId(1L);
-        when(alarmRuleService.get(1L)).thenReturn(rule);
-        Result<AlarmRule> r = controller.detail(1L);
-        assertEquals(200, r.getCode());
-        assertNotNull(r.getData());
-    }
-
     @Test
     @DisplayName("create 调用 service.create")
     void create_callsService() {
@@ -123,11 +111,10 @@ class AlarmRuleControllerTest {
     }
 
     @Test
-    @DisplayName("7 个接口全部存在（端到端路由核查）")
+    @DisplayName("6 个接口全部存在（端到端路由核查）")
     void allEndpointsExist() throws NoSuchMethodException {
         Class<?> c = AlarmRuleController.class;
         assertNotNull(c.getMethod("list", Integer.class));
-        assertNotNull(c.getMethod("detail", Long.class));
         assertNotNull(c.getMethod("create", AlarmRule.class));
         assertNotNull(c.getMethod("update", Long.class, AlarmRule.class));
         assertNotNull(c.getMethod("toggle", Long.class, Integer.class));

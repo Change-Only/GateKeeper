@@ -6,7 +6,6 @@ import com.gatekeeper.dto.SysDictDto;
 import com.gatekeeper.dto.SysDictItemDto;
 import com.gatekeeper.entity.SysDict;
 import com.gatekeeper.entity.SysDictItem;
-import com.gatekeeper.vo.SysDictDetailVo;
 
 import java.util.List;
 
@@ -36,22 +35,6 @@ public interface DictService extends IService<SysDict> {
      * @return 分页结果
      */
     PageResult<SysDict> pageQuery(int pageNum, int pageSize, String keyword, Integer status);
-
-    /**
-     * 查询全量字典（下拉用）。
-     *
-     * @return 字典列表
-     */
-    List<SysDict> listAll();
-
-    /**
-     * 查询字典详情（含字典项）。
-     *
-     * @param dictCode 字典编码
-     * @return 字典详情 VO（字典不存在返回 null）
-     */
-    SysDictDetailVo getWithItems(String dictCode);
-
     /**
      * 查询某字典下的字典项列表。
      *

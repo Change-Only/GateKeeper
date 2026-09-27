@@ -273,40 +273,6 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
             rateLimitMapper.insert(rateLimit);
         }
     }
-
-    /**
-     * 重置应用 AppSecret 并返回更新后的应用（仅本次返回明文）
-     *
-     * @param id 应用 ID
-     * @return 更新后的应用实体（appSecret 为明文，仅展示一次），应用不存在时返回 null
-     */
-    @Override
-    public App resetSecret(Long id) {
-        App app = baseMapper.selectById(id);
-        if (app == null) {
-            return null;
-        }
-        String plainSecret = generateAppSecret(); // 重新生成 AppSecret（明文）
-        app.setAppSecret(encryptSecret(plainSecret)); // 落库前 AES 加密
-        app.setUpdatedAt(LocalDateTime.now());
-        baseMapper.updateById(app);
-        app.setAppSecret(plainSecret); // 仅本次响应返回明文
-        return app;
-    }
-
-    /**
-     * 吊销应用凭证（T02 轻量实现）。
-     *
-     * <p>MVP 阶段等价语义：将应用 status 置 0（停用），旧凭证即使存在也无法通过网关。
-     * T03 完整凭证域上线后，将扩展为对 {@code app_credential} 多套凭证的精确吊销。</p>
-     *
-     * @param id 应用 ID
-     */
-    @Override
-    public void revokeCredential(Long id) {
-        updateStatus(id, 0);
-    }
-
     /**
      * AppSecret 明文 AES-256 加密（ECB/PKCS5Padding），密钥取自配置
      *

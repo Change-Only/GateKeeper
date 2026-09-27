@@ -2,11 +2,7 @@ package com.gatekeeper.controller;
 
 import com.gatekeeper.aspect.ApiChangeLog;
 import com.gatekeeper.common.Result;
-import com.gatekeeper.dto.ApiParamBatchSaveRequest;
-import com.gatekeeper.dto.ApiParamBatchSaveResult;
-import com.gatekeeper.dto.ApiParamCheckResult;
 import com.gatekeeper.dto.ApiParamDto;
-import com.gatekeeper.dto.ApiParamImportResult;
 import com.gatekeeper.security.RequirePerm;
 import com.gatekeeper.service.ApiParamService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -64,43 +60,6 @@ public class ApiParamController {
             @RequestParam(required = false) Long parentId) {
         return Result.success(apiParamService.list(apiId, paramType, parentId));
     }
-
-    /**
-     * 构建某接口的嵌套参数树。
-     */
-    @Operation(summary = "查询接口参数树形结构")
-    @GetMapping("/tree")
-    public Result<List<ApiParamDto>> tree(@RequestParam Long apiId) {
-        return Result.success(apiParamService.tree(apiId));
-    }
-
-    /**
-     * 参数导入 JSON 模板（含示例 1 Header + 5 入参 + 3 出参 + 2 错误码）。
-     */
-    @Operation(summary = "参数导入 JSON 模板")
-    @GetMapping("/import-template")
-    public Result<String> importTemplate() {
-        return Result.success(apiParamService.importTemplate());
-    }
-
-    /**
-     * 发布前校验：必填参数是否已完整定义。
-     */
-    @Operation(summary = "校验必填参数就绪度")
-    @GetMapping("/check-required")
-    public Result<ApiParamCheckResult> checkRequired(@RequestParam Long apiId) {
-        return Result.success(apiParamService.checkRequired(apiId));
-    }
-
-    /**
-     * 接口参数详情。
-     */
-    @Operation(summary = "接口参数详情")
-    @GetMapping("/{id}")
-    public Result<ApiParamDto> detail(@PathVariable Long id) {
-        return Result.success(apiParamService.get(id));
-    }
-
     /**
      * 创建接口参数（高危）。
      *
@@ -137,39 +96,5 @@ public class ApiParamController {
     public Result<Void> delete(@PathVariable Long id) {
         apiParamService.removeById(id);
         return Result.success();
-    }
-
-    /**
-     * 批量保存：对提交的非空分区执行全量替换（先删后插，事务原子）。
-     *
-     * <p>T03b 权限点 {@code api_param:import}（risk=true）。</p>
-     */
-    @ApiChangeLog(value = "批量保存接口参数", changeType = "UPDATE", fieldName = "params", fieldLabel = "参数契约")
-    @RequirePerm(value = "api_param:import", risk = true)
-    @Operation(summary = "批量保存接口参数")
-    @PostMapping("/batch-save")
-    public Result<ApiParamBatchSaveResult> batchSave(@RequestParam(required = false) Long apiId,
-                                                     @Valid @RequestBody ApiParamBatchSaveRequest req) {
-        if (req.getApiId() == null) {
-            req.setApiId(apiId);
-        }
-        return Result.success(apiParamService.batchSave(req));
-    }
-
-    /**
-     * JSON 导入接口参数（先全量校验，全通过才落库）。
-     *
-     * <p>T03b 权限点 {@code api_param:import}（risk=true）。</p>
-     */
-    @ApiChangeLog(value = "导入接口参数", changeType = "UPDATE", fieldName = "params", fieldLabel = "参数契约")
-    @RequirePerm(value = "api_param:import", risk = true)
-    @Operation(summary = "导入接口参数")
-    @PostMapping("/import")
-    public Result<ApiParamImportResult> importParams(@RequestParam(required = false) Long apiId,
-                                                     @Valid @RequestBody ApiParamBatchSaveRequest req) {
-        if (req.getApiId() == null) {
-            req.setApiId(apiId);
-        }
-        return Result.success(apiParamService.importParams(req));
     }
 }

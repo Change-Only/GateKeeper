@@ -60,19 +60,6 @@ class BlockRuleControllerTest {
         assertEquals(1, r.getData().size());
         verify(blockRuleService, times(1)).list();
     }
-
-    @Test
-    @DisplayName("detail 调用 service.getById")
-    void detail_callsService() {
-        BlockRule rule = new BlockRule();
-        rule.setId(1L);
-        when(blockRuleService.getById(1L)).thenReturn(rule);
-
-        Result<BlockRule> r = controller.detail(1L);
-        assertEquals(200, r.getCode());
-        verify(blockRuleService, times(1)).getById(1L);
-    }
-
     @Test
     @DisplayName("create 标注 @RequirePerm block_rule:create 高危")
     void create_hasCreatePermAnnotation() throws NoSuchMethodException {
@@ -140,11 +127,10 @@ class BlockRuleControllerTest {
     }
 
     @Test
-    @DisplayName("6 个接口全部存在（路由核查）")
+    @DisplayName("5 个接口全部存在（路由核查）")
     void allEndpointsExist() throws NoSuchMethodException {
         Class<?> c = BlockRuleController.class;
         assertNotNull(c.getMethod("list"));
-        assertNotNull(c.getMethod("detail", Long.class));
         assertNotNull(c.getMethod("create", BlockRule.class));
         assertNotNull(c.getMethod("update", Long.class, BlockRule.class));
         assertNotNull(c.getMethod("toggle", Long.class, Integer.class));

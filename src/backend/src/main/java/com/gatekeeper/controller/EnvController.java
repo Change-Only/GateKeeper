@@ -71,17 +71,6 @@ public class EnvController {
     public Result<List<EnvDto>> all() {
         return Result.success(envService.listEnabled());
     }
-
-    /**
-     * 环境详情。
-     */
-    @Operation(summary = "环境详情")
-    @GetMapping("/{id}")
-    public Result<Env> detail(@PathVariable Long id) {
-        Env env = envService.getEnv(id);
-        return env == null ? Result.notFound("环境不存在") : Result.success(env);
-    }
-
     /**
      * 新建环境。
      */

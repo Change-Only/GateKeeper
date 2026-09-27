@@ -50,18 +50,6 @@ import java.util.List;
 public class ApiGroupEnvConfigController {
 
     private final ApiGroupEnvConfigService apiGroupEnvConfigService;
-
-    /**
-     * 查询某分组自己的环境配置（不含继承来的）。
-     */
-    @Operation(summary = "查询分组环境配置列表")
-    @GetMapping("/list")
-    public Result<List<ApiGroupEnvConfigDto>> list(
-            @RequestParam Long groupId,
-            @RequestParam(required = false) String envCode) {
-        return Result.success(apiGroupEnvConfigService.list(groupId, envCode));
-    }
-
     /**
      * 某分组在 4 个环境下的生效配置（含"继承自哪个分组"）。
      */
@@ -70,16 +58,6 @@ public class ApiGroupEnvConfigController {
     public Result<List<EffectiveEnvConfig>> effective(@RequestParam Long groupId) {
         return Result.success(apiGroupEnvConfigService.effective(groupId));
     }
-
-    /**
-     * 分组环境配置详情。
-     */
-    @Operation(summary = "分组环境配置详情")
-    @GetMapping("/{id}")
-    public Result<ApiGroupEnvConfigDto> detail(@PathVariable Long id) {
-        return Result.success(apiGroupEnvConfigService.get(id));
-    }
-
     /**
      * 建或改（按 groupId + envCode 唯一匹配；命中更新、未命中插入）。
      */

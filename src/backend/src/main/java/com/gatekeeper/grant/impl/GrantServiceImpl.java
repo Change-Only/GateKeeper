@@ -2,14 +2,12 @@ package com.gatekeeper.grant.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.gatekeeper.entity.ApiInterface;
 import com.gatekeeper.entity.AppApiGrant;
 import com.gatekeeper.exception.GatewayException;
 import com.gatekeeper.grant.GrantService;
 import com.gatekeeper.grant.GrantStateMachine;
 import com.gatekeeper.mapper.AppApiGrantMapper;
 import com.gatekeeper.service.AlertService;
-import com.gatekeeper.service.ApiGroupService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,8 +28,6 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class GrantServiceImpl extends ServiceImpl<AppApiGrantMapper, AppApiGrant> implements GrantService {
-
-    private final ApiGroupService apiGroupService;
 
     /** 审计告警服务：审批/驳回/撤销动作落库告警（fail-safe，失败不影响主流程） */
     private final AlertService alertService;
@@ -225,18 +221,6 @@ public class GrantServiceImpl extends ServiceImpl<AppApiGrantMapper, AppApiGrant
     // =====================================================================
     // 兼容旧权限模型
     // =====================================================================
-
-    @Override
-    public List<AppApiGrant> listPending(String envCode) {
-        QueryWrapper<AppApiGrant> wrapper = new QueryWrapper<>();
-        wrapper.eq("status", GrantStateMachine.PENDING);
-        if (StringUtils.hasText(envCode)) {
-            wrapper.eq("env_code", envCode);
-        }
-        wrapper.orderByDesc("created_at");
-        return baseMapper.selectList(wrapper);
-    }
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void batchCreate(Long appId, List<Long> apiIds) {
@@ -249,42 +233,6 @@ public class GrantServiceImpl extends ServiceImpl<AppApiGrantMapper, AppApiGrant
             grant.setApiId(apiId);
             grant.setEnvCode(DEFAULT_ENV);
             createGrant(grant);
-        }
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void createByGroup(Long appId, Long groupId) {
-        if (appId == null || groupId == null) {
-            return;
-        }
-        List<ApiInterface> interfaces = apiGroupService.getInterfacesByGroup(groupId);
-        if (interfaces == null || interfaces.isEmpty()) {
-            return;
-        }
-        for (ApiInterface iface : interfaces) {
-            AppApiGrant grant = new AppApiGrant();
-            grant.setAppId(appId);
-            grant.setApiId(iface.getId());
-            grant.setEnvCode(DEFAULT_ENV);
-            createGrant(grant);
-        }
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void revokeByAppAndApi(Long appId, Long apiId) {
-        if (appId == null || apiId == null) {
-            return;
-        }
-        AppApiGrant grant = baseMapper.selectOne(new QueryWrapper<AppApiGrant>()
-                .eq("app_id", appId)
-                .eq("api_id", apiId)
-                .in("status", GrantStateMachine.PENDING, GrantStateMachine.ACTIVE)
-                .orderByDesc("created_at")
-                .last("LIMIT 1"));
-        if (grant != null) {
-            revoke(grant.getId(), "通过权限管理接口撤销", null, null);
         }
     }
 }

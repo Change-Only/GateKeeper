@@ -94,15 +94,6 @@ public interface GrantService extends IService<AppApiGrant> {
      * @return 更新后的授权实体
      */
     AppApiGrant renew(Long id, LocalDate validTo);
-
-    /**
-     * 查询待审批授权（status=0，可按 env 过滤）。
-     *
-     * @param envCode 环境编码（可空）
-     * @return 待审批授权列表
-     */
-    List<AppApiGrant> listPending(String envCode);
-
     /**
      * 批量创建授权（兼容旧 /permission/batch）。
      *
@@ -110,20 +101,4 @@ public interface GrantService extends IService<AppApiGrant> {
      * @param apiIds 接口 ID 列表
      */
     void batchCreate(Long appId, List<Long> apiIds);
-
-    /**
-     * 按接口分组创建授权（兼容旧 /permission/grant-by-group）。
-     *
-     * @param appId   应用 ID
-     * @param groupId 接口分组 ID
-     */
-    void createByGroup(Long appId, Long groupId);
-
-    /**
-     * 按 应用+接口 撤销其生效/待审批中的授权（兼容旧 DELETE /permission）。
-     *
-     * @param appId 应用 ID
-     * @param apiId 接口 ID
-     */
-    void revokeByAppAndApi(Long appId, Long apiId);
 }

@@ -231,12 +231,10 @@ class T07aRuleDomainsTest {
     // ===================== 4) 权限策略：读端点不加权限点 =====================
 
     @Test
-    @DisplayName("读端点 list / detail / target-options 一律不加 @RequirePerm（读侧策略不变）")
+    @DisplayName("读端点 list / target-options 一律不加 @RequirePerm（读侧策略不变）")
     void readEndpoints_haveNoPermAnnotation() throws NoSuchMethodException {
         // 告警规则：toggle 参数名为 status
         assertNull(AlarmRuleController.class.getMethod("list", Integer.class)
-                .getAnnotation(RequirePerm.class));
-        assertNull(AlarmRuleController.class.getMethod("detail", Long.class)
                 .getAnnotation(RequirePerm.class));
         // T11 新增的评估对象候选（只读，沿用不加权限点的策略）
         assertNull(AlarmRuleController.class.getMethod("targetOptions", String.class)
@@ -245,13 +243,9 @@ class T07aRuleDomainsTest {
         // 阻断规则：toggle 参数名为 enabled（与告警域的 status 不同）
         assertNull(BlockRuleController.class.getMethod("list")
                 .getAnnotation(RequirePerm.class));
-        assertNull(BlockRuleController.class.getMethod("detail", Long.class)
-                .getAnnotation(RequirePerm.class));
 
-        // 通知渠道：list / detail 仍不加；update 在 T08 已补 sys:notify:update（见下一个用例）
+        // 通知渠道：list 仍不加；update 在 T08 已补 sys:notify:update（见下一个用例）
         assertNull(NotifyChannelController.class.getMethod("list", Integer.class)
-                .getAnnotation(RequirePerm.class));
-        assertNull(NotifyChannelController.class.getMethod("detail", Long.class)
                 .getAnnotation(RequirePerm.class));
     }
 
@@ -300,14 +294,13 @@ class T07aRuleDomainsTest {
         assertTrue(ann.risk());
     }
 
-    // ===================== 5) 18 个端点全部存在（路由形态核查） =====================
+    // ===================== 5) 15 个端点全部存在（路由形态核查） =====================
 
     @Test
-    @DisplayName("三域 18 个端点方法签名全部存在（6 + 6 + 6）")
-    void allEighteenEndpointsExist() throws NoSuchMethodException {
+    @DisplayName("三域 15 个端点方法签名全部存在（5 + 5 + 5）")
+    void allFifteenEndpointsExist() throws NoSuchMethodException {
         Class<AlarmRuleController> a = AlarmRuleController.class;
         assertNotNull(a.getMethod("list", Integer.class));
-        assertNotNull(a.getMethod("detail", Long.class));
         assertNotNull(a.getMethod("create", AlarmRule.class));
         assertNotNull(a.getMethod("update", Long.class, AlarmRule.class));
         assertNotNull(a.getMethod("toggle", Long.class, Integer.class));
@@ -315,7 +308,6 @@ class T07aRuleDomainsTest {
 
         Class<BlockRuleController> b = BlockRuleController.class;
         assertNotNull(b.getMethod("list"));
-        assertNotNull(b.getMethod("detail", Long.class));
         assertNotNull(b.getMethod("create", BlockRule.class));
         assertNotNull(b.getMethod("update", Long.class, BlockRule.class));
         assertNotNull(b.getMethod("toggle", Long.class, Integer.class));
@@ -323,7 +315,6 @@ class T07aRuleDomainsTest {
 
         Class<NotifyChannelController> n = NotifyChannelController.class;
         assertNotNull(n.getMethod("list", Integer.class));
-        assertNotNull(n.getMethod("detail", Long.class));
         assertNotNull(n.getMethod("create", NotifyChannel.class));
         assertNotNull(n.getMethod("update", Long.class, NotifyChannel.class));
         assertNotNull(n.getMethod("delete", Long.class));

@@ -20,7 +20,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -74,21 +73,6 @@ class AppCredentialControllerTest {
         assertNull(r.getData().get(0).getAppSecret());
         verify(appCredentialService, times(1)).list(eq(1L), eq("prod"), any());
     }
-
-    @Test
-    @DisplayName("detail 调用 service.get 且不含明文 secret")
-    void detail_masksSecret() {
-        AppCredentialDto dto = new AppCredentialDto();
-        dto.setId(1L);
-        dto.setAppKey("ak_prod_2222222222222222");
-        dto.setSecretMask("Yk3m****J5sU");
-        when(appCredentialService.get(1L)).thenReturn(dto);
-
-        Result<AppCredentialDto> r = controller.detail(1L);
-        assertEquals(200, r.getCode());
-        assertNull(r.getData().getAppSecret());
-    }
-
     @Test
     @DisplayName("create 是明文返回窗口，响应含明文 secret")
     void create_returnsPlaintextOnce() {
@@ -245,12 +229,11 @@ class AppCredentialControllerTest {
     }
 
     @Test
-    @DisplayName("9 个接口全部存在（端到端路由核查）")
+    @DisplayName("8 个接口全部存在（端到端路由核查）")
     void allEndpointsExist() throws NoSuchMethodException {
         // 防止后续重构悄悄改 endpoint 名
         Class<?> c = AppCredentialController.class;
         assertNotNull(c.getMethod("list", Long.class, String.class, Integer.class));
-        assertNotNull(c.getMethod("detail", Long.class));
         assertNotNull(c.getMethod("create", AppCredentialDto.class));
         assertNotNull(c.getMethod("rotate", CredentialRotateRequest.class));
         assertNotNull(c.getMethod("completeRotate", CredentialRotateRequest.class));
