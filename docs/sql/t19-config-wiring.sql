@@ -6,14 +6,27 @@
 --   唯一碰它的是 ConfigController 的增删改查。也就是说「参数配置」页改任何一项，
 --   网关行为都不会变化。这对管理员是明确误导，对应急止损是直接的时间浪费。
 --
--- 本脚本做三件事：
---   1) 修正「值本身与实现不符」的种子数据（sign.algorithm / secret.encrypt.algo /
+-- 本脚本做两件事：
+--   1) 修正「值本身与实现不符」的种子数据（sign.algorithm /
 --      gateway.default.read.timeout）；
---   2) 为 6 个已接线项标注读取点（T19 引入 SysConfigAccessor 后真正生效）；
---   3) 为 13 个仍未接线项如实标注「⚠️ 未接线（预留）」，不再让页面显得"能改"。
+--   2) 为 6 个已接线项标注读取点（T19 引入 SysConfigAccessor 后真正生效）。
+--
+-- 【2026-09-27 收敛】原第 3 节是给 13 个「⚠️ 未接线（预留）」项写备注。复核结论：
+--   这 13 项自 T19 起始终【没有任何 Java 读取点】，仅把行留在库里、靠 remark 标注，
+--   等于在「参数配置」页长期摆着 13 个不发生作用的开关——仍然是误导。故连行一并移除：
+--     secret.length / secret.encrypt.algo / key.rotate.period / key.max.valid.days /
+--     external.ip.whitelist.required / login.fail.threshold / session.timeout /
+--     log.desensitize / audit.log.retention.days / call.log.hot.days /
+--     approval.enabled / export.max.rows / gk.schema.version
+--   同步点（三处必须一致）：
+--     - src/backend/src/main/resources/sql/init.sql（新装库种子，现 6 行）
+--     - docs/sql/migrate-v2.sql §1.8（迁移种子，现 6 行）
+--     - 本文件（不再为这 13 项写备注）
+--   恢复方式：git 历史（commit 16d7c1f 之前）。存量库见本文件第 3 节说明。
 --
 -- 幂等性：全部为「按 config_key 定向 UPDATE + 固定目标值」，重复执行结果一致。
--- 红线：不新增/不删除任何行；id 与 built_in 不动；权限点零变化。
+-- 红线：本脚本不新增/不删除任何行（那 13 项的删除在 init.sql / migrate-v2.sql 完成）；
+--       id 与 built_in 不动；权限点零变化。
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -28,14 +41,7 @@ SET config_value = 'SM3',
     remark = '客户端契约：固定 SM3（国密摘要），与客户端 SDK/接入文档一致，不支持运行时切换 · 读取点 AppAuthHandler（T19 已接线）'
 WHERE config_key = 'sign.algorithm';
 
--- 1.2 AppSecret 存储加密：历史种子写 AES-256-GCM，但实际是 AES/ECB/PKCS5Padding
---     （读取点 AppAuthHandler.verifySignature 的解密参数即为 "AES","ECB","PKCS5Padding"）
-UPDATE sys_config
-SET config_value = 'AES/ECB/PKCS5Padding',
-    remark = '⚠️ 未接线（预留）：AppSecret 存储加密算法；当前实现为 AES/ECB/PKCS5Padding（历史值 AES-256-GCM 与实现不符）'
-WHERE config_key = 'secret.encrypt.algo';
-
--- 1.3 网关默认超时：历史种子写 3000，但 ForwardHandler 的硬编码默认是 5000
+-- 1.2 网关默认超时：历史种子写 3000，但 ForwardHandler 的硬编码默认是 5000
 --     接线时按"实现现状"对齐（避免接线本身静默收紧线上超时），再改为可配置
 UPDATE sys_config
 SET config_value = '5000',
@@ -66,67 +72,41 @@ WHERE config_key = 'gateway.ratelimit.enabled';
 -- （sign.algorithm 与 gateway.default.read.timeout 的备注已在第 1 节一并写好）
 
 -- ---------------------------------------------------------------------------
--- 3. 未接线项：如实标注（避免"看起来能改、实际不生效"的误导）
+-- 3. 关于被移除的 13 个「未接线」项（2026-09-27）
 -- ---------------------------------------------------------------------------
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：生成应用密钥时的随机串长度'
-WHERE config_key = 'secret.length';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：密钥强制轮换周期(天)，超期应在概览页告警'
-WHERE config_key = 'key.rotate.period';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：密钥最长有效期(天)，到期应自动失效'
-WHERE config_key = 'key.max.valid.days';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：外部应用强制 IP 白名单'
-WHERE config_key = 'external.ip.whitelist.required';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线：本项不生效——登录失败锁定阈值实际由 application.yml 的 gatekeeper.security.login-fail-threshold 控制'
-WHERE config_key = 'login.fail.threshold';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：会话超时(分钟)'
-WHERE config_key = 'session.timeout';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：日志敏感字段脱敏（手机号/身份证/银行卡）'
-WHERE config_key = 'log.desensitize';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：审计日志保留天数（等保三级要求 ≥180 天）'
-WHERE config_key = 'audit.log.retention.days';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：调用日志热数据保留天数；当前实际由 application.yml 的 gatekeeper.log.retention-days（默认 90）控制'
-WHERE config_key = 'call.log.hot.days';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：是否开启接口授权审批流'
-WHERE config_key = 'approval.enabled';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：单次导出最大行数'
-WHERE config_key = 'export.max.rows';
-
-UPDATE sys_config
-SET remark = '⚠️ 未接线（预留）：数据模型版本，由 migrate-v2.sql 写入'
-WHERE config_key = 'gk.schema.version';
+-- 本节原为 13 个 `UPDATE ... SET remark = '⚠️ 未接线（预留）：...'`。
+-- 这 13 项在【任何代码路径上都查不到读取点】，仅靠 remark 前缀提示"不生效"，
+-- 关闭状态与开启状态对系统行为完全等价。故按「不留误导性开关」的原则连行移除，
+-- 新装库（init.sql）与迁移种子（migrate-v2.sql §1.8）均已只剩 6 行。
+--
+-- 存量库：本次一致按「存量库不动」处理（与两张死表 app_quota / biz_line 同一口径），
+--   因此本脚本不自动删行。若确认要清理，请先备份再手工执行下面这段（幂等，可重复跑）：
+--
+--   -- 备份：CREATE TABLE sys_config_bak_20260927 AS SELECT * FROM sys_config;
+--   DELETE FROM sys_config WHERE config_key IN (
+--     'secret.length','secret.encrypt.algo','key.rotate.period','key.max.valid.days',
+--     'external.ip.whitelist.required','login.fail.threshold','session.timeout',
+--     'log.desensitize','audit.log.retention.days','call.log.hot.days',
+--     'approval.enabled','export.max.rows','gk.schema.version'
+--   );
+--   -- 自查（期望 0 行）：SELECT config_key FROM sys_config WHERE
+--   --   config_key IN ('secret.length','secret.encrypt.algo','key.rotate.period',
+--   --     'key.max.valid.days','external.ip.whitelist.required','login.fail.threshold',
+--   --     'session.timeout','log.desensitize','audit.log.retention.days',
+--   --     'call.log.hot.days','approval.enabled','export.max.rows','gk.schema.version');
+--   -- 删完记得让缓存失效：DEL gk:config:*  （或重启应用）
+--
+--   注意：sys_config.id 为自增主键，删行不影响其余行 id；但若线上有人按 id 硬编码
+--   引用（本仓已确认 0 处），请先自查。
 
 -- ---------------------------------------------------------------------------
--- 4. 执行后自检（人工核对，应输出 6 条"已接线" + 13 条"未接线"）
+-- 4. 执行后自检（人工核对，应输出 6 行，且每行都带「已接线」）
 -- ---------------------------------------------------------------------------
--- SELECT config_key,
---        config_value,
+-- SELECT id, config_key, config_value,
 --        SUBSTRING_INDEX(remark, '（', 1) AS remark_head
 -- FROM sys_config
--- WHERE config_group IN ('SECURITY','GATEWAY')
 -- ORDER BY id;
 --
--- 一键核对"是否还有既未接线又未标注的行"（期望结果为空集）：
+-- 一键核对"是否还有没标读取点的行"（期望结果为空集）：
 -- SELECT config_key, remark FROM sys_config
--- WHERE remark NOT LIKE '%已接线%' AND remark NOT LIKE '%未接线%';
+-- WHERE remark NOT LIKE '%已接线%';

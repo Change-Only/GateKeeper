@@ -11,7 +11,7 @@
 --      以及 PRD 指定的 7 条初始化告警规则（alarm_rule，T11 起随本脚本落地）；
 --      不含任何应用、接口、调用日志等业务/运行数据。
 --   2. 表结构以线上库为唯一事实来源（SHOW CREATE TABLE 逐字导出），
---      共 36 张表；表顺序按外键依赖拓扑排列（父表在前）。
+--      共 34 张表；表顺序按外键依赖拓扑排列（父表在前）。
 --   3. 可重复执行（幂等）：
 --      - 建表：CREATE TABLE IF NOT EXISTS；
 --      - 系统类种子：INSERT ... ON DUPLICATE KEY UPDATE（按主键/唯一键覆盖），
@@ -30,7 +30,7 @@ USE `gatekeeper`;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ============================================================
--- 表结构（共 36 张）
+-- 表结构（共 34 张）
 -- ============================================================
 
 -- ============================================================
@@ -343,49 +343,7 @@ CREATE TABLE IF NOT EXISTS `app_credential` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='应用凭证表';
 
 -- ============================================================
--- 12. 应用配额表（app_quota）
---    用途：应用按环境的调用配额上限（全局QPS/日/月调用量/并发），0=不限
---    ⚠️ 未接线（预留）：实体 / Job 已随 f06c7b9 删除（限流实际由 app_rate_limit 承载）。
---       按演进铁律「只加表不删表」保留本表；无迁移脚本时请勿直接引用。
--- ============================================================
-CREATE TABLE IF NOT EXISTS `app_quota` (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键',
-  `app_id` bigint NOT NULL COMMENT '应用ID（原型 appId）',
-  `env_code` varchar(32) NOT NULL DEFAULT 'prod' COMMENT '环境编码（原型 envCode）',
-  `global_qps` int NOT NULL DEFAULT '0' COMMENT '全局QPS上限，0=不限（原型 globalQps）',
-  `daily_quota` bigint NOT NULL DEFAULT '0' COMMENT '日调用配额，0=不限（原型 dailyQuota）',
-  `monthly_quota` bigint NOT NULL DEFAULT '0' COMMENT '月调用配额，0=不限（原型 monthlyQuota）',
-  `concurrency` int NOT NULL DEFAULT '0' COMMENT '并发上限，0=不限（原型 concurrency）',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_quota_app_env` (`app_id`,`env_code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='应用配额表（按环境）';
-
--- ============================================================
--- 13. 业务线表（biz_line）
---    用途：业务线主数据，用于应用归属与数据权限（datascope）划分，含负责人与成员数冗余
---    🚫 T15 已下线：菜单 / 权限点 / 角色授权已移除，代码层不再映射与展示。
---       表与 app.line_id / api_interface.line_id 列按「只加列不删列」铁律物理保留。
---       详见 README「已下线保留」与 docs/sql/t15-remove-bizline.sql。
--- ============================================================
-CREATE TABLE IF NOT EXISTS `biz_line` (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '业务线ID',
-  `line_code` varchar(64) NOT NULL COMMENT '业务线编码（原型 lineCode）',
-  `line_name` varchar(128) NOT NULL COMMENT '业务线名称（原型 lineName）',
-  `owner_name` varchar(64) DEFAULT NULL COMMENT '负责人姓名（原型 ownerName）',
-  `member_count` int NOT NULL DEFAULT '0' COMMENT '成员数量（原型 memberCount，统计冗余）',
-  `status` tinyint NOT NULL DEFAULT '1' COMMENT '1=启用, 0=停用（原型 status）',
-  `remark` varchar(512) DEFAULT NULL COMMENT '备注（原型 remark）',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_bizline_code` (`line_code`),
-  KEY `idx_bizline_status` (`status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='业务线表';
-
--- ============================================================
--- 14. 动态封禁规则表（block_rule）
+-- 12. 动态封禁规则表（block_rule）
 --    用途：自动/人工封禁策略配置，按来源IP或应用维度定义触发原因、阈值窗口与封禁时长
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `block_rule` (
@@ -406,7 +364,7 @@ CREATE TABLE IF NOT EXISTS `block_rule` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='动态封禁规则表';
 
 -- ============================================================
--- 15. 环境表（env）
+-- 13. 环境表（env）
 --    用途：环境主数据（dev/test/pre/prod），定义环境编码、名称、网关入口地址与排序，供接口环境配置与数据权限引用
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `env` (
@@ -423,7 +381,7 @@ CREATE TABLE IF NOT EXISTS `env` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='环境表';
 
 -- ============================================================
--- 16. 导出任务表（export_task）
+-- 14. 导出任务表（export_task）
 --    用途：异步下载中心：日志导出任务的状态与文件登记
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `export_task` (
@@ -444,7 +402,7 @@ CREATE TABLE IF NOT EXISTS `export_task` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='导出任务表';
 
 -- ============================================================
--- 17. IP封禁表（ip_ban）
+-- 15. IP封禁表（ip_ban）
 --    用途：恶意来源IP封禁记录，支持全局封禁（app_id=NULL）与应用级封禁
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `ip_ban` (
@@ -479,7 +437,7 @@ CREATE TABLE IF NOT EXISTS `ip_ban` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='IP封禁表';
 
 -- ============================================================
--- 18. 通知渠道表（notify_channel）
+-- 16. 通知渠道表（notify_channel）
 --    用途：告警/通知的发送渠道配置（企微/钉钉/邮件/短信/Webhook），含渠道配置JSON与最近测试结果
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `notify_channel` (
@@ -497,7 +455,7 @@ CREATE TABLE IF NOT EXISTS `notify_channel` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='通知渠道表';
 
 -- ============================================================
--- 19. 安全事件表（security_event）
+-- 17. 安全事件表（security_event）
 --    用途：安全检测规则触发后产生的告警/拦截事件，供安全审计跟进处置
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `security_event` (
@@ -522,7 +480,7 @@ CREATE TABLE IF NOT EXISTS `security_event` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='安全事件表';
 
 -- ============================================================
--- 20. 安全检测规则配置表（security_rule）
+-- 18. 安全检测规则配置表（security_rule）
 --    用途：安全防护规则引擎配置，定义检测规则及触发后的处置动作
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `security_rule` (
@@ -540,7 +498,7 @@ CREATE TABLE IF NOT EXISTS `security_rule` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='安全检测规则配置表';
 
 -- ============================================================
--- 21. 系统参数配置表（sys_config）
+-- 19. 系统参数配置表（sys_config）
 --    用途：平台级可运营参数（签名/密钥/网关/日志等分组），支持内置保护与敏感值标记，应用启动自检读取 schema 版本
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_config` (
@@ -560,7 +518,7 @@ CREATE TABLE IF NOT EXISTS `sys_config` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='系统参数配置表';
 
 -- ============================================================
--- 22. 数据字典表（sys_dict）
+-- 20. 数据字典表（sys_dict）
 --    用途：枚举类字典主表，统一维护状态码、类型等下拉取值，供前端与后端共用
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_dict` (
@@ -577,7 +535,7 @@ CREATE TABLE IF NOT EXISTS `sys_dict` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='数据字典表';
 
 -- ============================================================
--- 23. 数据字典项表（sys_dict_item）
+-- 21. 数据字典项表（sys_dict_item）
 --    用途：字典的具体取值项（值/标签/排序/状态），逻辑关联 sys_dict.dict_code
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_dict_item` (
@@ -593,7 +551,7 @@ CREATE TABLE IF NOT EXISTS `sys_dict_item` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='数据字典项表';
 
 -- ============================================================
--- 24. 菜单权限点表（sys_menu）
+-- 22. 菜单权限点表（sys_menu）
 --    用途：三级菜单/权限点定义（模块/菜单/权限点），perm_code 为全站 @RequirePerm 取权来源，route_path 映射前端路由
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_menu` (
@@ -613,7 +571,7 @@ CREATE TABLE IF NOT EXISTS `sys_menu` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='菜单权限点表';
 
 -- ============================================================
--- 25. 操作审计日志表（sys_operation_log）
+-- 23. 操作审计日志表（sys_operation_log）
 --    用途：管理后台操作审计记录，用于安全审计与责任追溯
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_operation_log` (
@@ -644,7 +602,7 @@ CREATE TABLE IF NOT EXISTS `sys_operation_log` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='操作审计日志表';
 
 -- ============================================================
--- 26. 角色表（sys_role）
+-- 24. 角色表（sys_role）
 --    用途：系统角色定义，通过 sys_user_role 与用户建立多对多关联
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_role` (
@@ -664,7 +622,7 @@ CREATE TABLE IF NOT EXISTS `sys_role` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='角色表';
 
 -- ============================================================
--- 27. 角色数据权限范围表（sys_role_datascope）
+-- 25. 角色数据权限范围表（sys_role_datascope）
 --    用途：角色的数据可见范围（业务线/环境/接口分组三维度），用于行级数据权限过滤
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_role_datascope` (
@@ -679,7 +637,7 @@ CREATE TABLE IF NOT EXISTS `sys_role_datascope` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='角色数据权限范围表';
 
 -- ============================================================
--- 28. 角色权限点关联表（sys_role_menu）
+-- 26. 角色权限点关联表（sys_role_menu）
 --    用途：角色与权限点（sys_menu）的多对多授权关系，是权限校验的数据源
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_role_menu` (
@@ -693,7 +651,7 @@ CREATE TABLE IF NOT EXISTS `sys_role_menu` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='角色权限点关联表';
 
 -- ============================================================
--- 29. 系统用户表（sys_user）
+-- 27. 系统用户表（sys_user）
 --    用途：管理后台登录账号，密码采用 BCrypt 加密存储
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_user` (
@@ -718,7 +676,7 @@ CREATE TABLE IF NOT EXISTS `sys_user` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='系统用户表';
 
 -- ============================================================
--- 30. 接口表（api_interface）
+-- 28. 接口表（api_interface）
 --    用途：网关代理接口定义，映射网关对外路径与后端真实服务地址
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `api_interface` (
@@ -757,7 +715,7 @@ CREATE TABLE IF NOT EXISTS `api_interface` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='接口表';
 
 -- ============================================================
--- 31. 应用加解密配置表（app_encryption_config）
+-- 29. 应用加解密配置表（app_encryption_config）
 --    用途：应用级密钥与加解密算法配置，密钥加密落库，与 app 一对一
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `app_encryption_config` (
@@ -779,7 +737,7 @@ CREATE TABLE IF NOT EXISTS `app_encryption_config` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='应用加解密配置表';
 
 -- ============================================================
--- 32. 应用IP白名单表（app_ip_whitelist）
+-- 30. 应用IP白名单表（app_ip_whitelist）
 --    用途：应用来源IP访问控制，来源IP不在白名单内的请求将被网关拦截
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `app_ip_whitelist` (
@@ -797,7 +755,7 @@ CREATE TABLE IF NOT EXISTS `app_ip_whitelist` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='应用IP白名单表';
 
 -- ============================================================
--- 33. 应用限流配置表（app_rate_limit）
+-- 31. 应用限流配置表（app_rate_limit）
 --    用途：应用流量控制策略（QPS/并发/日调用量），与 app 一对一
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `app_rate_limit` (
@@ -814,7 +772,7 @@ CREATE TABLE IF NOT EXISTS `app_rate_limit` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='应用限流配置表';
 
 -- ============================================================
--- 34. 用户角色关联表（sys_user_role）
+-- 32. 用户角色关联表（sys_user_role）
 --    用途：用户与角色的多对多关联中间表
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `sys_user_role` (
@@ -830,7 +788,7 @@ CREATE TABLE IF NOT EXISTS `sys_user_role` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户角色关联表';
 
 -- ============================================================
--- 35. 接口加解密配置表（api_encryption_config）
+-- 33. 接口加解密配置表（api_encryption_config）
 --    用途：接口级请求/响应加解密配置，与 api_interface 一对一
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `api_encryption_config` (
@@ -856,7 +814,7 @@ CREATE TABLE IF NOT EXISTS `api_encryption_config` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='接口加解密配置表';
 
 -- ============================================================
--- 36. 应用接口权限表（app_api_permission）
+-- 34. 应用接口权限表（app_api_permission）
 --    用途：应用-接口授权关系，网关据此判断请求是否越权
 -- ============================================================
 CREATE TABLE IF NOT EXISTS `app_api_permission` (
@@ -1415,31 +1373,24 @@ INSERT INTO `sys_dict_item` (`id`,`dict_code`,`item_value`,`item_label`,`sort_or
 (22,'alarm_level','3','严重',3,1)
 ON DUPLICATE KEY UPDATE `id`=VALUES(`id`),`dict_code`=VALUES(`dict_code`),`item_value`=VALUES(`item_value`),`item_label`=VALUES(`item_label`),`sort_order`=VALUES(`sort_order`),`status`=VALUES(`status`);
 
--- ---- sys_config（19 行）----
--- ⚠️ T19 生效口径（2026-09-18 实测修正）：此前全表无任何 Java 运行时读取点，参数配置页改了不生效。
---    T19 引入 config/SysConfigAccessor 后，remark 标注「读取点 xxx」的 6 项真正生效；
---    其余一律加「⚠️ 未接线（预留）：」前缀，如实告知不可用。
+-- ---- sys_config（6 行）----
+-- ⚠️ T19 生效口径（2026-09-18 实测修正）+ 2026-09-27 收敛：
+--    此前全表无任何 Java 运行时读取点，参数配置页改了不生效。
+--    T19 引入 config/SysConfigAccessor 后，下列 6 项（标注「读取点 xxx」）真正生效。
+--    另 13 项原标「⚠️ 未接线（预留）：」者 —— secret.length / secret.encrypt.algo /
+--    key.rotate.period / key.max.valid.days / external.ip.whitelist.required /
+--    login.fail.threshold / session.timeout / log.desensitize / audit.log.retention.days /
+--    call.log.hot.days / approval.enabled / export.max.rows / gk.schema.version ——
+--    因**从无任何读取点**，已于 2026-09-27 全部移除（不再出现在「参数配置」页，
+--    消除"看起来能改、实际不生效"的误导）。如需恢复，见 git 历史 16d7c1f 之前的种子。
 --    与 docs/sql/migrate-v2.sql §1.8、docs/sql/t19-config-wiring.sql 三处必须保持一致。
 INSERT INTO `sys_config` (`id`,`config_key`,`config_value`,`config_group`,`config_name`,`sensitive`,`built_in`,`remark`,`created_at`,`updated_at`) VALUES
 (1,'sign.algorithm','SM3','SECURITY','签名算法',0,1,'客户端契约：固定 SM3（国密摘要），与客户端 SDK/接入文档一致，不支持运行时切换 · 读取点 AppAuthHandler（T19 已接线）','2026-09-10 14:11:04','2026-09-10 14:11:04'),
 (2,'sign.timestamp.tolerance','300000','SECURITY','时间戳容差（毫秒）',0,1,'时间戳容差(毫秒)，默认 ±5 分钟 · 读取点 AppAuthHandler（T19 已接线）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
 (3,'sign.nonce.ttl','600','SECURITY','Nonce 有效期（秒）',0,1,'Nonce 有效期(秒)，应 ≥ 2 倍时间戳容差 · 读取点 AppAuthHandler（T19 已接线）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(4,'secret.length','32','SECURITY','Secret 长度',0,1,'⚠️ 未接线（预留）：生成应用密钥时的随机串长度','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(5,'secret.encrypt.algo','AES/ECB/PKCS5Padding','SECURITY','Secret 存储加密算法',1,1,'⚠️ 未接线（预留）：AppSecret 存储加密算法；当前实现为 AES/ECB/PKCS5Padding（历史值 AES-256-GCM 与实现不符）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(6,'key.rotate.period','180','SECURITY','密钥强制轮换周期（天）',0,1,'⚠️ 未接线（预留）：密钥强制轮换周期(天)，超期应在概览页告警','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(7,'key.max.valid.days','365','SECURITY','密钥最长有效期（天）',0,1,'⚠️ 未接线（预留）：密钥最长有效期(天)，到期应自动失效','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(8,'external.ip.whitelist.required','true','SECURITY','外部应用强制 IP 白名单',0,1,'⚠️ 未接线（预留）：外部应用强制 IP 白名单','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(9,'login.fail.threshold','5','SECURITY','登录失败锁定阈值',0,1,'⚠️ 未接线：本项不生效——登录失败锁定阈值实际由 application.yml 的 gatekeeper.security.login-fail-threshold 控制','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(10,'session.timeout','480','SECURITY','会话超时（分钟）',0,1,'⚠️ 未接线（预留）：会话超时(分钟)','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(11,'log.desensitize','true','SECURITY','日志敏感字段脱敏',0,1,'⚠️ 未接线（预留）：日志敏感字段脱敏（手机号/身份证/银行卡）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
 (12,'gateway.auth.enabled','true','GATEWAY','是否开启签名校验',1,1,'是否开启签名校验；关闭后跳过防伪造/防重放（AppKey/应用状态/到期仍强制校验）· 读取点 AppAuthHandler（T19 已接线）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
 (13,'gateway.ratelimit.enabled','true','GATEWAY','是否开启限流',0,1,'是否开启限流；关闭后 QPS/并发/日配额全部失效 · 读取点 RateLimitHandler（T19 已接线）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
 (14,'gateway.default.read.timeout','5000','GATEWAY','默认读取超时（毫秒）',0,1,'网关默认超时(ms)：接口与环境配置都未指定时生效 · 读取点 ForwardHandler（T19 已接线；历史值 3000 与实现默认 5000 不符，已按实现对齐）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(15,'audit.log.retention.days','180','LOG','审计日志保留天数',0,1,'⚠️ 未接线（预留）：审计日志保留天数（等保三级要求 ≥180 天）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(16,'call.log.hot.days','30','LOG','调用日志热数据保留天数',0,1,'⚠️ 未接线（预留）：调用日志热数据保留天数；当前实际由 application.yml 的 gatekeeper.log.retention-days（默认 90）控制','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(17,'approval.enabled','false','DEFAULT','是否开启审批流',0,1,'⚠️ 未接线（预留）：是否开启接口授权审批流','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(18,'export.max.rows','50000','DEFAULT','单次导出最大行数',0,1,'⚠️ 未接线（预留）：单次导出最大行数','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(1000,'gk.schema.version','v2','DEFAULT','数据模型版本',0,1,'⚠️ 未接线（预留）：数据模型版本，由 migrate-v2.sql 写入','2026-09-10 14:11:37','2026-09-10 14:11:37')
 ON DUPLICATE KEY UPDATE `id`=VALUES(`id`),`config_key`=VALUES(`config_key`),`config_value`=VALUES(`config_value`),`config_group`=VALUES(`config_group`),`config_name`=VALUES(`config_name`),`sensitive`=VALUES(`sensitive`),`built_in`=VALUES(`built_in`),`remark`=VALUES(`remark`),`created_at`=VALUES(`created_at`),`updated_at`=VALUES(`updated_at`);
 
 -- ---- alarm_rule（7 行，PRD「7 条初始化规则」；幂等用 INSERT IGNORE —— 不覆盖运营在页面上的修改）----

@@ -189,7 +189,7 @@ class SysConfigAccessorTest {
         assertEquals("SM3", accessor.getString("sign.algorithm", "SM3"), "缺键回退默认");
 
         accessor.evictAll();
-        stubRows(row("call.log.hot.days", "90"));
-        assertEquals(90L, accessor.getLong("call.log.hot.days", 30L));
+        stubRows(row("sign.timestamp.tolerance", "300000"));
+        assertEquals(300000L, accessor.getLong("sign.timestamp.tolerance", 30L));
     }
 }

@@ -9,7 +9,7 @@
 | 口径来源 | 源码（297 个 main Java / 86 个 test Java / 50 个 Vue）+ 线上库实测（`<db-host>:<db-port>`）+ `docs/` 既有契约记录 |
 | 适用范围 | 产品/研发/测试/运维对接，作为"这个系统到底在做什么"的统一口径 |
 | 时效声明 | 文中所有"实测"数据取自 **2026-09-18** 的线上库与 `d917570` 提交；表数量、行数、规则条数会随迭代变化，引用前请复核 |
-| 修订记录 | **v1.1（T19）**：修复 §13.2「配置脱钩」与 §13.3「`X-Gk-Env` 失效」两项实测缺陷 —— 新建 `SysConfigAccessor` 接线 6 项配置、`EnvResolver` 统一四级环境头优先级、修正 3 处错误种子值、其余 13 项如实标注「未接线（预留）」。§4.3 / §5.4 / §13 / 附录 A 已同步为修复后口径 |
+| 修订记录 | **v1.2（2026-09-27 死代码清理）**：删除 49 个无调用端点 + 24 个前端 API 函数 + 14 个孤儿 Service 方法 + 8 个孤儿权限点（+39 条角色授权）+ `app_quota` / `biz_line` 两张死表建表语句 + 13 项无读取点 `sys_config`（`sys_config` 19 行 → 6 行）。§3.3 / §4.1 / §5.x / §10.5 / §11 / §13.2 / §13.4 / 附录 A 已同步为清理后口径<br>**v1.1（T19）**：修复 §13.2「配置脱钩」与 §13.3「`X-Gk-Env` 失效」两项实测缺陷 —— 新建 `SysConfigAccessor` 接线 6 项配置、`EnvResolver` 统一四级环境头优先级、修正 3 处错误种子值、其余 13 项如实标注「未接线（预留）」。§4.3 / §5.4 / §13 / 附录 A 已同步为修复后口径 |
 
 ---
 
@@ -62,7 +62,7 @@ GateKeeper 是一个**统一的 API 接口管理平台**：为企业的内部/�
 ```mermaid
 graph LR
     A["📋 接口资产<br/>api_group / api_interface / api_param<br/>api_version / api_env_config"]
-    B["🔑 应用身份<br/>app / app_credential<br/>app_ip_whitelist / app_quota"]
+    B["🔑 应用身份<br/>app / app_credential<br/>app_ip_whitelist / app_rate_limit"]
     C["🔗 授权关系<br/>app_api_grant<br/>（申请-审批-生效-到期-撤销）"]
     G["⚙️ 网关执行面<br/>GatewayCore 责任链 10 环"]
     S["🛡️ 安全与观测<br/>限流 / 检测 / 封禁 / 告警 / 日志 / 审计"]
@@ -178,7 +178,7 @@ graph LR
 | 模块 | 业务问题 | 核心页面 | 关键表 |
 |---|---|---|---|
 | **① 概览** | 平台现在什么状态？ | 概览、数据大屏 | 聚合自 `api_call_log` / `alert` / `security_event` |
-| **② 应用管理** | 谁在调？怎么调？ | 应用列表 | `app`、`app_credential`、`app_ip_whitelist`、`app_quota` |
+| **② 应用管理** | 谁在调？怎么调？ | 应用列表 | `app`、`app_credential`、`app_ip_whitelist`、`app_rate_limit` |
 | **③ 接口管理** | 有什么接口？长什么样？ | 接口分组、接口列表 | `api_group`、`api_interface`、`api_param`、`api_version` |
 | **④ 权限管理** | 谁能调什么？ | 用户、角色、授权总览、数据权限、操作审计 | `sys_user`、`sys_role`、`sys_role_menu`、`app_api_grant`、`sys_role_datascope` |
 | **⑤ 系统设置** | 平台怎么配？ | 环境与网关、安全策略、字典、告警规则、通知渠道、参数配置、日志与审计 | `env`、`security_rule`、`sys_dict*`、`alarm_rule`、`notify_channel`、`sys_config` |
@@ -188,13 +188,16 @@ graph LR
 
 ### 3.3 业务线（biz_line）已于 T15 下线 —— 不要写进现行模块
 
-`biz_line` 表**物理保留**（0 行），`app.line_id` / `api_interface.line_id` 列**物理保留**（遵守"只加列不删列"铁律），但：
+`biz_line` 表与 `app.line_id` / `api_interface.line_id` 列，在**存量库**中物理保留（遵守"只加列不删列"铁律）；
+**2026-09-27 起 `init.sql` 不再建 `biz_line` 表**（全仓 0 个 Java/前端引用，属死表）。除此之外：
 
 - 权限点、侧边菜单、`sys_role_menu` 授权已在 `docs/sql/t15-remove-bizline.sql` 中删除
 - Java 实体层已移除 `lineId` 字段映射
 - **`BIZ_ADMIN` 角色名里的"业务线"是历史遗留命名**，实际能力已收窄为"按环境管数据"
 
 > 引用菜单/模块清单时，**不要把业务线列为现行功能**。
+> ⚠️ 历史脚本 `docs/sql/schema-v2.sql` 仍含 `CREATE TABLE IF NOT EXISTS biz_line` —— 按项目
+> 「不追改历史迁移脚本」惯例未动，故走完整 Docker 初始化链时该空表仍会被建出（详见 README 表数口径）。
 
 ---
 
@@ -210,7 +213,7 @@ graph LR
 | **1** | `AppAuthHandler` | ① AppKey 存在性 ② 应用状态 ③ 到期时间 ④ 签名/时间戳/Nonce 完整性 ⑤ 时间戳时效 ⑥ Nonce 防重放 ⑦ 签名校验 ⑧ 环境解析 ⑨ 活跃凭证探测 | 401 / 403 **拒绝** | `app` + Redis |
 | **2** | `IpWhitelistHandler` | 应用级 IP 白名单 | 拒绝 | `app_ip_whitelist` |
 | **3** | `IpBanCheckHandler` | 封禁检查（Redis 快速判定） | 拒绝；Redis 异常 **fail-open** | Redis `ip_ban` |
-| **4** | `RateLimitHandler` | 令牌桶限流 + 日配额 | 拒绝（429 语义） | Redis + `app_quota` |
+| **4** | `RateLimitHandler` | 令牌桶限流 + 日配额 | 拒绝（429 语义） | Redis + `app_rate_limit` |
 | **5** | `PermissionHandler` | ① 按路径+方法+启用态匹配接口 ② 解析生效环境配置改写上游 ③ 授权校验 | 404（接口不存在）/ 403（无权） | `api_interface`、`app_api_grant`、`api_env_config` |
 | **6** | `EncryptionHandler` | 入参解密 | 解密失败拒绝 | 三层加密配置 |
 | **6** | `VersionRouteHandler` | 灰度版本路由（`appId` 稳定哈希分流） | 任何异常 **fail-open**，保留默认版本 | `api_version` |
@@ -451,7 +454,7 @@ sequenceDiagram
 
     P->>PL: 创建应用（app_key + app_secret 生成，secret AES 加密落库）
     P->>PL: 配置 IP 白名单（app_ip_whitelist）
-    P->>PL: 配置配额（app_quota，按环境）
+    P->>PL: 配置限流配额（app_rate_limit）
     P->>PL: 为应用申请接口授权（app_api_grant，见 §7）
     PL->>D: 线下/文档交付 AppKey + AppSecret
     D->>GW: 首次调用（带签名四件套）
@@ -759,7 +762,11 @@ graph LR
 > 来源是删除 **49 个无调用端点**；播种侧由 `docs/sql/t20-remove-dead-perms.sql` 移除
 > **8 个无引用权限点**（`app:credential:create`、`app_credential:list`、`api_param:import`、
 > `api_version:gray`、`api_env_config:create|delete|test`、`api_change_log:append`）
-> 及其 **39 条** `sys_role_menu` 授权。`app_quota` / `biz_line` 两表按铁律**保留**。
+> 及其 **39 条** `sys_role_menu` 授权。
+>
+> **2026-09-27（D 层）**：`app_quota` / `biz_line` 两张死表（全仓 0 个 Java/前端引用）的**建表语句**
+> 已从 `init.sql` 移除；存量库中的表按"不动"口径保留，`schema-v2.sql`（历史脚本）未追改。
+> 另有 **13 项**无读取点 `sys_config` 连行移除，`sys_config` 由 19 行收敛为 6 行。
 >
 > ⚠️ **判定「权限点是否有用」必须同时覆盖三面**：源码 `@RequirePerm`、前端 `perm:` / `hasPerm()`、
 > 播种码本身。只查源码注解会把 `dashboard:view`、`app:list`、`api:list` 等 **18 个纯菜单码**
@@ -770,9 +777,15 @@ graph LR
 
 ---
 
-## 11. 数据模型（42 张表分域）
+## 11. 数据模型（线上 42 张 / 新装 40 张分域）
 
-> 线上实测 `SHOW TABLES` = **42 张**（`README.md` 中的 36 张已过期，请以本节为准）。
+> 线上实测 `SHOW TABLES` = **42 张**（2026-09-18）；**新装口径为 40 张**（`init.sql` 34 张 +
+> `t13`/`t15-1`/`t15-4`/`t16-1`/`t17` 五个脚本的 6 张）。差额即 `app_quota` / `biz_line` 两张死表：
+> 建表语句已于 2026-09-27 从 `init.sql` 移除，但线上存量库与历史脚本 `schema-v2.sql` 仍保留/建出它们
+> （见 §11.2、§11.8、§3.3）。口径说明见 `README.md`「1. 初始化数据库」。
+>
+> 下表「行数」列取自 **2026-09-18 线上实测**（存量库按"不动"口径，故 `sys_config` 仍记 19 行；
+> 新装库现为 6 行，存量库清理办法见 `docs/sql/t19-config-wiring.sql` §3）。
 
 ### 11.1 接口资产域（7 张）
 
@@ -786,15 +799,15 @@ graph LR
 | `api_group_env_config` | 接口分组环境配置表（分组树向上继承） | 0 |
 | `api_change_log` | 接口变更历史表 | 42 |
 
-### 11.2 应用身份域（5 张）
+### 11.2 应用身份域（新装 4 张 / 线上 5 张）
 
 | 表 | 注释 | 行数 |
 |---|---|---|
 | `app` | 应用表 | 1 |
 | `app_credential` | 应用凭证表 | 0 |
 | `app_ip_whitelist` | 应用 IP 白名单表 | 0 |
-| `app_quota` | 应用配额表（按环境） | 0 |
-| `app_rate_limit` | 应用限流配置表 | 1 |
+| `app_quota` | 应用配额表（按环境）—— **⚠️ 死表，2026-09-27 起不再由 `init.sql` 建表**（全仓 0 个 Java/前端引用，配额实际由 `app_rate_limit` 承载） | 0 |
+| `app_rate_limit` | 应用限流配置表（**限流与日配额的唯一权威来源**） | 1 |
 
 ### 11.3 授权域（2 张）
 
@@ -846,32 +859,32 @@ graph LR
 | `sys_role_datascope` | 角色数据权限范围表 | 2 |
 | `sys_dict` | 数据字典表 | 6 |
 | `sys_dict_item` | 数据字典项表 | 22 |
-| `sys_config` | 系统参数配置表 | 19 |
+| `sys_config` | 系统参数配置表 | 19（**新装 6**——13 项无读取点者已于 2026-09-27 移除） |
 | `sys_ip_whitelist` | 系统级访问白名单（空表 = 不限制） | 0 |
 | `env` | 环境表 | **1**（仅 `dev`） |
 
-### 11.8 已下线 / 保留域（1 张）
+### 11.8 已下线 / 保留域（线上 1 张 / 新装 0 张）
 
 | 表 | 注释 | 行数 |
 |---|---|---|
-| `biz_line` | 业务线表（**T15 已下线，表与 `line_id` 列物理保留**） | 0 |
+| `biz_line` | 业务线表（**T15 已下线**）—— **⚠️ 死表，2026-09-27 起不再由 `init.sql` 建表**；存量库中表与 `line_id` 列物理保留 | 0 |
 
-### 11.9 代码规模（实测）
+### 11.9 代码规模（2026-09-27 清理后实测）
 
-| 项 | 数量 |
-|---|---|
-| 后端 `main` Java 文件 | **296** |
-| 后端 `test` Java 文件 | **84** |
-| 前端 `.vue` 文件 | **50** |
-| Controller 数 | **27** |
-| Entity 数 | **40** |
-| `mvn -o test` 用例数 | **748（全绿）** |
+| 项 | 数量 | 较 2026-09-18 |
+|---|---|---|
+| 后端 `main` Java 文件 | **295** | −2（删 `AppQuota.java`、`QuotaResetJob.java`） |
+| 后端 `test` Java 文件 | **89** | — |
+| 前端 `.vue` 文件 | **50** | — |
+| Controller 数 | **27** | — |
+| Entity 数 | **39** | −1（`AppQuota`） |
+| `mvn -o test` 用例数 | **780（全绿）** | +32 |
 
 ---
 
 ## 12. 定时任务与后台作业
 
-系统有 **6 个 `@Scheduled` 定时任务**：
+系统有 **5 个 `@Scheduled` 定时任务**：
 
 | 任务 | 触发 | 职责 |
 |---|---|---|
@@ -879,8 +892,11 @@ graph LR
 | `AlarmEvaluateJob`（离线） | `cron = 0 */5 * * * ?`（每 5 分钟） | 离线型告警评估（密钥过期、僵尸接口等） |
 | `GrantExpireJob` | `cron = 0 0 2 * * ?`（每天 02:00） | 批量把到期授权置为"已过期"（`status = 2`） |
 | `LogRetentionJob` | `cron = 0 30 2 * * ?`（每天 02:30） | 日志保留：90 天调用日志 / 7 天导出文件 |
-| `QuotaResetJob` | `cron = 0 0 0 * * ?`（每天 00:00） | 重置日配额计数 |
 | `RedisHealthMonitor` | `fixedDelay = 30000`（30 秒） | Redis 探活 + 状态翻转告警 |
+
+> **2026-09-27 删除 `QuotaResetJob`**：它原本只重置 `app_quota` 的日配额计数，而该表无任何读取点
+> （死表）⇒ 任务永远空转。日配额的真实实现是 `RateLimitHandler:131-135` 的 Redis 键
+> `rate_limit:daily:{appId}:{yyyyMMdd}` —— **按键内嵌日期 + 1 天 TTL 自然过期**，本来就不需要重置任务。
 
 > 🔴 **已知边界：全部定时任务无分布式互斥**。多实例部署会导致：告警重复评估/重复推送、授权重复置态、日志重复清理、健康状态错乱。生产多副本前必须引入 **ShedLock** 或改为外部单点调度。这是当前最需要在部署方案里交代的一条。
 
@@ -889,9 +905,13 @@ graph LR
 - `ExportTaskServiceImpl` + `CallLogExportExecutor`：百万级异步导出
 - 分批 **5000** 行流式写临时 CSV → **原子改名**（避免导出中途被读到半截文件）
 - `AsyncConfig`：**有界线程池 + `CallerRunsPolicy` 背压**（队列满时由调用线程自己跑，宁可拖慢也不能丢任务）
-- `export.max.rows = 50000`（`sys_config` 单次导出上限）
+- **单次导出无总量上限**（`CallLogExportExecutor` 只按 `BATCH_SIZE = 5000` 分批流式写盘，不设总行数闸）
+  —— 勘误：旧版此处写的 `sys_config['export.max.rows'] = 50000` 从未被任何代码读取，该键已于 2026-09-27 移除
 
-**启动自检**：`SecurityStartupCheck` 在启动时校验密钥配置（缺失/过短直接拒绝启动）；`gk.schema.version = v2` 用于校验迁移脚本已执行。
+**启动自检**：`SecurityStartupCheck` 在启动时校验密钥配置（缺失/过短直接拒绝启动）。
+—— 勘误：旧版此处写的「`gk.schema.version = v2` 用于校验迁移脚本已执行」不成立，
+该键全仓**无任何读取点**，已于 2026-09-27 移除。如需迁移版本自检，应改用 `application.yml`
+或独立的 `schema_version` 表承载。
 
 ---
 
@@ -917,26 +937,32 @@ graph LR
 
 | 状态 | 项数 | 键名 |
 |---|---|---|
-| ✅ **已接线** | 6 | `sign.algorithm`、`sign.timestamp.tolerance`、`sign.nonce.ttl`、`gateway.auth.enabled`、`gateway.ratelimit.enabled`、`gateway.default.read.timeout` |
-| ⚠️ **未接线（预留）** | 13 | 其余各键已在库中 `remark` 加「⚠️ 未接线（预留）：」前缀，并在参数配置页可见 |
+| ✅ **已接线（清理后仅存这 6 项）** | 6 | `sign.algorithm`、`sign.timestamp.tolerance`、`sign.nonce.ttl`、`gateway.auth.enabled`、`gateway.ratelimit.enabled`、`gateway.default.read.timeout` |
+| 🗑️ **2026-09-27 已移除** | 13 | `secret.length`、`secret.encrypt.algo`、`key.rotate.period`、`key.max.valid.days`、`external.ip.whitelist.required`、`login.fail.threshold`、`session.timeout`、`log.desensitize`、`audit.log.retention.days`、`call.log.hot.days`、`approval.enabled`、`export.max.rows`、`gk.schema.version` |
 
-**同时修正了 3 处与实现不符的错误种子值**（`docs/sql/t19-config-wiring.sql`，幂等 `UPDATE`）：
+**同时修正了 2 处与实现不符的错误种子值**（`docs/sql/t19-config-wiring.sql`，幂等 `UPDATE`）：
 
 | 键 | 原种子值（错） | 修正为 | 依据 |
 |---|---|---|---|
 | `sign.algorithm` | `HmacSHA256` | `SM3` | 实际签名实现固定 SM3 |
-| `secret.encrypt.algo` | `AES-256-GCM` | `AES/ECB/PKCS5Padding` | `AppSecret` 实际加密方式 |
 | `gateway.default.read.timeout` | `3000` | `5000` | `ForwardHandler.DEFAULT_TIMEOUT_MS` |
 
-> 自检 SQL（期望返回空集，即不存在"既未标已接线、也未标未接线"的行）：
+> （原第 3 处 `secret.encrypt.algo` 随该行一并移除，见下。）
+>
+> 自检 SQL（期望返回空集，即不存在"没标读取点"的行）：
 > ```sql
-> SELECT config_key FROM sys_config
-> WHERE remark NOT LIKE '%已接线%' AND remark NOT LIKE '%未接线%';
+> SELECT config_key FROM sys_config WHERE remark NOT LIKE '%已接线%';
 > ```
 >
-> **未接线的 13 项为何不改代码接线**：多数需要改动带严格既有测试的安全代码（如 `secret.length`、`key.rotate.period`），收益不明确而回归风险高。选择「如实标注」而非冒险接线 —— 配置项标注为"预留"不会误导人，接线出错会。
+> **这 13 项为何不是"接线"而是"移除"**：T19 当时选择保守做法——只在 `remark` 前缀打
+> 「⚠️ 未接线（预留）：」如实标注。但后续复核确认它们**自始至终没有任何读取点**，
+> 标注并不能消除误导：参数配置页里仍是 13 个可编辑、可保存、却对系统行为毫无影响的开关
+> （关闭与开启完全等价）。2026-09-27 故连行移除，`sys_config` 由 19 行收敛为 6 行。
+> 将来若确需实现（如 `key.rotate.period` 的轮换告警），正确顺序是**先写读取点、再加配置行**。
 >
-> **特别说明**：`login.fail.threshold` 从未被 `sys_config` 消费，其真实控制点是 `application.yml` 的 `gatekeeper.security.login-fail-threshold`（启动期只读）。两个键**同义不同名**，接线会造成双源歧义，故仅标注。
+> **特别说明**：`login.fail.threshold` 从未被 `sys_config` 消费，其真实控制点是 `application.yml`
+> 的 `gatekeeper.security.login-fail-threshold`（启动期只读）。两个键**同义不同名**，
+> 接线会造成双源歧义 —— 这也是它随本次清理一并移除、保留 yml 单一来源的原因。
 
 ### 13.3 环境头口径（T19 已修复）
 
@@ -946,7 +972,8 @@ graph LR
 
 ### 13.4 业务线已下线
 
-`biz_line` 表与 `line_id` 列物理保留，功能模块（菜单/权限点/授权）已删除。参见 §3.3。
+`biz_line` 表与 `line_id` 列**在存量库中物理保留**，功能模块（菜单/权限点/授权）已删除；
+2026-09-27 起 `init.sql` 不再建 `biz_line` 表（死表）。参见 §3.3。
 
 ### 13.5 定时任务无分布式互斥
 
@@ -993,11 +1020,11 @@ graph LR
 | 接口密文格式 | `enc:v1:<iv>:<cipher>` | `InterfaceCryptoService` |
 | 盲索引算法 | `HMAC-SHA256(interface_path)` 小写十六进制 | `InterfaceCryptoServiceImpl:127` |
 | 日志保留 | 90 天调用日志 / 7 天导出文件 | `LogRetentionJob` |
-| 导出分批大小 | 5000 行 | `CallLogExportExecutor` |
-| 单次导出上限 | 50000 行 | `sys_config['export.max.rows']` |
-| JWT 会话超时 | 480 分钟 | `sys_config['session.timeout']` |
-| 密钥轮换周期 | 180 天（概览页告警） | `sys_config['key.rotate.period']` |
-| 密钥最大有效天数 | 365 天 | `sys_config['key.max.valid.days']` |
+| 导出分批大小 | 5000 行 | `CallLogExportExecutor.BATCH_SIZE` |
+| 单次导出总量 | **无上限**（分批流式，只受磁盘/时间约束） | `CallLogExportExecutor`（旧 `sys_config['export.max.rows']` 从未被读取，已移除） |
+| JWT 会话超时 | **120 分钟** | `application.yml` → `gatekeeper.jwt.expire-minutes`（旧 `sys_config['session.timeout']` 从未被读取，已移除） |
+| 密钥轮换周期 | **无实现** | —（旧 `sys_config['key.rotate.period']` 从未被读取，已移除） |
+| 密钥最大有效天数 | **无实现** | —（旧 `sys_config['key.max.valid.days']` 从未被读取，已移除） |
 
 ## 附录 B：术语表
 

@@ -111,7 +111,7 @@ GateKeeper/
 | 其余各平台 Redis/MySQL 启动命令 | ⚠️ **未实测** | 属于各平台通用标准命令，非在单一机器上逐条执行 |
 
 > 上表中「已实测」的前提是：后端与前端在本机已按步骤 3 配置并启动过。**步骤 1 的数据库导入是本流程中
-> 唯一未实测的关键环节**——请在首次部署时优先验证它（导入后可用 `SHOW TABLES` 确认 **42** 张表）。
+> 唯一未实测的关键环节**——请在首次部署时优先验证它（导入后可用 `SHOW TABLES` 核对表数；表数有三个口径，见 [1. 初始化数据库](#1-初始化数据库) 的说明）。
 
 ### 0. 前置依赖
 
@@ -143,7 +143,7 @@ mysql -h <MySQL主机> -P <MySQL端口> -u <用户名> -p \
 mysql -h 127.0.0.1 -P 3306 -u root -p < src/backend/src/main/resources/sql/init.sql
 ```
 
-执行后会提示输入密码。验证导入结果（**仅 `init.sql` 时期望 36 张表**）：
+执行后会提示输入密码。验证导入结果（**仅 `init.sql` 时期望 34 张表**）：
 
 ```bash
 mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
@@ -151,20 +151,31 @@ mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
 
 > ⚠️ **本步骤未在本仓库开发环境中实测**（该环境未安装 `mysql` 客户端）。上面两条命令是按 MySQL 官方
 > 语法与 `init.sql` 实际头部语句（`SET NAMES utf8mb4;` / `CREATE DATABASE IF NOT EXISTS` / `USE`）核对得出。
-> 请首次部署时优先执行并确认表数为 **36**。可参考已验证的脚本静态事实：1461 行、36 张表、
+> 请首次部署时优先执行并确认表数为 **34**。可参考已验证的脚本静态事实：1417 行、34 张表、
 > 全部 `CREATE TABLE IF NOT EXISTS`（幂等）、种子数据落在 9 张系统域表上。
 >
-> 🔴 **要把表数凑到完整的 42 张，还需按需执行后续迁移脚本**（都是 `CREATE TABLE IF NOT EXISTS`，可重复执行）：
+> ℹ️ **表数有三个口径，别混**（2026-09-27）：① `init.sql` 单独导入 = **34 张**；
+> ② 再叠加下面五个迁移脚本 = **40 张**；③ 走完整 Docker 初始化链（含历史脚本 `schema-v2.sql`）= **42 张**，
+> 线上库实测同为此数（2026-09-18，存量库不动）。②与③差在 `app_quota` / `biz_line`：
+> 这两张死表的建表语句已于 2026-09-27 从 `init.sql` 移除，但 `schema-v2.sql`（T01 期历史迁移脚本）
+> 仍会建出它们 —— 按项目「不追改历史迁移脚本」惯例未改，仅在此说明。
+>
+> 🔴 **要把表数凑到完整的 40 张，还需按需执行后续迁移脚本**（都是 `CREATE TABLE IF NOT EXISTS`，可重复执行）：
 > `docs/sql/t13-group-env-config.sql`（`api_group_env_config`）、
 > `docs/sql/t15-1-group-encryption.sql`（`api_group_encryption_config`）、
 > `docs/sql/t15-4-whitelist.sql`（`sys_ip_whitelist`）、
 > `docs/sql/t16-1-encryption-master-switch.sql`（`sys_encryption_config`）、
 > `docs/sql/t17-interface-crypto.sql`（`sys_interface_visibility`、`sys_interface_crypto_config`）。
-> 线上库实测为 **42 张表**（2026-09-18）。
 >
 > 🧹 **清理类脚本**（做「减法」，须在**所有**种子脚本之后执行；`init.sql` 已同步移除对应种子，用于修复已建库）：
 > `docs/sql/t15-remove-bizline.sql`（下线业务线功能，表保留）、
-> `docs/sql/t20-remove-dead-perms.sql`（移除 8 个无引用权限点 + 39 条角色授权，表保留）。
+> `docs/sql/t20-remove-dead-perms.sql`（移除 8 个无引用权限点 + 39 条角色授权）、
+> `docs/sql/t19-config-wiring.sql` §3（说明 13 项无读取点 `sys_config` 的移除口径，默认不动存量库）。
+>
+> 📉 **2026-09-27 死代码清理**（`init.sql` / `migrate-v2.sql` 已生效；存量库一律按"不动"口径处理）：
+> ① 移除 `app_quota` / `biz_line` 两张死表（全仓 0 个 Java/前端引用）的建表语句；
+> ② 移除 13 项自始至终无读取点的 `sys_config`（`sys_config` 由 19 行收敛为 6 行）；
+> ③ 移除 49 个无调用端点、24 个前端 API 函数、14 个孤儿 Service 方法、8 个孤儿权限点 + 39 条角色授权。
 >
 > ⚠️ **切勿把 `init.sql` 直接导入已存在数据的库**：脚本第 25–26 行是 `CREATE DATABASE IF NOT EXISTS \`gatekeeper\``
 > + `USE \`gatekeeper\``，会**指向 `gatekeeper` 库本身**。若你想在别处试用，请先做文本替换改成临时库名，
@@ -456,14 +467,16 @@ docker compose up -d
 容器启动时由 `docker-entrypoint-initdb.d/` 下的 SQL 链自动完成建库、建表与种子数据初始化，无需手动导入。
 
 > 说明：本编排的 MySQL 容器会按文件名顺序挂载执行 11 个 SQL 脚本（`init.sql` 与 `docs/sql/` 下的历史脚本）。
-> 其中 `init.sql` 现已**自足**（36 张表 + 系统域种子数据），其余脚本按用途分两类：
+> 其中 `init.sql` 现已**自足**（34 张表 + 系统域种子数据），其余脚本按用途分两类：
 > ① 8 个 seed 脚本使用 `INSERT IGNORE`（只补不覆盖），对已建基线是幂等的；
 > ② `schema-v2.sql` / `migrate-v2.sql` / `t09-hygiene.sql` 含 `ALTER` / `UPDATE` / `DELETE` 等
 > 结构校正与数据迁移语句，**并非纯 no-op**，属"历史回放"性质。
 >
 > ⚠️ 这条初始化链**未在本环境实测**（无 Docker）。若你想简化，也可只用 `init.sql` 单独导入
-> （见上一节的本地启动步骤 1）——它已能独立构建出 36 张表与基础种子数据；
-> 完整 42 张表还需叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本（见步骤 1 的说明）。
+> （见上一节的本地启动步骤 1）——它已能独立构建出 34 张表与基础种子数据；
+> 再叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本共 **40 张表**；
+> 走完整初始化链（含历史脚本 `schema-v2.sql`）则为 **42 张表**（差在 `app_quota` / `biz_line`，
+> 见步骤 1 的表数口径说明）。
 
 ---
 
@@ -649,24 +662,26 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 
 ## 数据库设计
 
-初始化脚本为 [`src/backend/src/main/resources/sql/init.sql`](src/backend/src/main/resources/sql/init.sql)，**单独执行可建 36 张表**；
-叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本后共 **42 张表**（线上实测口径，2026-09-18）。
+初始化脚本为 [`src/backend/src/main/resources/sql/init.sql`](src/backend/src/main/resources/sql/init.sql)，**单独执行可建 34 张表**；
+叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本后共 **40 张表**。
+（线上库实测 42 张——多出的 2 张是 `app_quota` / `biz_line`，存量库按"只加不删"不动；
+完整 Docker 初始化链因含历史脚本 `schema-v2.sql`，同样为 42 张。口径见上文「1. 初始化数据库」。）
 按域划分如下：
 
 | 域 | 表 | 说明 |
 |----|-------|------|
 | 环境 | `env` | 环境字典（dev/test/prod）；网关与配置按 `env_code` 隔离 |
 | 接口资产 | `api_group`、`api_interface`、`api_param`、`api_version`、`api_env_config`、`api_group_env_config`、`api_change_log` | 接口注册、分组、版本、参数、环境配置（接口级 + 分组级）、变更审计 |
-| 应用身份 | `app`、`app_credential`、`app_ip_whitelist`、`app_rate_limit`、`app_quota` | 应用主体、多环境凭证、IP 白名单、限流与配额 |
+| 应用身份 | `app`、`app_credential`、`app_ip_whitelist`、`app_rate_limit` | 应用主体、多环境凭证、IP 白名单、限流与配额（配额即以 `app_rate_limit` 为准） |
 | 授权关系 | `app_api_permission`、`app_api_grant` | 应用-接口授权；前者为存量快照（网关回退用），后者带审批流 / 有效期 / 环境 |
 | 加解密 | `sys_encryption_config`、`api_encryption_config`、`api_group_encryption_config`、`app_encryption_config`、`sys_interface_crypto_config`、`sys_interface_visibility` | 平台总开关、接口/分组/应用三级加解密配置、接口信息存储加密开关与可见性白名单 |
 | 调用与导出 | `api_call_log`、`export_task` | 全链路调用日志（25 列）与异步导出任务 |
 | 安全防护 | `ip_ban`、`block_rule`、`security_event`、`security_rule` | 封禁名单、动态封禁规则、安全事件与检测规则 |
 | 告警 | `alert`、`alarm_rule`、`notify_channel` | 告警记录、告警规则、通知渠道 |
 | 系统管理 | `sys_user`、`sys_role`、`sys_user_role`、`sys_menu`、`sys_role_menu`、`sys_role_datascope`、`sys_dict`、`sys_dict_item`、`sys_config`、`sys_operation_log`、`sys_ip_whitelist` | RBAC、菜单权限点、数据权限、字典、参数、操作审计、系统级访问白名单 |
-| 已下线保留 | `biz_line` | **T15 已下线**：表与 `app.line_id` / `api_interface.line_id` 列按"只加列不删列"铁律物理保留，代码层已不再映射与展示 |
+| 已下线 / 已移除 | — | **T15 下线的 `biz_line`** 与**从未被读取的 `app_quota`**：2026-09-27 起不再由 `init.sql` 建表（全仓 0 个 Java/前端引用）。`app.line_id` / `api_interface.line_id` / `sys_user.line_id` 等列按"只加列不删列"铁律物理保留，存量库中的两张表亦不动 |
 
-全部建表语句均为 `CREATE TABLE IF NOT EXISTS`，脚本可**重复执行**（幂等）；`init.sql` 规模 **1461 行**。
+全部建表语句均为 `CREATE TABLE IF NOT EXISTS`，脚本可**重复执行**（幂等）；`init.sql` 规模 **1417 行**。
 种子数据仅包含**基础运行数据**，落在 **9 张系统域表**上：
 `sys_user`（管理员 `admin`）、`sys_role`、`sys_menu`（全部权限点，含菜单与按钮）、`sys_user_role`、
 `sys_role_menu`、`sys_role_datascope`（数据权限）、`sys_dict`、`sys_dict_item`、`sys_config`。
@@ -674,10 +689,11 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 更详细的表结构说明见 [`docs/database-design.md`](docs/database-design.md)，
 业务视角的表域划分与核心流程见 [`docs/GateKeeper-业务与核心流程.md`](docs/GateKeeper-业务与核心流程.md)。
 
-> ⚠️ **`sys_config` 的生效范围**（T19，2026-09-18 实测）：全表 19 项中只有 **6 项**已被代码读取并真正生效
+> ⚠️ **`sys_config` 的生效范围**（T19，2026-09-18 实测 / 2026-09-27 收敛）：全表 **6 项**全部被代码读取并真正生效
 > （`sign.algorithm`、`sign.timestamp.tolerance`、`sign.nonce.ttl`、`gateway.auth.enabled`、
-> `gateway.ratelimit.enabled`、`gateway.default.read.timeout`），其余项在 `remark` 中统一以
-> 「⚠️ 未接线（预留）：」标注 —— **在参数配置页改它们不会有任何效果**。
+> `gateway.ratelimit.enabled`、`gateway.default.read.timeout`，`remark` 中均标注「读取点 xxx」）。
+> 原先另有 **13 项**"看起来能改、实际无任何读取点"的配置，已于 2026-09-27 连行移除，
+> 参数配置页不再出现误导性开关（存量库清理办法见 `docs/sql/t19-config-wiring.sql` §3）。
 > 新增读取点请通过 `config/SysConfigAccessor`，并在 `docs/sql/t19-config-wiring.sql` 同步备注。
 
 ---

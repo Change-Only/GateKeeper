@@ -17,6 +17,13 @@
 --   - 接口版本：每个存量接口补一条 v1（is_current=1, gray_ratio=100）
 --   - 授权：存量 app_api_permission(status=1) → app_api_grant(status=1 已生效)，
 --           有效期默认 今天 ~ 一年后
+--
+-- ⚠️ 2026-09-27 前置依赖变更（死代码清理）：
+--   本脚本 §1.2 / §3.2 仍会写 `biz_line` / `app_quota` 两张表，而它们的建表语句已从
+--   `init.sql` 移除（全仓 0 个 Java/前端引用）。因此本脚本**必须**排在 `schema-v2.sql` 之后执行
+--   —— 后者仍含这两张表的 `CREATE TABLE IF NOT EXISTS`（按项目「不追改历史迁移脚本」惯例未动）。
+--   切勿在「只跑过新版 init.sql」的库上单独执行本脚本，否则会报 Table doesn't exist。
+--   表数口径见 README「1. 初始化数据库」。
 -- ============================================================================
 
 SET NAMES utf8mb4;
@@ -246,32 +253,24 @@ INSERT IGNORE INTO sys_dict_item (dict_code, item_value, item_label, sort_order,
 
 -- ---------------------------------------------------------------------------
 -- 1.8 参数配置（sys_config）—— 原型 MOCK.configs
---     ⚠️ T19 起生效口径变更（2026-09-18 实测修正）：
+--     ⚠️ T19 起生效口径变更（2026-09-18 实测修正）+ 2026-09-27 收敛：
 --       此前全表 19 项【没有任何 Java 运行时读取点】，参数配置页改了不生效。
---       T19 引入 config/SysConfigAccessor 后，标注「读取点 xxx」的 6 项真正生效；
---       其余项一律在 remark 前加「⚠️ 未接线（预留）：」，如实告知管理员不可用。
---       同时修正 3 处与实现不符的种子值（见 docs/sql/t19-config-wiring.sql 说明）。
+--       T19 引入 config/SysConfigAccessor 后，只有下列 6 项（标注「读取点 xxx」）真正生效。
+--       其余 13 项（secret.length / secret.encrypt.algo / key.rotate.period /
+--       key.max.valid.days / external.ip.whitelist.required / login.fail.threshold /
+--       session.timeout / log.desensitize / audit.log.retention.days /
+--       call.log.hot.days / approval.enabled / export.max.rows / gk.schema.version）
+--       经复核自始至终无任何读取点，已于 2026-09-27 连行移除（不留"看起来能改"的开关）。
+--       同时修正 2 处与实现不符的种子值（见 docs/sql/t19-config-wiring.sql 说明）。
 --       两处种子（本文件 + src/backend/src/main/resources/sql/init.sql）必须保持一致。
 -- ---------------------------------------------------------------------------
 INSERT IGNORE INTO sys_config (id, config_key, config_value, config_group, config_name, `sensitive`, built_in, remark) VALUES
 (1,  'sign.algorithm',                  'SM3',                  'SECURITY', '签名算法',                 0, 1, '客户端契约：固定 SM3（国密摘要），与客户端 SDK/接入文档一致，不支持运行时切换 · 读取点 AppAuthHandler（T19 已接线）'),
 (2,  'sign.timestamp.tolerance',        '300000',               'SECURITY', '时间戳容差（毫秒）',       0, 1, '时间戳容差(毫秒)，默认 ±5 分钟 · 读取点 AppAuthHandler（T19 已接线）'),
 (3,  'sign.nonce.ttl',                  '600',                  'SECURITY', 'Nonce 有效期（秒）',       0, 1, 'Nonce 有效期(秒)，应 ≥ 2 倍时间戳容差 · 读取点 AppAuthHandler（T19 已接线）'),
-(4,  'secret.length',                   '32',                   'SECURITY', 'Secret 长度',              0, 1, '⚠️ 未接线（预留）：生成应用密钥时的随机串长度'),
-(5,  'secret.encrypt.algo',             'AES/ECB/PKCS5Padding', 'SECURITY', 'Secret 存储加密算法',      1, 1, '⚠️ 未接线（预留）：AppSecret 存储加密算法；当前实现为 AES/ECB/PKCS5Padding（历史值 AES-256-GCM 与实现不符）'),
-(6,  'key.rotate.period',               '180',                  'SECURITY', '密钥强制轮换周期（天）',   0, 1, '⚠️ 未接线（预留）：密钥强制轮换周期(天)，超期应在概览页告警'),
-(7,  'key.max.valid.days',              '365',                  'SECURITY', '密钥最长有效期（天）',     0, 1, '⚠️ 未接线（预留）：密钥最长有效期(天)，到期应自动失效'),
-(8,  'external.ip.whitelist.required',  'true',                 'SECURITY', '外部应用强制 IP 白名单',   0, 1, '⚠️ 未接线（预留）：外部应用强制 IP 白名单'),
-(9,  'login.fail.threshold',            '5',                    'SECURITY', '登录失败锁定阈值',         0, 1, '⚠️ 未接线：本项不生效——登录失败锁定阈值实际由 application.yml 的 gatekeeper.security.login-fail-threshold 控制'),
-(10, 'session.timeout',                 '480',                  'SECURITY', '会话超时（分钟）',         0, 1, '⚠️ 未接线（预留）：会话超时(分钟)'),
-(11, 'log.desensitize',                 'true',                 'SECURITY', '日志敏感字段脱敏',         0, 1, '⚠️ 未接线（预留）：日志敏感字段脱敏（手机号/身份证/银行卡）'),
 (12, 'gateway.auth.enabled',            'true',                 'GATEWAY',  '是否开启签名校验',         1, 1, '是否开启签名校验；关闭后跳过防伪造/防重放（AppKey/应用状态/到期仍强制校验）· 读取点 AppAuthHandler（T19 已接线）'),
 (13, 'gateway.ratelimit.enabled',       'true',                 'GATEWAY',  '是否开启限流',             0, 1, '是否开启限流；关闭后 QPS/并发/日配额全部失效 · 读取点 RateLimitHandler（T19 已接线）'),
-(14, 'gateway.default.read.timeout',    '5000',                 'GATEWAY',  '默认读取超时（毫秒）',     0, 1, '网关默认超时(ms)：接口与环境配置都未指定时生效 · 读取点 ForwardHandler（T19 已接线；历史值 3000 与实现默认 5000 不符，已按实现对齐）'),
-(15, 'audit.log.retention.days',        '180',                  'LOG',      '审计日志保留天数',         0, 1, '⚠️ 未接线（预留）：审计日志保留天数（等保三级要求 ≥180 天）'),
-(16, 'call.log.hot.days',               '30',                   'LOG',      '调用日志热数据保留天数',   0, 1, '⚠️ 未接线（预留）：调用日志热数据保留天数；当前实际由 application.yml 的 gatekeeper.log.retention-days（默认 90）控制'),
-(17, 'approval.enabled',                'false',                'DEFAULT',  '是否开启审批流',           0, 1, '⚠️ 未接线（预留）：是否开启接口授权审批流'),
-(18, 'export.max.rows',                 '50000',                'DEFAULT',  '单次导出最大行数',         0, 1, '⚠️ 未接线（预留）：单次导出最大行数');
+(14, 'gateway.default.read.timeout',    '5000',                 'GATEWAY',  '默认读取超时（毫秒）',     0, 1, '网关默认超时(ms)：接口与环境配置都未指定时生效 · 读取点 ForwardHandler（T19 已接线；历史值 3000 与实现默认 5000 不符，已按实现对齐）');
 
 -- ---------------------------------------------------------------------------
 -- 1.9 通知渠道（notify_channel）—— 原型 MOCK.notifyChannels
@@ -490,8 +489,10 @@ SET user_count = (SELECT COUNT(*) FROM sys_user_role ur WHERE ur.role_id = r.id)
 -- ############################################################################
 -- 五、迁移完成标记（可用于应用启动自检）
 -- ############################################################################
-INSERT IGNORE INTO sys_config (id, config_key, config_value, config_group, config_name, `sensitive`, built_in, remark)
-VALUES (1000, 'gk.schema.version', 'v2', 'DEFAULT', '数据模型版本', 0, 1, '⚠️ 未接线（预留）：数据模型版本，由 migrate-v2.sql 写入');
+-- 注：原 `INSERT ... sys_config(gk.schema.version)` 迁移完成标记已于 2026-09-27 移除 ——
+--     全仓无任何读取点（非 SysConfigAccessor 的 6 个已接线键之一），
+--     且「参数配置」页对运营可见却改不动，属误导项。若将来要做启动自检，
+--     请改由 `application.yml` 或独立的 schema_version 表承载。
 
 -- ============================================================================
 -- 迁移自检（可选）：执行后人工核对
