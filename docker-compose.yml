@@ -58,10 +58,18 @@ services:
     image: redis:7-alpine
     container_name: gatekeeper-redis
     restart: unless-stopped
+    environment:
+      # 通过运行时环境变量把口令传给 redis-server；不写进 command 字面量，
+      # 避免口令出现在 docker inspect 的 Cmd 里
+      GATEKEEPER_REDIS_PASSWORD: "${GATEKEEPER_REDIS_PASSWORD:-GkRedis#9fQ2mL7pX!4sT8nB}"
+    # 必须设置 requirepass：否则容器外可无密码直接读写限流/封禁/权限缓存
+    # （本项目安全策略要求「默认密码须可配置且可替换」，默认值见 README「默认账号与密钥」）
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$GATEKEEPER_REDIS_PASSWORD\""]
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # 带鉴权探活：REDISCLI_AUTH 让 redis-cli 免于在命令行暴露口令
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$GATEKEEPER_REDIS_PASSWORD redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -78,8 +86,9 @@ services:
       GATEKEEPER_DB_NAME: ${GATEKEEPER_DB_NAME:-gatekeeper}
       GATEKEEPER_DB_USERNAME: ${GATEKEEPER_DB_USERNAME:-root}
       GATEKEEPER_DB_PASSWORD: ${GATEKEEPER_DB_PASSWORD:?请在 .env 中配置 GATEKEEPER_DB_PASSWORD}
-      # Redis：指向 compose 内的 redis 容器
+      # Redis：指向 compose 内的 redis 容器（口令须与 redis 服务的 requirepass 一致）
       GATEKEEPER_REDIS_HOST: redis
+      GATEKEEPER_REDIS_PASSWORD: "${GATEKEEPER_REDIS_PASSWORD:-GkRedis#9fQ2mL7pX!4sT8nB}"
       # 安全密钥（启动自检强校验，缺失或弱密钥将拒绝启动）
       GATEKEEPER_JWT_SECRET: ${GATEKEEPER_JWT_SECRET:?请在 .env 中配置至少32位的 GATEKEEPER_JWT_SECRET}
       GATEKEEPER_AES_KEY: ${GATEKEEPER_AES_KEY:?请在 .env 中配置至少32位的 GATEKEEPER_AES_KEY}

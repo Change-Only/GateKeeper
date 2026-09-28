@@ -53,8 +53,9 @@ import { login } from '@/api/modules'
 export default {
   data() {
     return {
-      // 登录表单数据（演示环境预置默认账号）
-      form: { username: 'admin', password: 'admin123' },
+      // 登录表单数据：刻意留空，不在前端预填任何账号密码。
+      // 默认账号/密码请见 README「默认账号与密钥」，部署后必须修改。
+      form: { username: '', password: '' },
       // 记住我选项
       remember: true,
       // 登录请求进行中标记（防重复提交）

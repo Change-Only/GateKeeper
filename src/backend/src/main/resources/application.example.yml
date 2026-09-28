@@ -65,11 +65,14 @@ spring:
       max-lifetime: 1800000      # 连接最大存活时间(ms)，必须小于 MySQL wait_timeout
 
   # ---- Redis 配置（限流计数 / IP 封禁 / Nonce 防重放 / 权限缓存）----
-  # 未启用密码；如你的 Redis 设了密码，请自行补一行 password: ${GATEKEEPER_REDIS_PASSWORD:}
+  # 已启用访问密码：Redis 侧需以 requirepass 启动同一口令。
+  # 本地开发可用下方内置默认值（见 README「默认账号与密钥」）；
+  # 生产环境请通过 GATEKEEPER_REDIS_PASSWORD 注入随机口令。
   redis:
     host: ${GATEKEEPER_REDIS_HOST:localhost}
     port: ${GATEKEEPER_REDIS_PORT:6379}
     database: ${GATEKEEPER_REDIS_DATABASE:0}   # 逻辑库编号，多环境共用同一实例时用它隔离
+    password: "${GATEKEEPER_REDIS_PASSWORD:GkRedis#9fQ2mL7pX!4sT8nB}"
     timeout: 3000                              # 连接超时时间(ms)
     lettuce:
       pool:

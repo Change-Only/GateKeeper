@@ -268,26 +268,34 @@ mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
 
 ```bash
 # Linux
-sudo systemctl start redis-server      # 或 redis-server /etc/redis/redis.conf
+sudo systemctl start redis-server      # 或在 /etc/redis/redis.conf 中设置 requirepass 后启动
 
 # macOS（Homebrew）
-brew services start redis
+brew services start redis              # 同样需在 redis.conf 里设置 requirepass
 
 # Windows（解压版，路径按实际调整）
-C:\redis\redis-server.exe
+C:\redis\redis-server.exe --requirepass "GkRedis#9fQ2mL7pX!4sT8nB"
 
 # Docker（任何平台通用）
-docker run -d --name gatekeeper-redis -p 6379:6379 redis:7-alpine
+docker run -d --name gatekeeper-redis -p 6379:6379 \
+  redis:7-alpine redis-server --requirepass "GkRedis#9fQ2mL7pX!4sT8nB"
 ```
+
+> 🔴 **Redis 必须设置访问密码**（`--requirepass`），且必须与后端的 `GATEKEEPER_REDIS_PASSWORD` 一致。
+> 默认口令 `GkRedis#9fQ2mL7pX!4sT8nB` 见[「默认账号与密钥」](#默认账号与密钥)。
+> 一个无口令的 Redis 若暴露在网络中，等于把限流计数、封禁名单与权限缓存完全对外敞开。
 
 校验：
 
 ```bash
-redis-cli ping     # 期望输出：PONG
+redis-cli -a 'GkRedis#9fQ2mL7pX!4sT8nB' ping     # 期望输出：PONG
+redis-cli ping                                  # 期望输出：NOAUTH Authentication required.
 ```
 
 > 若 Redis 使用非默认地址/端口，请在第 3 步配置 `GATEKEEPER_REDIS_HOST` / `GATEKEEPER_REDIS_PORT`。
 > Redis 不可用时后端**仍能启动**，网关防护组件会按 fail-open 策略降级放行（详见 FAQ Q5）。
+> ⚠️ **口令不一致的表现与「Redis 没启动」完全相同**（后端连不上 → 走 fail-open 降级），
+> 排查时请先核对两侧口令是否一致。
 
 ### 3. 配置后端
 
@@ -305,6 +313,9 @@ cp application.example.yml application.yml
 | 数据库密码 | `GATEKEEPER_DB_PASSWORD` | 非空、非弱口令 | 禁止 `root` / `123456` / `admin` / `password` 等 |
 | JWT 签名密钥 | `GATEKEEPER_JWT_SECRET` | **≥ 32 位**随机串 | 泄露 = 任何人可伪造管理员令牌 |
 | AES 加密密钥 | `GATEKEEPER_AES_KEY` | **≥ 32 位**随机串 | 加密落库的 AppSecret；**一旦轮换历史数据将无法解密** |
+
+> 另有一项 `GATEKEEPER_REDIS_PASSWORD`（Redis 访问口令）**已内置默认值**，本地可不填；
+> 但必须与 Redis 服务 `--requirepass` 的口令一致，否则后端连不上 Redis。取值见[「默认账号与密钥」](#默认账号与密钥)。
 
 生成随机密钥：
 
@@ -422,7 +433,10 @@ npm run build -- --no-clean      # 若构建工具因清空 dist/ 被沙箱/权�
 | `admin` | `admin123` |
 
 > ⚠️ 该账号为初始化种子数据，**仅用于本地开发**。部署到任何可被外部访问的环境前，
-> 必须修改管理员密码，并替换第 3 步中的全部三项密钥。
+> 必须修改管理员密码，并替换第 3 步中的全部密钥。
+>
+> 登录页**不再预填**账号密码，需手工输入。默认账号与**全部默认密钥**的完整清单见
+> 下文[「默认账号与密钥」](#默认账号与密钥)。
 
 ### 7. 验证是否跑通
 
@@ -538,6 +552,8 @@ grep -rnE "lock|Lock|mutex" src/backend/src/main/java/com/gatekeeper/job/       
 cp .env.example .env
 # 编辑 .env，填入三项必填密钥：GATEKEEPER_JWT_SECRET / GATEKEEPER_AES_KEY / GATEKEEPER_DB_PASSWORD
 # 生成随机密钥：openssl rand -base64 32
+# 建议同时设置 GATEKEEPER_REDIS_PASSWORD（不填则用内置默认口令，见「默认账号与密钥」）
+#   生产环境务必改成随机口令：openssl rand -base64 24
 
 docker compose up -d
 # 访问 http://localhost:8081
@@ -556,6 +572,65 @@ docker compose up -d
 > 再叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本共 **40 张表**；
 > 走完整初始化链（含历史脚本 `schema-v2.sql`）则为 **42 张表**（差在 `app_quota` / `biz_line`，
 > 见步骤 1 的表数口径说明）。
+
+---
+
+## 默认账号与密钥
+
+> ⚠️ **本节内容会随公开仓库一并发布。** 下列取值全部是**本地开发 / 演示环境的默认值**，
+> 一旦用于任何可被外部访问的环境即等同无效，请一律视为**已泄露**。部署前必须逐项替换。
+>
+> 诚实说明：其中 AES 密钥的历史副本本就存在于本仓库的公开提交历史里；
+> 而**数据库口令与 JWT 密钥此前从未入库，是本节首次将其公开**——请据此评估风险。
+
+### 1. 默认账号
+
+| 账号 | 密码 | 来源 |
+|------|------|------|
+| `admin` | `admin123` | 初始化种子数据（`docs/sql/t02-seed-admin-role.sql`） |
+| *（新建用户）* | `123456` | 通过「用户管理」新建用户、且未填密码时的初始口令兜底（`SysUserServiceImpl#createUser`） |
+
+登录页已**不再预填**任何账号密码（`src/frontend/src/views/system/Login.vue`），需手工输入。
+
+### 2. 全部默认密钥
+
+| 环境变量 | 对应配置项 | 默认值 | 泄露后果 |
+|---------|-----------|--------|---------|
+| `GATEKEEPER_DB_PASSWORD` | `spring.datasource.password` | `GK#Db9f3!xQ7-Lm2pR8vZ` | 可直接连库读写全部业务数据 |
+| `GATEKEEPER_AES_KEY` | `gatekeeper.crypto.aes-key` | `Gk9#aQ2!vL7pX4sT8nB3mZ6cR1yF5wJ0` | 落库密钥的加密密钥（KEK）：可解密 `app_secret`、加密存储的接口路径与参数等全部 `enc:` 密文 |
+| `GATEKEEPER_JWT_SECRET` | `gatekeeper.jwt.secret` | `GkJwt#7dKq2!vX9pL4sT8nB3mZ6cR1yF5wJ0eA2hD` | 可用自签令牌冒充任意用户（含管理员），直接接管管理后台 |
+| `GATEKEEPER_REDIS_PASSWORD` | `spring.redis.password` | `GkRedis#9fQ2mL7pX!4sT8nB` | 可读写限流计数 / 封禁名单 / 权限缓存，绕过或误伤网关防护 |
+
+> 其余**非密钥类**默认值（DB 主机与端口、库名、CORS 来源、导出目录、环境码等）见下方「配置项说明」。
+
+### 3. 本地开发怎么用（零配置）
+
+`application.yml` 与 `docker-compose.yml` 均内置上述默认值，本地开箱即用：
+
+```bash
+# ① Redis 必须带同一口令启动，否则后端无法建立连接
+redis-server --requirepass 'GkRedis#9fQ2mL7pX!4sT8nB'
+
+# 校验（两种写法都行）
+redis-cli -a 'GkRedis#9fQ2mL7pX!4sT8nB' ping     # 期望输出：PONG
+REDISCLI_AUTH='GkRedis#9fQ2mL7pX!4sT8nB' redis-cli ping
+
+# ② 后端、前端照常启动（详见上一节「本地启动方法」）
+# ③ 打开 http://localhost:8081，用 admin / admin123 登录
+```
+
+### 4. 上线前必须替换
+
+```bash
+# 生成随机密钥（Linux / macOS / Git Bash）
+export GATEKEEPER_JWT_SECRET="$(openssl rand -base64 32)"
+export GATEKEEPER_AES_KEY="$(openssl rand -base64 32)"
+export GATEKEEPER_DB_PASSWORD='<新的数据库强口令，≥12 位>'
+export GATEKEEPER_REDIS_PASSWORD="$(openssl rand -base64 24)"
+```
+
+- 🔴 **替换 `GATEKEEPER_AES_KEY` 会使历史密文永久无法解密**，必须配套数据重加密方案，切勿随意轮换。
+- 同时：修改 `admin` 默认口令、`knife4j.enable: false`、按实际域名收敛 `gatekeeper.cors.allowed-origins`。
 
 ---
 
@@ -582,7 +657,7 @@ docker compose up -d
 | `GATEKEEPER_REDIS_HOST` | `localhost` | Redis 主机 |
 | `GATEKEEPER_REDIS_PORT` | `6379` | Redis 端口 |
 | `GATEKEEPER_REDIS_DATABASE` | `0` | Redis 逻辑库编号 |
-| `GATEKEEPER_REDIS_PASSWORD` | *（无）* | Redis 访问密码；默认端口配置未启用，需要时在 `spring.redis` 下自行补 `password` 一行 |
+| `GATEKEEPER_REDIS_PASSWORD` | `GkRedis#9fQ2mL7pX!4sT8nB` | Redis 访问密码；Redis 侧须以 `--requirepass` 启动同一口令，默认值见[「默认账号与密钥」](#默认账号与密钥) |
 | `GATEKEEPER_REDIS_FAIL_OPEN` | `true` | Redis 故障时防护组件是否降级放行 |
 
 ### 运行时
@@ -684,9 +759,13 @@ npm run build -- --no-clean
 > 需注意该参数**不清理旧产物**，多次构建会在 `dist/` 中累积同名不同 hash 的历史文件
 > （实测可见十几次构建的残留），发布前建议手动清空 `dist/` 再构建一次。
 
-### Q5. Redis 没启动，网关防护还生效吗？
+### Q5. Redis 没启动（或口令不一致），网关防护还生效吗？
 
 **不会全部生效，但业务不中断。** 项目采用 **fail-open 降级**策略（`GATEKEEPER_REDIS_FAIL_OPEN` 默认 `true`）：
+
+> ⚠️ **先排除「口令不一致」**：Redis 以 `--requirepass` 启动、而后端 `GATEKEEPER_REDIS_PASSWORD` 与之不符时，
+> 连接会被拒绝（`NOAUTH`），**表现与本条完全相同**（走 fail-open 降级、日志只见 Redis 异常）。
+> 默认口令见[「默认账号与密钥」](#默认账号与密钥)；核对两侧一致后仍异常，再按下面的降级行为排查。
 
 - **降级放行**（Redis 不可用时自动跳过，仅记录 WARN 日志）：IP 封禁检查、频率限制、Nonce 防重放、权限缓存命中。
 - **仍然生效**：应用身份校验、IP 白名单、接口权限校验等基于数据库的管控。
@@ -797,17 +876,29 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 
 ## 安全说明
 
-本项目采用**激进密钥策略**：JWT / AES / 数据库密码**不设任何可用的默认值**，
-由 `SecurityStartupCheck` 在启动阶段强校验（缺失、过短、等于历史默认值均拒绝启动），
-杜绝「默认密钥被提交到仓库后可直接伪造管理员令牌」的风险。
+本项目采用**激进密钥策略**——但这说的是**模板与启动自检**：
 
-- `application.yml`、`.env` 均已在 `.gitignore` 中忽略，**请勿提交**；仓库内只保留 `application.example.yml` 与 `.env.example` 两个无密钥模板。
+- 被跟踪的模板文件（`application.example.yml`、`.env.example`）**不含任何可用密钥**：
+  JWT / AES / 数据库口令的占位符默认值一律留空，强制部署者通过环境变量注入。
+- `SecurityStartupCheck` 在 Bean 初始化阶段（**早于 Web 端口监听**）强校验 JWT / AES / 数据库口令：
+  缺失、过短、命中历史默认值黑名单、**或仍等于 yml 内置默认值**（生产环境致命）——任一命中即拒绝启动。
+- `application.yml`、`.env` 均已在 `.gitignore` 中忽略，**请勿提交**。
 
-- **提交前自检**（以下命令均**期望无输出**；`git grep` 有匹配时退出码为 0，无匹配为 1）：
+> ⚠️ **一处刻意的例外，务必知悉**：README 的[「默认账号与密钥」](#默认账号与密钥)章节
+> **明文公开**了本地开发所用的默认口令与全部默认密钥（DB / Redis / AES / JWT）。
+> 这是为了让本地「零配置开箱即用」而做的**知情取舍**，代价是这些值在公开仓库中
+> **不再具备任何保密性**。请一律视为**已泄露**，并在任何非本地环境启动前完成替换
+> （尤其 `GATEKEEPER_AES_KEY` 与 `GATEKEEPER_JWT_SECRET`）。
+
+### 提交前自检
+
+以下命令均**期望无输出**（`git grep` 有匹配时退出码 0，无匹配为 1）：
 
 ```bash
 # ① 密钥是否被填入了真实值（占位符形如 <xxx> / 'xxx' / "xxx" 的不算）
-git grep -nE "GATEKEEPER_(JWT_SECRET|AES_KEY|DB_PASSWORD)=[^<'\"[:space:]]"
+#    README 的明文默认值以表格 + 反引号呈现（`GATEKEEPER_X` / `值` 分列），
+#    不匹配本模式（要求 VAR=值 紧邻）；新增文档时请保持同样写法，否则本自检会开始报警。
+git grep -nE "GATEKEEPER_(JWT_SECRET|AES_KEY|DB_PASSWORD|REDIS_PASSWORD)=[^<'\"[:space:]]"
 
 # ② 是否残留内网 IPv4 地址（192.168.1.x 属于文档举例网段，已排除）
 git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
@@ -824,7 +915,7 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 > 2. 真实密钥所在的 `application.yml` 因被 `.gitignore` 忽略，`git grep` **搜索不到它**，
 >    所以命令①②的"无输出"不代表磁盘上不存在密钥文件，只代表**它们不会进入版本库**。
 
-- 暴露到公网前必须完成：修改 `admin` 默认密码、替换全部三项密钥、`knife4j.enable: false`、按实际域名收敛 `gatekeeper.cors.allowed-origins`。
+- 暴露到公网前必须完成：修改 `admin` 默认密码、替换**全部四项密钥**（`GATEKEEPER_DB_PASSWORD` / `GATEKEEPER_REDIS_PASSWORD` / `GATEKEEPER_AES_KEY` / `GATEKEEPER_JWT_SECRET`）、`knife4j.enable: false`、按实际域名收敛 `gatekeeper.cors.allowed-origins`。
 
 ---
 

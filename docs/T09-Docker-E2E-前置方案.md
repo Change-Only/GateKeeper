@@ -54,11 +54,33 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 
 **✅ 裁定：不做对齐，保持现状 3 密钥（lead，2026-09-12）**。理由：`spring.redis` 在 application.yml 里根本没有 password 配置行，compose 内 Redis 若加 `requirepass` 反而**直接断连**；本地栈内网隔离，风险不成立。（原「对齐方案」存档：`spring.redis.password: "${GATEKEEPER_REDIS_PASSWORD:}"` + compose `--requirepass` + backend env 传递 + `.env.example` 补行，演进式 4 行——将来若出内网部署再启用。）
 
+> **📌 后续更新（2026-09-28）：本条裁定已被推翻，上述「存档方案」已实际落地。**
+> 按用户要求新增 Redis 访问密码，改动与上面存档的 4 点一致，并额外提供**强随机默认值**：
+> - `spring.redis.password: "${GATEKEEPER_REDIS_PASSWORD:GkRedis#9fQ2mL7pX!4sT8nB}"`（`application.yml` 与 `application.example.yml` 同步）；
+> - `docker-compose.yml` 的 redis 服务加 `--requirepass`（口令经**运行时环境变量** `$$GATEKEEPER_REDIS_PASSWORD` 传入，不内联进 command；
+>   healthcheck 改用 `REDISCLI_AUTH=$$GATEKEEPER_REDIS_PASSWORD redis-cli ping`，避免无鉴权探活恒失败）；
+> - backend 服务与 `.env.example` 补 `GATEKEEPER_REDIS_PASSWORD`；
+> - README 新增「默认账号与密钥」章节公开默认口令，FAQ Q5 补充「口令不一致表现与 Redis 未启动相同」。
+>
+> 已实测验证：无口令 `NOAUTH`、正确口令 `PONG`、错误口令被拒、后端登录与 `gk:perm:*` 缓存写入正常（11/11 断言通过）。
+> 上面 2026-09-12 的「实测现状」与"裁定"**保留为历史记录，不再代表当前实现**。
+
 ### 2.3 已知债（P2，留档不阻塞）：application.yml 占位默认值即真实密钥
 
 实测 `application.yml:17/72/75` 三个占位符**默认值是真实可用密钥**（DB 口令与远程库实连一致；AES/JWT 为 32+ 位真实值）。该文件按 lead 口径未被 git 跟踪，且全仓 docs/test grep 该三串**零命中**（密钥唯一载体就是此本地文件）。风险与缓解：
 - **容器路径已安全**：compose 三变量均 `:?` 强制，容器内不会回退到默认值；
 - **裸 `java -jar` 路径依赖默认值**（已知债，缓解已落地）：`.gitignore` **已补 `src/backend/src/main/resources/application.yml` 条目**（lead 提交于 `b3a0759`，含注释），误 `git add` 风险已闭环。备选方案「仓库内 application.yml 全空默认值 + 本地真值走 application-local.yml」改动面大，仅留档不实施。
+
+> **📌 后续更新（2026-09-28）：本节的「零命中」前提已不再成立。**
+> 按用户明确要求（仓库为 public），README 新增[「默认账号与密钥」](../../README.md#默认账号与密钥)章节，
+> **明文公开**了本地默认的 **DB 口令**与 **JWT 密钥**（AES 密钥此前已存在于公开提交历史中），
+> 并新增 Redis 默认口令。因此：
+> - 上面「全仓 grep 该三串零命中 / 密钥唯一载体就是此本地文件」**自 2026-09-28 起为假**；
+> - `.gitignore` 对 `application.yml` 的忽略**仍然有效**（该文件依旧不入库），但**保密性已丧失**——
+>   这几串值此后应一律按「已泄露」对待；
+> - 本笔属**知情取舍**（用户已确认），代价是「裸 `java -jar` 路径依赖默认值」这条已知债
+>   从"仅本地"升级为"公网可见"，缓解手段只剩**部署前强制替换**（`SecurityStartupCheck` 对
+>   "仍等于 yml 内置默认值"在生产环境已 fail-fast，是当前唯一自动化防线）。
 
 ---
 
