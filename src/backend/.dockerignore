@@ -1,4 +1,19 @@
+# ---- 构建产物（镜像内会重新编译，无需拷贝）----
 target/
+
+# ---- IDE ----
 .idea/
 *.iml
-mvn-test.log
+
+# ---- 本地真实配置：绝不能进镜像 ----
+# .gitignore 只管 git，管不住 docker build 的构建上下文。
+# src/main/resources/application.yml 未入库，但本地存在且含真实密钥与内网库地址；
+# 若在此不排除，docker build 会把它烤进镜像，推到公开仓库即等同泄露密钥。
+src/main/resources/application.yml
+src/main/resources/application-local.yml
+.env
+.env.local
+
+# ---- 日志与本地脚本/临时目录 ----
+*.log
+_*/

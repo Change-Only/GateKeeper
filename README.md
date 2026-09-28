@@ -575,6 +575,89 @@ docker compose up -d
 
 ---
 
+## Docker 镜像
+
+前后端均已容器化，两个 Dockerfile 都是多阶段构建：`src/backend/Dockerfile`（Maven 编译 → JRE 运行）、
+`src/frontend/Dockerfile`（Node 构建 SPA → Nginx 托管并反代 `/api` 到后端容器）。
+
+### 1. 一键构建 / 推送 / 导出
+
+```bash
+bash docker/build-and-push.sh              # 只构建并打标签
+bash docker/build-and-push.sh --push       # 构建后推送到 Docker Hub
+bash docker/build-and-push.sh --push --save   # 再额外导出镜像 tar 包到 dist/docker/
+```
+
+Windows PowerShell：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File docker\build-and-push.ps1 -Push
+```
+
+环境变量可覆盖：`GK_DOCKER_NAMESPACE`（Docker Hub 命名空间，默认 `changeonly`）、
+`GK_VERSION`（默认从 `src/backend/pom.xml` 自动读取，并会与前端 `package.json` 比对，不一致直接中止）。
+
+### 2. 镜像标签（单仓库多 tag）
+
+| 镜像 | 标签 |
+| --- | --- |
+| 后端网关 | `<namespace>/gatekeeper:backend-<version>` |
+| 前端管理后台 | `<namespace>/gatekeeper:frontend-<version>` |
+
+版本号同时写进镜像的 OCI 标签 `org.opencontainers.image.version`，可独立于 tag 读取：
+
+```bash
+docker inspect <namespace>/gatekeeper:backend-1.0.0 \
+  --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
+```
+
+### 3. 直接运行
+
+```bash
+docker run -d --name gk-backend -p 8080:8080 \
+  -e GATEKEEPER_DB_HOST=<数据库主机> -e GATEKEEPER_DB_PASSWORD=<数据库口令> \
+  -e GATEKEEPER_REDIS_HOST=<Redis主机> -e GATEKEEPER_REDIS_PASSWORD=<Redis口令> \
+  -e GATEKEEPER_JWT_SECRET=<32位以上随机串> -e GATEKEEPER_AES_KEY=<32位以上随机串> \
+  <namespace>/gatekeeper:backend-1.0.0
+
+docker run -d --name gk-frontend -p 8081:80 <namespace>/gatekeeper:frontend-1.0.0
+```
+
+更省事的方式是直接用编排（见上一节）：`docker compose up -d`。
+
+### 4. 镜像内不含真实密钥（重要）
+
+`src/main/resources/application.yml` 是本地真实配置（含真实密钥与内网库地址），
+它**未入库但确实存在于本地**。`.gitignore` 只管 git，**管不住 `docker build` 的构建上下文**——
+所以 `src/backend/.dockerignore` 显式排除了它。构建时改由官方模板顶替：
+
+```dockerfile
+RUN cp src/main/resources/application.example.yml src/main/resources/application.yml && mvn -B package -DskipTests
+```
+
+模板与本地配置**键集完全相同**（各 62 个键，已逐键比对），差异仅在 5 处：
+三项密钥的默认值为空、库地址默认 `localhost:3306`、库账号默认 `root`。
+
+因此镜像的安全基调是 **fail-fast**：不注入 `GATEKEEPER_JWT_SECRET` / `GATEKEEPER_AES_KEY` /
+`GATEKEEPER_DB_PASSWORD` 时，`SecurityStartupCheck` 会让进程**直接拒绝启动**，而不是以弱默认值裸奔。
+
+> 构建脚本已内置前置校验：若 `.dockerignore` 漏排 `application.yml`、或 Dockerfile 少了模板顶替那一步，
+> 脚本会**直接中止构建**，避免密钥被烤进镜像推到公开仓库。
+
+### 5. 从 Release 资产加载离线镜像
+
+每个版本的 Release 都附带两个 `docker load` 可直接加载的镜像包（含基础镜像层，离线可用）：
+
+```bash
+docker load -i gatekeeper-backend-1.0.0.tar
+docker load -i gatekeeper-frontend-1.0.0.tar
+# 加载后即为 <namespace>/gatekeeper:backend-1.0.0 / :frontend-1.0.0
+```
+
+包内是标准 `docker save` 格式（`manifest.json` + gzip 层），平台为 `linux/amd64`。
+
+---
+
 ## 默认账号与密钥
 
 > ⚠️ **本节内容会随公开仓库一并发布。** 下列取值全部是**本地开发 / 演示环境的默认值**，
