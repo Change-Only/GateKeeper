@@ -20,8 +20,87 @@ GateKeeper 把企业内部各后端系统的接口统一登记、集中授权，
 | 告警中心 | 按等级（INFO/WARNING/CRITICAL）汇聚网关内部错误、限流、自动封禁、异常入参等告警；未读统计、已读处置、顶栏铃铛实时提示 |
 | 调用日志 | 全链路记录：应用、接口、入参、响应、耗时、状态码、来源 IP、加密算法、限流/拦截标记；支持异步导出 CSV |
 | 统计与大屏 | 调用量趋势、应用排行、接口热度、错误率、耗时分布（P50/P90/P99）；大屏投屏展示 |
-| 权限体系 | RBAC 菜单/按钮权限（`sys_menu` 当前播种 **91** 个权限码）、`@RequirePerm` 注解式服务端强校验、Redis 权限缓存 |
+| 权限体系 | RBAC 菜单/按钮权限（`sys_menu` 当前播种 **74** 个权限码）、`@RequirePerm` 注解式服务端强校验、Redis 权限缓存 |
 | 系统管理 | 系统参数、数据字典、用户/角色、操作审计日志、安全策略 |
+
+---
+
+## 界面预览
+
+> 以下截图取自**本地真实运行环境**（`init.sql` + 迁移脚本 + 一批演示数据），由无头 Chrome 逐页实拍，非设计稿、非原型图。
+> 演示数据仅用于截图展示（应用 / 接口 / 分组 / 授权 / 用户 / 封禁），不随仓库分发。
+
+### 登录与概览
+
+| 登录页 | 概览（待办清单 / 风险看板 / 调用趋势） |
+|:---:|:---:|
+| ![登录页](docs/screenshots/01-login.png) | ![概览](docs/screenshots/02-dashboard.png) |
+
+### 接口资产
+
+| 接口列表（路径 / 方法 / 分组 / 后端地址 / 上下线） | 接口详情（参数定义 · 版本管理 · 环境配置 · 变更历史） |
+|:---:|:---:|
+| ![接口列表](docs/screenshots/05-api-list.png) | ![接口详情](docs/screenshots/24-api-detail.png) |
+
+| 接口分组（多级树） | 应用列表（AppKey / 状态 / 到期时间） |
+|:---:|:---:|
+| ![接口分组](docs/screenshots/04-api-group.png) | ![应用列表](docs/screenshots/03-app-list.png) |
+
+### 授权与权限体系
+
+| 接口授权总览（App × 接口矩阵，批量治理与越权排查） | 用户管理 |
+|:---:|:---:|
+| ![接口授权总览](docs/screenshots/06-perm-matrix.png) | ![用户管理](docs/screenshots/07-perm-user.png) |
+
+| 角色管理 | 数据权限 |
+|:---:|:---:|
+| ![角色管理](docs/screenshots/08-perm-role.png) | ![数据权限](docs/screenshots/09-perm-datascope.png) |
+
+| 操作审计 |
+|:---:|
+| ![操作审计](docs/screenshots/10-perm-audit.png) |
+
+### 网关安全与防护
+
+| 安全策略（异常检测 / IP 封禁 / 告警） | 封禁规则（动态规则 · 触发原因 · 阈值 · 时长） |
+|:---:|:---:|
+| ![安全策略](docs/screenshots/12-sys-security.png) | ![封禁规则](docs/screenshots/20-mon-block.png) |
+
+| 封禁名单（自动 / 人工封禁记录） | 告警规则 |
+|:---:|:---:|
+| ![封禁名单](docs/screenshots/25-mon-block-bans.png) | ![告警规则](docs/screenshots/13-sys-alarm.png) |
+
+### 加解密管理
+
+| 加解密管理（全局开关 · 应用 / 分组 / 接口三级覆盖 · 国密 SM2/SM3/SM4） |
+|:---:|
+| ![加解密管理](docs/screenshots/21-encryption.png) |
+
+### 监控、日志与大屏
+
+| 调用日志（全链路留痕，支持异步导出 CSV） | 告警记录 |
+|:---:|:---:|
+| ![调用日志](docs/screenshots/18-mon-calllog.png) | ![告警记录](docs/screenshots/19-mon-alarm.png) |
+
+| 日志与审计 | 数据大屏（投屏展示） |
+|:---:|:---:|
+| ![日志与审计](docs/screenshots/17-sys-log.png) | ![数据大屏](docs/screenshots/22-screen.png) |
+
+### 系统设置
+
+| 环境与网关 | 通知渠道（企微 / 钉钉 / 邮件 / Webhook） |
+|:---:|:---:|
+| ![环境与网关](docs/screenshots/11-sys-env.png) | ![通知渠道](docs/screenshots/14-sys-notify.png) |
+
+| 参数配置（SECURITY / GATEWAY / LOG / DEFAULT 分组，敏感项掩码） | 字典管理 |
+|:---:|:---:|
+| ![参数配置](docs/screenshots/15-sys-config.png) | ![字典管理](docs/screenshots/16-sys-dict.png) |
+
+### 开发者中心
+
+| 接入文档（签名规则 / 调用示例） |
+|:---:|
+| ![接入文档](docs/screenshots/23-access-doc.png) |
 
 ---
 

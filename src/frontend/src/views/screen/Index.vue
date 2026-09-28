@@ -54,10 +54,10 @@
 import { getScreenOverview, getScreenTrend, getAppRank, getInterfaceRank, getRecentEvents } from '@/api/modules'
 // echarts 按需引入（仅图表所需组件），避免打包全量 echarts（约 1MB）拖慢大屏加载
 import * as echarts from 'echarts/core'
-import { LineChart, BarChart } from 'echarts/charts'
+import { LineChart, BarChart, GaugeChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-echarts.use([LineChart, BarChart, GridComponent, TooltipComponent, CanvasRenderer])
+echarts.use([LineChart, BarChart, GaugeChart, GridComponent, TooltipComponent, CanvasRenderer])
 export default {
   data() {
     return {
@@ -85,8 +85,10 @@ export default {
     updateClock() { const d = new Date(); this.currentTime = d.toLocaleString('zh-CN', { hour12: false }) },
     // 并行加载所有大屏数据
     async loadAll() { await Promise.all([this.loadOverview(), this.loadTrend(), this.loadAppRank(), this.loadIfaceRank(), this.loadEvents()]) },
-    // 加载总览指标
-    async loadOverview() { const res = await getScreenOverview(); this.overview = res.data },
+    // 加载总览指标，并同步渲染调用成功率仪表盘
+    async loadOverview() { const res = await getScreenOverview(); this.overview = res.data; this.renderRate(res.data) },
+    // 渲染调用成功率仪表盘（V2 青色主题）；loadAll 每 10s 重跑，故复用已有实例避免重复 init
+    renderRate(d) { const dom = this.$refs.rateChart; if (!dom) return; const chart = echarts.getInstanceByDom(dom) || echarts.init(dom); chart.setOption({ series: [{ type: 'gauge', startAngle: 210, endAngle: -30, min: 0, max: 100, radius: '82%', center: ['50%', '58%'], progress: { show: true, width: 14, roundCap: true, itemStyle: { color: '#35c8f0' } }, axisLine: { lineStyle: { width: 14, color: [[1, 'rgba(86,150,255,.18)']] } }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, pointer: { show: false }, anchor: { show: false }, detail: { valueAnimation: true, offsetCenter: [0, '2%'], fontSize: 40, fontWeight: 'bold', color: '#2fd49b', formatter: '{value}%' }, data: [{ value: d && d.successRate != null ? d.successRate : 0 }] }] }) },
     // 渲染 24 小时调用量趋势折线图（V2 青色主题）
     async loadTrend() { const res = await getScreenTrend(); const chart = echarts.init(this.$refs.trendChart); chart.setOption({ tooltip: { trigger: 'axis' }, grid: { left: '5%', right: '5%', bottom: '10%', top: '15%' }, xAxis: { type: 'category', data: res.data.map(d => d.hour), axisLine: { lineStyle: { color: 'rgba(86,150,255,.3)' } }, axisLabel: { color: '#7fa0d8' } }, yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(86,150,255,.1)' } }, axisLabel: { color: '#7fa0d8' } }, series: [{ name: '调用量', type: 'line', smooth: true, symbolSize: 5, lineStyle: { width: 2.5, color: '#35c8f0' }, areaStyle: { opacity: .22, color: '#35c8f0' }, itemStyle: { color: '#35c8f0' }, data: res.data.map(d => d.count) }] }) },
     // 渲染应用访问量 Top10 横向条形图（V2 品牌蓝）
