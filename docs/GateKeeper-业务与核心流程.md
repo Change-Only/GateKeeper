@@ -9,7 +9,7 @@
 | 口径来源 | 源码（297 个 main Java / 86 个 test Java / 50 个 Vue）+ 线上库实测（`<db-host>:<db-port>`）+ `docs/` 既有契约记录 |
 | 适用范围 | 产品/研发/测试/运维对接，作为"这个系统到底在做什么"的统一口径 |
 | 时效声明 | 文中所有"实测"数据取自 **2026-09-18** 的线上库与 `d917570` 提交；表数量、行数、规则条数会随迭代变化，引用前请复核 |
-| 修订记录 | **v1.2（2026-09-27 死代码清理）**：删除 49 个无调用端点 + 24 个前端 API 函数 + 14 个孤儿 Service 方法 + 8 个孤儿权限点（+39 条角色授权）+ `app_quota` / `biz_line` 两张死表建表语句 + 13 项无读取点 `sys_config`（`sys_config` 19 行 → 6 行）。§3.3 / §4.1 / §5.x / §10.5 / §11 / §13.2 / §13.4 / 附录 A 已同步为清理后口径<br>**v1.1（T19）**：修复 §13.2「配置脱钩」与 §13.3「`X-Gk-Env` 失效」两项实测缺陷 —— 新建 `SysConfigAccessor` 接线 6 项配置、`EnvResolver` 统一四级环境头优先级、修正 3 处错误种子值、其余 13 项如实标注「未接线（预留）」。§4.3 / §5.4 / §13 / 附录 A 已同步为修复后口径 |
+| 修订记录 | **v1.2（2026-09-27 死代码清理）**：删 49 个无调用端点 + 24 个前端 API 函数 + 14 个孤儿 Service 方法 + 8 个孤儿权限点（+39 条角色授权）+ `app_quota` / `biz_line` 两张死表建表语句 + 13 项无读取点 `sys_config`（19 → 6 行）；**v1.1（T19）**：新建 `SysConfigAccessor` 接线 6 项、`EnvResolver` 统一四级环境头、修正 3 处错误种子值。同步：§3.3 / §4.1 / §5.x / §10.5 / §11 / §13.2 / §13.3 / §13.4 / §4.3 / §5.4 / §13 / 附录 A。 |
 
 ---
 
@@ -170,10 +170,8 @@ graph LR
 | `/access-doc` | 对外公开的接入文档页（无 token 也能看） | 侧边栏「开发者中心 → 接入文档」 |
 | `/screen` | 数据大屏（全屏投屏，页内含「返回控制台」） | 侧边栏「监控与审计 → 数据大屏」 |
 
-> **修订（2026-09-29，v1.0.1）**：`/screen` 此前**没有任何侧边栏入口**，而前端是 hash 路由，
-> 只能手输 `#/screen` 才能抵达，实际等同于该页不存在。现已在「监控与审计」下补入口
-> （`perm: ''` 免权限，**不新增权限点**），并给大屏页加了「返回控制台」按钮 ——
-> 否则从全屏页无法回到带侧边栏的布局。
+> **修订（2026-09-29，v1.0.1）**：`/screen` 此前无侧边栏入口（前端是 hash 路由，只能手输 `#/screen`，等同该页不存在）；已在「监控与审计」下补入口
+> （`perm: ''` 免权限，**不新增权限点**），并给大屏页加「返回控制台」按钮 —— 否则从全屏页无法回到带侧边栏的布局。
 
 隐蔽路由：`/encryption`（加解密管理，保留但不进侧边菜单，后续并入安全策略）。
 
@@ -291,7 +289,7 @@ X-Signature = SM3( AppKey + AppSecret明文 + X-Timestamp + X-Nonce )
 | 签名算法 | `sign.algorithm` | `SM3` | 固定 SM3 | ⚠️ 读取但**只接受 SM3**；配成其它值会打 WARN 并回退 SM3 |
 | 是否验签 | `gateway.auth.enabled` | `true` | `true` | ✅ 已接线，置 `false` 跳过防伪造/防重放 |
 
-> ✅ **T19 已接线**：4 项均由 `config/SysConfigAccessor.java` 运行时读取（唯一入口，缓存 60s，异常 fail-open 回退默认值），改配置最多 60s 生效（见 §13.2）。
+> ✅ **T19 已接线**：4 项均由 `config/SysConfigAccessor.java` 运行时读取，改配置最多 60s 生效（见 §13.2）。
 >
 > 🔴 **`gateway.auth.enabled=false` 的准确语义**：只跳过**防伪造/防重放**四步，**AppKey 存在性、应用启停、到期时间仍强制校验** —— 关的是"签名校验"而非"身份认证"；为 `false` 时启动打 **ERROR**、不阻断。
 >
@@ -470,8 +468,7 @@ sequenceDiagram
 
 设计意图：轮换期间**新旧密钥并存**，调用方平滑切换。
 
-关键点：**轮换中的新密钥不能成为主密钥**。历史教训：主密钥查询必须用
-`rotate_flag = 0 AND status = 1` + `selectList` + 按 `id desc` 取首条，**绝不能用 `selectOne`**（多条匹配会抛 `TooManyResultsException`）。
+关键点：**轮换中的新密钥不能成为主密钥**。主密钥查询必须用 `rotate_flag = 0 AND status = 1` + `selectList` + 按 `id desc` 取首条，**绝不能用 `selectOne`**（多条匹配会抛 `TooManyResultsException`）。
 
 ### 6.5 凭证门面与"不阻断"原则
 
@@ -760,11 +757,8 @@ graph LR
 | **🔴 红线：源码权限码 ⊆ 播种码** | **越界 0 个** ✅ | 不变 |
 | 播种但源码未用 | 16 个（只读**豁免码** + 仅前端菜单引用的码，属正常） | ↓ 2 |
 
-> **2026-09-27 清理（f06c7b9 + C 层）**：`@RequirePerm` 用法 128 → 105、源码码 73 → 67，
-> 来源是删除 **49 个无调用端点**；播种侧由 `docs/sql/t20-remove-dead-perms.sql` 移除
-> **8 个无引用权限点**（`app:credential:create`、`app_credential:list`、`api_param:import`、
-> `api_version:gray`、`api_env_config:create|delete|test`、`api_change_log:append`）
-> 及其 **39 条** `sys_role_menu` 授权。
+> **2026-09-27 清理（f06c7b9 + C 层）**：`@RequirePerm` 用法 128 → 105、源码码 73 → 67，来源是删除 **49 个无调用端点**；播种侧由 `docs/sql/t20-remove-dead-perms.sql` 移除 **8 个无引用权限点**
+> （`app:credential:create`、`app_credential:list`、`api_param:import`、`api_version:gray`、`api_env_config:create|delete|test`、`api_change_log:append`）及其 **39 条** `sys_role_menu` 授权。
 >
 > **2026-09-27（D 层）**：`app_quota` / `biz_line` 两张死表的**建表语句**已从 `init.sql` 移除（存量库按"不动"保留）；另有 **13 项**无读取点 `sys_config` 连行移除（19 行 → 6 行）。
 >
@@ -779,9 +773,9 @@ graph LR
 
 > 线上实测 `SHOW TABLES` = **42 张**（2026-09-18）；**新装口径为 40 张**（`init.sql` 34 张 +
 > `t13`/`t15-1`/`t15-4`/`t16-1`/`t17` 五个脚本的 6 张）。差额即 `app_quota` / `biz_line` 两张死表：
-> 建表语句已于 2026-09-27 从 `init.sql` 移除，但线上存量库与 `schema-v2.sql` 仍保留/建出（见 §11.2、§11.8、§3.3）。
+> 建表语句已于 2026-09-27 从 `init.sql` 移除（见 §11.2、§11.8、§3.3）。
 >
-> 下表「行数」取自 **2026-09-18 线上实测**（存量库按"不动"口径，`sys_config` 仍记 19 行；新装库 6 行，清理见 `docs/sql/t19-config-wiring.sql` §3）。
+> 下表「行数」取自 **2026-09-18 线上实测**（存量库按"不动"口径：`sys_config` 仍记 19 行；新装库 6 行，清理见 `docs/sql/t19-config-wiring.sql` §3）。
 
 ### 11.1 接口资产域（7 张）
 
@@ -899,13 +893,9 @@ graph LR
 - `ExportTaskServiceImpl` + `CallLogExportExecutor`：百万级异步导出
 - 分批 **5000** 行流式写临时 CSV → **原子改名**（避免导出中途被读到半截文件）
 - `AsyncConfig`：**有界线程池 + `CallerRunsPolicy` 背压**（队列满时由调用线程自己跑，宁可拖慢也不丢任务）
-- **单次导出无总量上限**（`CallLogExportExecutor` 只按 `BATCH_SIZE = 5000` 分批流式写盘，不设总行数闸）
-  —— 勘误：旧版此处写的 `sys_config['export.max.rows'] = 50000` 从未被任何代码读取，该键已于 2026-09-27 移除
+- **单次导出无总量上限**：`CallLogExportExecutor` 只按 `BATCH_SIZE = 5000` 分批流式写盘，不设总行数闸（旧 `sys_config['export.max.rows']` 从未被读取，已于 2026-09-27 移除）
 
-**启动自检**：`SecurityStartupCheck` 在启动时校验密钥配置（缺失/过短直接拒绝启动）。
-—— 勘误：旧版此处写的「`gk.schema.version = v2` 用于校验迁移脚本已执行」不成立，
-该键全仓**无任何读取点**，已于 2026-09-27 移除。如需迁移版本自检，应改用 `application.yml`
-或独立的 `schema_version` 表承载。
+**启动自检**：`SecurityStartupCheck` 启动时校验密钥配置（缺失/过短直接拒绝启动）；旧 `gk.schema.version` 键全仓**无任何读取点**，已于 2026-09-27 移除，迁移版本自检应改用 `application.yml` 或独立的 `schema_version` 表承载。
 
 ---
 
@@ -941,32 +931,25 @@ graph LR
 | `sign.algorithm` | `HmacSHA256` | `SM3` | 实际签名实现固定 SM3 |
 | `gateway.default.read.timeout` | `3000` | `5000` | `ForwardHandler.DEFAULT_TIMEOUT_MS` |
 
-> （原第 3 处 `secret.encrypt.algo` 随该行一并移除，见下。）
 >
 > 自检 SQL（期望返回空集，即不存在"没标读取点"的行）：
 > ```sql
 > SELECT config_key FROM sys_config WHERE remark NOT LIKE '%已接线%';
 > ```
 >
-> **这 13 项为何不是"接线"而是"移除"**：T19 当时选择保守做法——只在 `remark` 前缀打
-> 当时只在 `remark` 前缀打「⚠️ 未接线（预留）：」。但复核确认它们**自始至终没有任何读取点**：
-> 但复核确认它们**自始至终无读取点**，标注不能消除误导 —— 参数配置页仍是 13 个可编辑、可保存却无影响的开关。故 2026-09-27 连行移除（19 行 → 6 行）。
+> **这 13 项为何不是"接线"而是"移除"**：T19 只在其 `remark` 前缀打了「⚠️ 未接线（预留）：」，但复核确认它们**自始至终无读取点**，标注不能消除误导 —— 参数配置页仍是 13 个可编辑、可保存却无影响的开关，故 2026-09-27 连行移除（19 行 → 6 行）。
 > 将来若确需实现（如 `key.rotate.period` 的轮换告警），正确顺序是**先写读取点、再加配置行**。
 >
-> **特别说明**：`login.fail.threshold` 从未被 `sys_config` 消费，其真实控制点是 `application.yml`
-> 的 `gatekeeper.security.login-fail-threshold`（启动期只读）。两个键**同义不同名**，
-> 接线会造成双源歧义 —— 这也是它随本次清理一并移除、保留 yml 单一来源的原因。
+> **特别说明**：`login.fail.threshold` 从未被 `sys_config` 消费，真实控制点是 `application.yml` 的 `gatekeeper.security.login-fail-threshold`（启动期只读）；两键**同义不同名**，接线会造成双源歧义，故随本次清理移除、保留 yml 单一来源。
 
 ### 13.3 环境头口径（T19 已修复）
 
-**修复前**：`X-Env`（`AppAuthHandler`，`@Order(1)`）生效；`X-Gk-Env`（`EnvResolver`，`@Order(6)`）因"已存在不覆盖"**永不生效**。
+**修复前**：`X-Env`（`AppAuthHandler`）生效，`X-Gk-Env`（`EnvResolver`）因"已存在不覆盖"**永不生效**；**修复后**收敛为**单一读取点** `EnvResolver.resolve(ctx)`，优先级 **`X-Gk-Env` > `X-Env` > `gatekeeper.env` > `prod`**。参见 §4.3。
 
-**修复后**：解析收敛为**单一读取点** `EnvResolver.resolve(ctx)`，优先级 **`X-Gk-Env` > `X-Env` > `gatekeeper.env` > `prod`**，两头都可用。参见 §4.3。
 
 ### 13.4 业务线已下线
 
-`biz_line` 表与 `line_id` 列**在存量库中物理保留**，功能模块（菜单/权限点/授权）已删除；
-2026-09-27 起 `init.sql` 不再建 `biz_line` 表（死表）。参见 §3.3。
+`biz_line` 表与 `line_id` 列在存量库物理保留，功能模块（菜单/权限点/授权）已删除，2026-09-27 起 `init.sql` 不再建表（死表）。参见 §3.3。
 
 ### 13.5 定时任务无分布式互斥
 
@@ -978,7 +961,7 @@ graph LR
 
 ### 13.7 自动封禁能力未开启
 
-`block_rule` 表 0 行、`ip_ban` 表 0 行 ⇒ 自动封禁链路**当前不触发**（仅人工封禁在种子中启用）；安全检测仍正常写 `security_event`。
+`block_rule`、`ip_ban` 均 0 行 ⇒ 自动封禁链路当前不触发（仅人工封禁在种子中启用）。详见 §8.4。
 
 ### 13.8 接口路径无唯一约束
 
@@ -986,11 +969,11 @@ graph LR
 
 ### 13.9 草稿态接口可被网关转发
 
-网关匹配只校验 `status = 1`，不看 `publish_status`；`publish_status = 0`（草稿）只要 `status = 1` 就能被转发。
+网关匹配只校验 `status = 1`，不看 `publish_status` ⇒ 草稿态接口也能被转发。详见 §4.4。
 
 ### 13.10 授权回退表无环境维度
 
-`app_api_grant` 未命中时回退 `app_api_permission`（无环境/有效期/审批状态），是兼容口子，会在"新表没配但旧表有记录"时意外放行。
+`app_api_grant` 未命中时回退 `app_api_permission`（无环境/有效期/审批状态），是兼容口子，会在"新表没配但旧表有记录"时意外放行。详见 §7.2。
 
 ---
 
