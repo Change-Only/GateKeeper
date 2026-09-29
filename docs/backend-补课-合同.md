@@ -2,11 +2,11 @@
 
 > **目的**：本文件是一份「可直接交给后端工程师（eng-t01）实现」的精确合同，用于补齐 T05 前端计划的阻塞项——`sys-config`、`sys-dict`、`perm-datascope` 三个页面**没有后端 API**。
 >
-> **状态**：4 张表（`sys_config` / `sys_dict` / `sys_dict_item` / `sys_role_datascope`）与 4 个实体类已存在于代码中（来自 `schema-v2.sql`），**无需新增任何 DB 列**。缺的是 `Controller` / `Service` / `Mapper` 三层 + 少量 DTO。
+> **状态**：4 张表（`sys_config` / `sys_dict` / `sys_dict_item` / `sys_role_datascope`）与 4 个实体类已存在于代码中（来自 `schema-v2.sql`），**无需新增任何 DB 列**；缺的是 `Controller` / `Service` / `Mapper` 三层 + 少量 DTO。
 >
 > **范围**：仅本 3 个控制器。不修改任何既有后端代码、不改动存量表结构。
 >
-> **语言**：Java 8 / Spring Boot 2.7 / MyBatis-Plus 3.5，与项目既有 `BizLineController` 等 CRUD 三件组完全一致。
+> **语言**：Java 8 / Spring Boot 2.7 / MyBatis-Plus 3.5，与既有 `BizLineController` 等 CRUD 三件组完全一致。
 
 ---
 

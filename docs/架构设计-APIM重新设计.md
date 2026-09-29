@@ -5,7 +5,7 @@
 > 输入依据：
 >
 > 1. 原型（目标形态）`docs/prototype/api-platform-原型.html` —— 字段名/枚举值**直接取自 MOCK 数据**（`scripts[3]` 的 28 个实体），凡属推断处均显式标注「（推断）」
-> 2. 存量模型 `src/backend/src/main/resources/sql/init.sql`（416 行 / 18 张表）
+> 2. 存量模型 `src/backend/src/main/resources/sql/init.sql`（416 行/18 张表）
 > 3. 存量代码 `src/backend/src/main/java/com/gatekeeper/**`（含 91 个单测、网关责任链、安全检测策略、异步导出中心）
 >
 > 配套产物：`docs/sql/schema-v2.sql`（增量 DDL）、`docs/sql/migrate-v2.sql`（幂等迁移）
@@ -25,50 +25,50 @@
 
 ### 1.1 🟢 保留（Preserve）—— 一行代码都不动，是本项目最硬的资产
 
-| 资产                       | 位置                                                                             | 为什么保留                                                                                                                         |
+| 资产 | 位置 | 为什么保留 |
 | ------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| 网关责任链                    | `gateway/GatewayCore.java` + `gateway/handler/*`                               | AppAuth → IpWhitelist → RateLimit → Permission → AbnormalParamCheck → … → Log 的编排已稳定，91 个单测覆盖。V2 只做「**链上插一个新 Handler**」，不改编排器 |
-| 安全检测策略                   | `security/SecurityDetectionService` + 5 个 Detector                             | 薄门面 + 策略模式结构良好。V2 新增的 `block_rule` 只复用其产出（`security_event`），不替换它                                                              |
-| Redis fail-open 降级       | 各 Handler 内 + `job/RedisHealthMonitor`                                         | fail-open 与 30s 探活是正确性保障，V2 新增的 Redis 用法必须沿用同一套降级语义                                                                           |
-| 异步导出中心                   | `service/impl/ExportTaskServiceImpl` + `CallLogExportExecutor`                 | 分批 5000 流式写临时 CSV → 原子改名，百万级可用。V2 的审计日志导出**直接复用同一个 Executor**，只换 Query                                                        |
-| 有界线程池 + 背压               | `config/AsyncConfig`（CallerRunsPolicy）                                         | V2 的告警通知、配额统计全部复用该线程池，不自建                                                                                                     |
-| 启动密钥自检                   | `config/SecurityStartupCheck`                                                  | 保留，并把 `sys_config` 中的安全项纳入自检范围                                                                                                |
-| 日志保留                     | `job/LogRetentionJob`                                                          | 保留，改为读 `sys_config` 的 `call.log.hot.days` 而非硬编码                                                                               |
-| `api_call_log` 组合索引      | 5 个（time / app_time / iface_time / ip_time / status_time）                      | 已针对写放大优化过。V2 **只新增 2 个索引**，不新增单列索引                                                                                            |
-| 加解密体系                    | `crypto/*`、`api_encryption_config`、`app_encryption_config`、`EncryptionHandler` | 原型未覆盖该能力，但它是存量差异化资产，原样保留                                                                                                      |
-| Docker Compose / Knife4j | 根目录 + `config/Knife4jConfig`                                                   | 保留，Knife4j 自动收录新增 Controller                                                                                                  |
+| 网关责任链 | `gateway/GatewayCore.java` + `gateway/handler/*` | AppAuth → IpWhitelist → RateLimit → Permission → AbnormalParamCheck → … → Log 的编排已稳定，91 个单测覆盖。V2 只做「**链上插一个新 Handler**」，不改编排器 |
+| 安全检测策略 | `security/SecurityDetectionService` + 5 个 Detector | 薄门面 + 策略模式结构良好。V2 新增的 `block_rule` 只复用其产出（`security_event`），不替换它 |
+| Redis fail-open 降级 | 各 Handler 内 + `job/RedisHealthMonitor` | fail-open 与 30s 探活是正确性保障，V2 新增的 Redis 用法必须沿用同一套降级语义 |
+| 异步导出中心 | `service/impl/ExportTaskServiceImpl` + `CallLogExportExecutor` | 分批 5000 流式写临时 CSV → 原子改名，百万级可用。V2 的审计日志导出**直接复用同一个 Executor**，只换 Query |
+| 有界线程池 + 背压 | `config/AsyncConfig`（CallerRunsPolicy） | V2 的告警通知、配额统计全部复用该线程池，不自建 |
+| 启动密钥自检 | `config/SecurityStartupCheck` | 保留，并把 `sys_config` 中的安全项纳入自检范围 |
+| 日志保留 | `job/LogRetentionJob` | 保留，改为读 `sys_config` 的 `call.log.hot.days` 而非硬编码 |
+| `api_call_log` 组合索引 | 5 个（time/app_time/iface_time/ip_time/status_time） | 已针对写放大优化过。V2 **只新增 2 个索引**，不新增单列索引 |
+| 加解密体系 | `crypto/*`、`api_encryption_config`、`app_encryption_config`、`EncryptionHandler` | 原型未覆盖该能力，但它是存量差异化资产，原样保留 |
+| Docker Compose/Knife4j | 根目录 + `config/Knife4jConfig` | 保留，Knife4j 自动收录新增 Controller |
 
 
 ### 1.2 🟡 改造（Evolve）—— 加列 / 加分支 / 加 Handler，不改契约
 
-| 对象                      | 改造内容                                                                                                                 | 兼容手段                                                                                       |
+| 对象 | 改造内容 | 兼容手段 |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `app`                   | 加 `app_code/line_id/app_type/env_scope/contact_*/approval_required/audit_status`                                     | 存量 `app_key/app_secret/status` 全部保留                                                        |
-| `api_interface`         | 加 `api_code/line_id/visibility/auth_required/publish_status/current_version/sla/tags/transport_security/grant_count` | 存量 `status`（网关开关）与新增 `publish_status`（发布生命周期）**并存**，放行条件 = `status=1 AND publish_status=2` |
-| `api_group`             | 加 `group_code/line_id/owner_*/api_count/status`                                                                      | 存量树形 `parent_id` 保留                                                                        |
-| `api_call_log`          | 加 `trace_id/env_code/app_key/error_code/reject_stage/auth_cost/upstream_cost/api_version`                            | 存量字段不动；新增 2 个组合索引                                                                          |
-| `ip_ban`                | 扩展为「IP + 应用」双 scope 统一封禁名单（加 `scope/target/env_code/reason_code/block_times/ttl_seconds/unblock_*`）                  | `IpBanCheckHandler` / `IpBanService` / `SecurityController` 继续可用，只是多了 scope 维度             |
-| `alert`                 | 加 `rule_id/rule_name/alarm_type/alarm_level/scope_desc/trigger_value/env_code/handler_name/notify_status`            | 不新建 `alarm_record` 表，`AlertService` 与 `RedisHealthMonitor` 零改动                             |
-| `sys_user` / `sys_role` | 加 `emp_no/dept/line_id` 与 `role_type/data_scope/user_count`                                                          | 存量账号/角色全部保留                                                                                |
-| `sys_operation_log`     | 加 `perm_code/risk_flag/object_desc/change_content/result/fail_reason`                                                | 不新建 `audit_log` 表，`OperationLogAspect` 只增加赋值                                               |
-| 网关 `AppAuthHandler`     | 改为「按 app_key 查 `app_credential` → 拿 app_id」，再校验 env / status / expire                                                | `app.app_key` 保留为冗余列，回滚时改回一行代码                                                             |
-| 网关 `RateLimitHandler`   | 优先读 `app_quota`（按 env），未配置时回退 `app_rate_limit`                                                                       | `app_rate_limit` 保留为降级源                                                                    |
-| 网关 `PermissionHandler`  | 改读 `app_api_grant`（含 env + 状态机 + 有效期）                                                                                | `app_api_permission` 保留为回滚快照，迁移后不再写入                                                       |
-| 网关责任链                   | **新增** `VersionRouteHandler`（灰度分流），插在 Permission 之后、Forward 之前                                                       | `GatewayCore` 编排器不改，只在链表中插入一项                                                              |
-| `JwtAuthInterceptor`    | 从「只认证不授权」升级为「认证 + 权限点校验」                                                                                             | 见 §4.5；拦截器接口不变                                                                             |
+| `app` | 加 `app_code/line_id/app_type/env_scope/contact_*/approval_required/audit_status` | 存量 `app_key/app_secret/status` 全部保留 |
+| `api_interface` | 加 `api_code/line_id/visibility/auth_required/publish_status/current_version/sla/tags/transport_security/grant_count` | 存量 `status`（网关开关）与新增 `publish_status`（发布生命周期）**并存**，放行条件 = `status=1 AND publish_status=2` |
+| `api_group` | 加 `group_code/line_id/owner_*/api_count/status` | 存量树形 `parent_id` 保留 |
+| `api_call_log` | 加 `trace_id/env_code/app_key/error_code/reject_stage/auth_cost/upstream_cost/api_version` | 存量字段不动；新增 2 个组合索引 |
+| `ip_ban` | 扩展为「IP + 应用」双 scope 统一封禁名单（加 `scope/target/env_code/reason_code/block_times/ttl_seconds/unblock_*`） | `IpBanCheckHandler`/`IpBanService`/`SecurityController` 继续可用，只是多了 scope 维度 |
+| `alert` | 加 `rule_id/rule_name/alarm_type/alarm_level/scope_desc/trigger_value/env_code/handler_name/notify_status` | 不新建 `alarm_record` 表，`AlertService` 与 `RedisHealthMonitor` 零改动 |
+| `sys_user`/`sys_role` | 加 `emp_no/dept/line_id` 与 `role_type/data_scope/user_count` | 存量账号/角色全部保留 |
+| `sys_operation_log` | 加 `perm_code/risk_flag/object_desc/change_content/result/fail_reason` | 不新建 `audit_log` 表，`OperationLogAspect` 只增加赋值 |
+| 网关 `AppAuthHandler` | 改为「按 app_key 查 `app_credential` → 拿 app_id」，再校验 env/status/expire | `app.app_key` 保留为冗余列，回滚时改回一行代码 |
+| 网关 `RateLimitHandler` | 优先读 `app_quota`（按 env），未配置时回退 `app_rate_limit` | `app_rate_limit` 保留为降级源 |
+| 网关 `PermissionHandler` | 改读 `app_api_grant`（含 env + 状态机 + 有效期） | `app_api_permission` 保留为回滚快照，迁移后不再写入 |
+| 网关责任链 | **新增** `VersionRouteHandler`（灰度分流），插在 Permission 之后、Forward 之前 | `GatewayCore` 编排器不改，只在链表中插入一项 |
+| `JwtAuthInterceptor` | 从「只认证不授权」升级为「认证 + 权限点校验」 | 见 §4.5；拦截器接口不变 |
 
 ### 1.3 🔵 新建（Build）—— 18 张表 + 9 个域包 + 20 个前端页面
 
-| 域    | 新建表                                                         | 职责                                         |
+| 域 | 新建表 | 职责 |
 | ---- | ----------------------------------------------------------- | ------------------------------------------ |
-| 组织   | `biz_line`、`env`                                            | 业务线与环境两个一级维度（环境是贯穿全局的横切维度）                 |
-| 权限   | `sys_menu`、`sys_role_menu`、`sys_role_datascope`             | 权限点树、角色授权、数据权限范围                           |
-| 接口定义 | `api_param`、`api_version`、`api_env_config`、`api_change_log` | 参数/版本/环境配置/变更历史，围绕 `api_interface` 展开      |
-| 应用   | `app_credential`、`app_quota`                                | 多密钥 + 轮换；按环境配额                             |
-| 授权   | `app_api_grant`                                             | 带审批流、有效期、环境、配额的授权（替代 `app_api_permission`） |
-| 告警   | `alarm_rule`、`notify_channel`                               | 告警规则与通知渠道（`alert` 表复用为告警记录）                |
-| 系统   | `sys_config`、`sys_dict`、`sys_dict_item`                     | 参数配置与数据字典（均上 Redis 缓存）                     |
-| 风控   | `block_rule`                                                | 动态封禁规则（与 `security_rule` 的「检测」职责分离）        |
+| 组织 | `biz_line`、`env` | 业务线与环境两个一级维度（环境是贯穿全局的横切维度） |
+| 权限 | `sys_menu`、`sys_role_menu`、`sys_role_datascope` | 权限点树、角色授权、数据权限范围 |
+| 接口定义 | `api_param`、`api_version`、`api_env_config`、`api_change_log` | 参数/版本/环境配置/变更历史，围绕 `api_interface` 展开 |
+| 应用 | `app_credential`、`app_quota` | 多密钥 + 轮换；按环境配额 |
+| 授权 | `app_api_grant` | 带审批流、有效期、环境、配额的授权（替代 `app_api_permission`） |
+| 告警 | `alarm_rule`、`notify_channel` | 告警规则与通知渠道（`alert` 表复用为告警记录） |
+| 系统 | `sys_config`、`sys_dict`、`sys_dict_item` | 参数配置与数据字典（均上 Redis 缓存） |
+| 风控 | `block_rule` | 动态封禁规则（与 `security_rule` 的「检测」职责分离） |
 
 ---
 
@@ -118,12 +118,12 @@
 
 **分工原则（写进团队共识）：**
 
-|       | 控制面                           | 数据面                               |
+| | 控制面 | 数据面 |
 | ----- | ----------------------------- | --------------------------------- |
-| 关注    | 元数据增删改查、审批、配置                 | 单次请求的鉴权/限流/路由/转发                  |
-| 数据源   | 直连 MySQL                      | **只**读 Redis + 本地缓存，**不**直连 MySQL |
-| 可用性要求 | 可短暂不可用                        | 必须高可用，Redis 挂了要 fail-open         |
-| 变更传播  | 写库 → 主动删 Redis key → 网关下次读时回源 | 本地 Caffeine 30s TTL 兜底            |
+| 关注 | 元数据增删改查、审批、配置 | 单次请求的鉴权/限流/路由/转发 |
+| 数据源 | 直连 MySQL | **只**读 Redis + 本地缓存，**不**直连 MySQL |
+| 可用性要求 | 可短暂不可用 | 必须高可用，Redis 挂了要 fail-open |
+| 变更传播 | 写库 → 主动删 Redis key → 网关下次读时回源 | 本地 Caffeine 30s TTL 兜底 |
 
 ---
 
@@ -574,11 +574,11 @@ sequenceDiagram
 
 #### 备选方案
 
-| 方案 | 做法                            | 优点                                               | 缺点                                                        |
+| 方案 | 做法 | 优点 | 缺点 |
 | -- | ----------------------------- | ------------------------------------------------ | --------------------------------------------------------- |
-| A  | 各处加 `env_id` 外键，关联 `env(id)`  | 严格范式，改名无忧                                        | 网关每次查询需多一次 JOIN 或二次查询；Redis key 要存 id，可读性差；`env` 表增删改影响面大 |
-| B  | 各处加 `env_code` 冗余（VARCHAR 32） | 网关零 JOIN；Redis key 可读（`gk:rl:prod:20001`）；SQL 直观 | `env_code` 需保证不可变，否则冗余不一致                                 |
-| C  | 不引入 env 表，用配置枚举               | 最省事                                              | 无法在控制台增删改环境（原型明确有「环境与网关」页面）                               |
+| A | 各处加 `env_id` 外键，关联 `env(id)` | 严格范式，改名无忧 | 网关每次查询需多一次 JOIN 或二次查询；Redis key 要存 id，可读性差；`env` 表增删改影响面大 |
+| B | 各处加 `env_code` 冗余（VARCHAR 32） | 网关零 JOIN；Redis key 可读（`gk:rl:prod:20001`）；SQL 直观 | `env_code` 需保证不可变，否则冗余不一致 |
+| C | 不引入 env 表，用配置枚举 | 最省事 | 无法在控制台增删改环境（原型明确有「环境与网关」页面） |
 
 #### ✅ 选择：**B（env_code 冗余）+ env 表作为主数据 + env_code 创建后不可变**
 
@@ -590,11 +590,11 @@ sequenceDiagram
 
 **网关运行时按环境路由（三种候选）**：
 
-| 候选 | 做法                                                  | 结论                      |
+| 候选 | 做法 | 结论 |
 | -- | --------------------------------------------------- | ----------------------- |
-| a  | 每个环境部署独立网关实例（各自连自己的 DB/Redis），env 由启动参数 `GK_ENV` 注入 | ✅ **推荐**                |
-| b  | 单实例，env 由请求 Header `X-GK-Env` 决定                    | ❌ 客户端可伪造，等于把环境隔离权交给调用方  |
-| c  | 单实例，env 由 Host/域名区分                                 | ⚠️ 可行但增加网关路由复杂度，且本地联调困难 |
+| a | 每个环境部署独立网关实例（各自连自己的 DB/Redis），env 由启动参数 `GK_ENV` 注入 | ✅ **推荐** |
+| b | 单实例，env 由请求 Header `X-GK-Env` 决定 | ❌ 客户端可伪造，等于把环境隔离权交给调用方 |
+| c | 单实例，env 由 Host/域名区分 | ⚠️ 可行但增加网关路由复杂度，且本地联调困难 |
 
 **最终方案 = a + 凭证二次校验**：
 
@@ -608,16 +608,16 @@ sequenceDiagram
 
 ### 4.2 D2 · 接口版本与灰度（gray_ratio 在数据面如何实现）
 
-**原型事实**：`api_version` 有 `version / status / isCurrent / grayRatio / deprecateTime / offlinePlanTime`；`api_env_config` 有 `apiId / envCode / upstreamUrl / timeouts / retryCount / mockEnabled`（**没有 version 字段**）。
+**原型事实**：`api_version` 有 `version/status/isCurrent/grayRatio/deprecateTime/offlinePlanTime`；`api_env_config` 有 `apiId/envCode/upstreamUrl/timeouts/retryCount/mockEnabled`（**没有 version 字段**）。
 
 #### 灰度算法候选
 
-| 候选 | 做法                                             | 优点                  | 缺点                          |
+| 候选 | 做法 | 优点 | 缺点 |
 | -- | ---------------------------------------------- | ------------------- | --------------------------- |
-| a  | 随机：`Random.nextInt(100) < grayRatio`           | 严格按比例               | 同一应用请求在 v1/v2 间跳变，状态不一致、难排查 |
-| b  | 按 `appId` 稳定哈希：`hash(appId) % 100 < grayRatio` | 同一应用恒定命中，可灰度指定应用白名单 | 比例受 appId 分布影响（应用数少时偏差大）    |
-| c  | 按 `traceId`/请求 ID 哈希                           | 分布最均匀               | 同一调用方跳变，同 a                 |
-| d  | 显式白名单：只有配置的应用走灰度                               | 最可控                 | 无法表达"百分比"                   |
+| a | 随机：`Random.nextInt(100) < grayRatio` | 严格按比例 | 同一应用请求在 v1/v2 间跳变，状态不一致、难排查 |
+| b | 按 `appId` 稳定哈希：`hash(appId) % 100 < grayRatio` | 同一应用恒定命中，可灰度指定应用白名单 | 比例受 appId 分布影响（应用数少时偏差大） |
+| c | 按 `traceId`/请求 ID 哈希 | 分布最均匀 | 同一调用方跳变，同 a |
+| d | 显式白名单：只有配置的应用走灰度 | 最可控 | 无法表达"百分比" |
 
 #### ✅ 选择：**b（appId 稳定哈希）为主 + d（显式指定）为覆盖**
 
@@ -653,14 +653,14 @@ ORDER BY version DESC LIMIT 1;   -- version 非空优先
 
 **运行时读法（性能）**：`api_version` + `api_env_config` 数据量极小（千级），用 **Caffeine 本地缓存（30s 刷新）+ Redis 发布变更版本号** 双保险；Redis 不可用时本地缓存继续服务（fail-open）。
 
-**为什么不用 Spring Cloud Gateway / Nacos 权重路由**：会引入 Spring Cloud 依赖栈，与 Spring Boot 2.7 + 自研责任链的现状冲突，且改造面远超"演进"边界。
+**为什么不用 Spring Cloud Gateway/Nacos 权重路由**：会引入 Spring Cloud 依赖栈，与 Spring Boot 2.7 + 自研责任链的现状冲突，且改造面远超"演进"边界。
 
 ---
 
 
 ### 4.3 D3 · 授权审批流状态机与网关校验的关系
 
-**原型事实**：`grant_status` 字典 = `0待审批 / 1已生效 / 2已过期 / 3已撤销 / 4已驳回`；`grants` 有 `validFrom / validTo / applicantName / auditorName / auditTime / grantReason`。
+**原型事实**：`grant_status` 字典 = `0待审批/1已生效/2已过期/3已撤销/4已驳回`；`grants` 有 `validFrom/validTo/applicantName/auditorName/auditTime/grantReason`。
 
 #### 状态机
 
@@ -677,26 +677,26 @@ ORDER BY version DESC LIMIT 1;   -- version 非空优先
   免审批路径：[创建申请] ─(approval.enabled=false 且 app.approvalRequired=0)─▶ 1 已生效
 ```
 
-| 迁移             | 触发                                   | 权限点             | 副作用                             |
+| 迁移 | 触发 | 权限点 | 副作用 |
 | -------------- | ------------------------------------ | --------------- | ------------------------------- |
-| create → 0 / 1 | `GrantService.apply`                 | `grant:create`  | 写 `sys_operation_log`           |
-| 0 → 1          | `approve(approved=true)`             | `grant:approve` | **DEL Redis 授权缓存**，写审计          |
-| 0 → 4          | `approve(approved=false)`            | `grant:approve` | 写审计                             |
-| 1 → 3          | `revoke`                             | `grant:revoke`  | **DEL Redis 缓存**，riskFlag=1，写审计 |
-| 1 → 2          | `GrantExpireJob`（每天 02:00，批量 UPDATE） | 系统              | 仅更新列表展示/统计                      |
-| 2 / 4 → 0      | `resubmit`                           | `grant:create`  | 重新进入审批                          |
-| 2 → 1          | `renew`（改 validTo 后重新审批）             | `grant:approve` | DEL Redis 缓存                    |
+| create → 0/1 | `GrantService.apply` | `grant:create` | 写 `sys_operation_log` |
+| 0 → 1 | `approve(approved=true)` | `grant:approve` | **DEL Redis 授权缓存**，写审计 |
+| 0 → 4 | `approve(approved=false)` | `grant:approve` | 写审计 |
+| 1 → 3 | `revoke` | `grant:revoke` | **DEL Redis 缓存**，riskFlag=1，写审计 |
+| 1 → 2 | `GrantExpireJob`（每天 02:00，批量 UPDATE） | 系统 | 仅更新列表展示/统计 |
+| 2/4 → 0 | `resubmit` | `grant:create` | 重新进入审批 |
+| 2 → 1 | `renew`（改 validTo 后重新审批） | `grant:approve` | DEL Redis 缓存 |
 
 #### 网关校验规则（**核心结论：审批中的授权一律不生效**）
 
-| 状态                                  | 网关行为 | errorCode            |
+| 状态 | 网关行为 | errorCode |
 | ----------------------------------- | ---- | -------------------- |
-| 0 待审批                               | ❌ 拒绝 | `API_NOT_AUTHORIZED` |
-| 4 已驳回                               | ❌ 拒绝 | `API_NOT_AUTHORIZED` |
-| 3 已撤销                               | ❌ 拒绝 | `GRANT_REVOKED`      |
-| 2 已过期                               | ❌ 拒绝 | `GRANT_EXPIRED`      |
-| 1 已生效 且 `validFrom ≤ now ≤ validTo` | ✅ 放行 | —                    |
-| 1 已生效 但超出有效期                        | ❌ 拒绝 | `GRANT_EXPIRED`      |
+| 0 待审批 | ❌ 拒绝 | `API_NOT_AUTHORIZED` |
+| 4 已驳回 | ❌ 拒绝 | `API_NOT_AUTHORIZED` |
+| 3 已撤销 | ❌ 拒绝 | `GRANT_REVOKED` |
+| 2 已过期 | ❌ 拒绝 | `GRANT_EXPIRED` |
+| 1 已生效 且 `validFrom ≤ now ≤ validTo` | ✅ 放行 | — |
+| 1 已生效 但超出有效期 | ❌ 拒绝 | `GRANT_EXPIRED` |
 
 **为什么审批中不生效**：安全默认拒绝（Default Deny）。审批中放行等于"先上车后补票"，一旦审批被驳回，已经产生的调用无法回收，对含敏感信息的接口（`user.get`）是不可接受的风险。原型中 `status=0` 的授权（财务报表系统）`usedToday=0`，与"未生效"一致。
 
@@ -716,17 +716,17 @@ ORDER BY version DESC LIMIT 1;   -- version 非空优先
 
 #### 备选方案
 
-| 方案 | 做法                                                                        | 优点                                         | 缺点                              |
+| 方案 | 做法 | 优点 | 缺点 |
 | -- | ------------------------------------------------------------------------- | ------------------------------------------ | ------------------------------- |
-| A  | 自研 MyBatis Interceptor，正则改写 SQL WHERE                                     | 完全可控                                       | 别名/子查询/UNION 解析极易出错，维护成本高       |
-| B  | Service 层条件拼装：每个查询方法手动 `wrapper.in("line_id", ids)`                       | 简单、可预测、易调试                                 | 侵入业务代码，易漏写（"忘了加过滤"= 越权）         |
-| C  | **MyBatis-Plus 3.5 内置 `DataPermissionInterceptor`**（基于 JSQLParser 改写 AST） | 官方支持、全局生效、业务零感知、有 `@InterceptorIgnore` 逃生口 | 复杂 SQL（多表 JOIN 别名 / UNION）需显式跳过 |
+| A | 自研 MyBatis Interceptor，正则改写 SQL WHERE | 完全可控 | 别名/子查询/UNION 解析极易出错，维护成本高 |
+| B | Service 层条件拼装：每个查询方法手动 `wrapper.in("line_id", ids)` | 简单、可预测、易调试 | 侵入业务代码，易漏写（"忘了加过滤"= 越权） |
+| C | **MyBatis-Plus 3.5 内置 `DataPermissionInterceptor`**（基于 JSQLParser 改写 AST） | 官方支持、全局生效、业务零感知、有 `@InterceptorIgnore` 逃生口 | 复杂 SQL（多表 JOIN 别名/UNION）需显式跳过 |
 
 #### ✅ 选择：**C 为主 + B 兜底 + 复杂查询显式跳过**
 
 **理由**：MP 3.5.x 已内置该能力（`com.baomidou.mybatisplus.extension.plugins.inner.DataPermissionInterceptor`），无需自研解析器，与现有 `MybatisPlusConfig` 天然集成；"漏写过滤"这一最大风险由全局拦截器消除。
 
-**实现要点（Java 8 / MP 3.5）**：
+**实现要点（Java 8/MP 3.5）**：
 
 ```java
 // datascope/DataScopeHandler.java
@@ -769,10 +769,10 @@ public DataPermissionInterceptor dataPermissionInterceptor(DataScopeHandler h) {
 **必须跳过的场景**（用 MP 的 `@InterceptorIgnore(dataPermission = "true")` 或 ThreadLocal 开关）：
 
 - `DashboardService` 的全平台聚合统计（概览页 KPI 不应被业务线过滤，否则"接口总数"对 BIZ_ADMIN 显示 3 个）
-- `LogRetentionJob` / `CallLogExportExecutor` / `GrantExpireJob` 等后台任务（无登录上下文，必须放行 → 用 `UserContext` 判空天然放行）
-- `sys_user` / `sys_role` / `sys_menu` / `sys_config` / `sys_dict` 等系统表的查询（这些表没有 `line_id` 列，拦截器会因列不存在报错 → **只对含 `line_id` / `env_code` / `group_id` 列的表生效**，通过 `mappedStatementId` 白名单控制）
+- `LogRetentionJob`/`CallLogExportExecutor`/`GrantExpireJob` 等后台任务（无登录上下文，必须放行 → 用 `UserContext` 判空天然放行）
+- `sys_user`/`sys_role`/`sys_menu`/`sys_config`/`sys_dict` 等系统表的查询（这些表没有 `line_id` 列，拦截器会因列不存在报错 → **只对含 `line_id`/`env_code`/`group_id` 列的表生效**，通过 `mappedStatementId` 白名单控制）
 
-**落地建议**：把「需要数据权限过滤的表」显式登记为白名单（`app / api_interface / api_group / app_api_grant / api_call_log / app_quota / app_credential`），**不在白名单内的一律不过滤**。宁可少过滤，不可误过滤或 SQL 报错。
+**落地建议**：把「需要数据权限过滤的表」显式登记为白名单（`app/api_interface/api_group/app_api_grant/api_call_log/app_quota/app_credential`），**不在白名单内的一律不过滤**。宁可少过滤，不可误过滤或 SQL 报错。
 
 ---
 
@@ -792,11 +792,11 @@ registry.addInterceptor(jwtAuthInterceptor)
 
 #### 备选方案
 
-| 方案 | 做法                                                         | 结论                                                                                     |
+| 方案 | 做法 | 结论 |
 | -- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| A  | 在 `WebConfig` 里维护 URL → 角色 的硬编码映射表                         | ❌ 规则散落在配置里，每加一个接口改一次配置，且与原型 29 个细粒度权限点不匹配                                              |
-| B  | Spring Security + `@PreAuthorize`                          | ⚠️ 能力完备，但引入 Spring Security 会与现有 `JwtAuthInterceptor` / `SecurityStartupCheck` 冲突，改造面大 |
-| C  | **`@RequirePerm("app:create")` 注解 + AOP/拦截器 + Redis 权限集合** | ✅ 推荐                                                                                   |
+| A | 在 `WebConfig` 里维护 URL → 角色 的硬编码映射表 | ❌ 规则散落在配置里，每加一个接口改一次配置，且与原型 29 个细粒度权限点不匹配 |
+| B | Spring Security + `@PreAuthorize` | ⚠️ 能力完备，但引入 Spring Security 会与现有 `JwtAuthInterceptor`/`SecurityStartupCheck` 冲突，改造面大 |
+| C | **`@RequirePerm("app:create")` 注解 + AOP/拦截器 + Redis 权限集合** | ✅ 推荐 |
 
 #### ✅ 选择：**C**
 
@@ -824,7 +824,7 @@ redisTemplate.opsForValue().set("gk:perm:" + userId, String.join(",", perms), 30
 redisTemplate.delete(redisTemplate.keys("gk:perm:*"));   // 或按角色反查精确失效
 ```
 
-> JWT **不携带权限**（避免 token 膨胀与权限变更滞后），只带 `uid` / `username`（现状即如此，零改动）。
+> JWT **不携带权限**（避免 token 膨胀与权限变更滞后），只带 `uid`/`username`（现状即如此，零改动）。
 
 **(3) 校验切面（新增 `aspect/PermCheckAspect.java`，在 `JwtAuthInterceptor` 之后执行）**
 
@@ -855,22 +855,22 @@ public Object check(ProceedingJoinPoint pjp, RequirePerm rp) throws Throwable {
 
 ### 4.6 D6 · 告警评估触发方式
 
-**原型事实**：7 条规则，覆盖 `FAIL_RATE / AUTH_FAIL / QUOTA_USAGE / AVG_LATENCY / KEY_EXPIRE / ZOMBIE_API / QPS_SURGE`，窗口从 5 分钟到 43200 分钟（30 天）不等，静默期 10~10080 分钟。
+**原型事实**：7 条规则，覆盖 `FAIL_RATE/AUTH_FAIL/QUOTA_USAGE/AVG_LATENCY/KEY_EXPIRE/ZOMBIE_API/QPS_SURGE`，窗口从 5 分钟到 43200 分钟（30 天）不等，静默期 10~10080 分钟。
 
 #### 备选方案
 
-| 方案 | 做法                                      | 优点          | 缺点                                                       |
+| 方案 | 做法 | 优点 | 缺点 |
 | -- | --------------------------------------- | ----------- | -------------------------------------------------------- |
-| A  | 纯定时轮询：`@Scheduled` 每分钟聚合 `api_call_log` | 实现最简单，不侵入网关 | 实时性差（≥1min）；高频扫热表（`api_call_log` 千万级）压力大；窗口 5min 的规则延迟明显 |
-| B  | 纯网关内埋点：LogHandler 中自增 Redis 计数，超阈值立即触发  | 秒级发现，不查库    | 埋点逻辑浸入数据面主链路；计数维度多（app/api/接口）时 key 膨胀；Redis 挂了告警全丢      |
-| C  | **混合：按 alarm_type 分类，实时型埋点 + 离线型轮询**    | 各取所长        | 两套实现                                                     |
+| A | 纯定时轮询：`@Scheduled` 每分钟聚合 `api_call_log` | 实现最简单，不侵入网关 | 实时性差（≥1min）；高频扫热表（`api_call_log` 千万级）压力大；窗口 5min 的规则延迟明显 |
+| B | 纯网关内埋点：LogHandler 中自增 Redis 计数，超阈值立即触发 | 秒级发现，不查库 | 埋点逻辑浸入数据面主链路；计数维度多（app/api/接口）时 key 膨胀；Redis 挂了告警全丢 |
+| C | **混合：按 alarm_type 分类，实时型埋点 + 离线型轮询** | 各取所长 | 两套实现 |
 
 #### ✅ 选择：**C（混合）**
 
-| 类型            | 规则                                                | 触发方式                                                                                    | 周期        |
+| 类型 | 规则 | 触发方式 | 周期 |
 | ------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------- | --------- |
-| **实时型**（流量指标） | `FAIL_RATE`、`AUTH_FAIL`、`QPS_SURGE`、`AVG_LATENCY` | 网关 `LogHandler` 异步埋点写 Redis 滑窗（ZSET，score=时间戳），`AlarmEvaluateJob` 每 **10s** 读窗口计算 + 判阈值 | 10s       |
-| **离线型**（状态指标） | `QUOTA_USAGE`、`KEY_EXPIRE`、`ZOMBIE_API`           | `AlarmEvaluateJob` 每 **5min**（密钥/配额）与每天 05:00（僵尸接口）扫配置表/授权表                             | 5min / 1d |
+| **实时型**（流量指标） | `FAIL_RATE`、`AUTH_FAIL`、`QPS_SURGE`、`AVG_LATENCY` | 网关 `LogHandler` 异步埋点写 Redis 滑窗（ZSET，score=时间戳），`AlarmEvaluateJob` 每 **10s** 读窗口计算 + 判阈值 | 10s |
+| **离线型**（状态指标） | `QUOTA_USAGE`、`KEY_EXPIRE`、`ZOMBIE_API` | `AlarmEvaluateJob` 每 **5min**（密钥/配额）与每天 05:00（僵尸接口）扫配置表/授权表 | 5min/1d |
 
 **理由**：
 
@@ -892,15 +892,15 @@ public Object check(ProceedingJoinPoint pjp, RequirePerm rp) throws Throwable {
 
 #### ✅ 结论：**都上缓存**，且采用 **Cache-Aside + 主动失效**，不用 TTL 兜底
 
-| 项    | Redis key               | 结构                   | 数据量           | 失效策略                     |
+| 项 | Redis key | 结构 | 数据量 | 失效策略 |
 | ---- | ----------------------- | -------------------- | ------------- | ------------------------ |
-| 字典   | `gk:dict:{dictCode}`    | List<DictItem>（JSON） | ~6 个字典 / 22 项 | 字典或字典项增删改 → `DEL` 对应 key |
-| 参数配置 | `gk:config:{configKey}` | String               | ~19 项         | 配置修改 → `DEL` 对应 key      |
+| 字典 | `gk:dict:{dictCode}` | List<DictItem>（JSON） | ~6 个字典/22 项 | 字典或字典项增删改 → `DEL` 对应 key |
+| 参数配置 | `gk:config:{configKey}` | String | ~19 项 | 配置修改 → `DEL` 对应 key |
 
 **为什么上缓存**：
 
 - 字典在**每一次列表页渲染、每一次下拉框加载**都会读，且原型中下拉框遍布 20 个页面；
-- `sys_config` 中的 `sign.*` / `gateway.*` 项是**网关每次请求都可能读**的（如 `gateway.auth.enabled`）；
+- `sys_config` 中的 `sign.*`/`gateway.*` 项是**网关每次请求都可能读**的（如 `gateway.auth.enabled`）；
 - 两者都是读多写少（写操作以"天"计），是缓存的最佳场景。
 
 **一致性处理（三段式）**：
@@ -998,28 +998,28 @@ getters: { hasPerm: state => code => state.perms.includes(code) || state.perms.i
 
 ### 5.3 页面落地清单（20 页）
 
-| 模块    | 页面     | 路由                | 复用现有组件                                |
+| 模块 | 页面 | 路由 | 复用现有组件 |
 | ----- | ------ | ----------------- | ------------------------------------- |
-| 概览    | 概览     | `/dashboard`      | ✅ 改造 `views/dashboard/Index.vue`      |
-| 应用管理  | 应用列表   | `/app/list`       | ✅ 改造 `views/app/Index.vue`            |
-| 接口管理  | 接口分组   | `/api/group`      | ✅ 复用 `views/interface/Index.vue` 的分组树 |
-|       | 接口列表   | `/api/list`       | ✅ 改造 `views/interface/Index.vue`      |
-| 权限管理  | 用户管理   | `/perm/user`      | ✅ 复用 `views/system/Index.vue` 用户 Tab  |
-|       | 角色管理   | `/perm/role`      | ✅ 复用角色 Tab                            |
-|       | 接口授权总览 | `/perm/matrix`    | ✅ 复用 `views/permission/Index.vue`     |
-|       | 数据权限   | `/perm/datascope` | 🆕                                    |
-|       | 操作审计   | `/perm/audit`     | ✅ 复用 `views/system/Index.vue` 审计 Tab  |
-| 系统设置  | 环境与网关  | `/sys/env`        | 🆕                                    |
-|       | 安全策略   | `/sys/security`   | ✅ 复用 `views/security/Rule.vue`        |
-|       | 业务线管理  | `/sys/bizline`    | 🆕                                    |
-|       | 字典管理   | `/sys/dict`       | 🆕                                    |
-|       | 告警规则   | `/sys/alarm`      | 🆕                                    |
-|       | 通知渠道   | `/sys/notify`     | 🆕                                    |
-|       | 参数配置   | `/sys/config`     | 🆕                                    |
-|       | 日志与审计  | `/sys/log`        | ✅ 复用 `views/log/Index.vue`            |
-| 监控与审计 | 调用日志   | `/mon/calllog`    | ✅ 复用 `views/log/Index.vue`            |
-|       | 告警记录   | `/mon/alarm`      | ✅ 改造 `views/alert/Index.vue`          |
-|       | 封禁管理   | `/mon/block`      | ✅ 复用 `views/security/Ban.vue`         |
+| 概览 | 概览 | `/dashboard` | ✅ 改造 `views/dashboard/Index.vue` |
+| 应用管理 | 应用列表 | `/app/list` | ✅ 改造 `views/app/Index.vue` |
+| 接口管理 | 接口分组 | `/api/group` | ✅ 复用 `views/interface/Index.vue` 的分组树 |
+| | 接口列表 | `/api/list` | ✅ 改造 `views/interface/Index.vue` |
+| 权限管理 | 用户管理 | `/perm/user` | ✅ 复用 `views/system/Index.vue` 用户 Tab |
+| | 角色管理 | `/perm/role` | ✅ 复用角色 Tab |
+| | 接口授权总览 | `/perm/matrix` | ✅ 复用 `views/permission/Index.vue` |
+| | 数据权限 | `/perm/datascope` | 🆕 |
+| | 操作审计 | `/perm/audit` | ✅ 复用 `views/system/Index.vue` 审计 Tab |
+| 系统设置 | 环境与网关 | `/sys/env` | 🆕 |
+| | 安全策略 | `/sys/security` | ✅ 复用 `views/security/Rule.vue` |
+| | 业务线管理 | `/sys/bizline` | 🆕 |
+| | 字典管理 | `/sys/dict` | 🆕 |
+| | 告警规则 | `/sys/alarm` | 🆕 |
+| | 通知渠道 | `/sys/notify` | 🆕 |
+| | 参数配置 | `/sys/config` | 🆕 |
+| | 日志与审计 | `/sys/log` | ✅ 复用 `views/log/Index.vue` |
+| 监控与审计 | 调用日志 | `/mon/calllog` | ✅ 复用 `views/log/Index.vue` |
+| | 告警记录 | `/mon/alarm` | ✅ 改造 `views/alert/Index.vue` |
+| | 封禁管理 | `/mon/block` | ✅ 复用 `views/security/Ban.vue` |
 
 > 16/20 页可由现有组件改造复用，仅 6 页从零新建 —— 这是"演进"而非"重写"在前端侧的体现。
 
@@ -1030,31 +1030,31 @@ getters: { hasPerm: state => code => state.perms.includes(code) || state.perms.i
 
 ### 6.1 存量 12 个 Controller 处置表
 
-| #  | Controller                   | 路径               | 处置             | 具体动作                                                                                                                                                              |
+| # | Controller | 路径 | 处置 | 具体动作 |
 | -- | ---------------------------- | ---------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1  | `AuthController`             | `/auth/**`       | **保留 + 扩展**    | 新增 `/auth/profile`、`/auth/menus`（返回权限树 + 权限点数组）；`/auth/login` 返回体增加 `perms`、`menus`                                                                               |
-| 2  | `AppController`              | `/app/**`        | **保留 + 扩展**    | 请求/响应 DTO 增加 `appCode/lineId/appType/envScope/contact*/approvalRequired`；新增子资源 `/app/{id}/credentials`（CRUD + reset + revoke）、`/app/{id}/quota`（按 env）            |
-| 3  | `InterfaceController`        | `/interface/**`  | **保留 + 扩展**    | DTO 增加原型字段；新增 `/interface/{id}/params`、`/versions`、`/env-configs`、`/change-logs`、`/publish`、`/offline`；**另注册别名 `/api/**`（新 `ApiDefController`）**，两条路径指向同一 Service |
-| 4  | `ApiGroupController`         | `/group/**`      | **保留 + 扩展**    | DTO 增加 `groupCode/lineId/owner*`                                                                                                                                  |
-| 5  | `PermissionController`       | `/permission/**` | **保留路径 + 换底层** | 对外契约不变（`/list`、`/grant`、`/batch`、`/revoke`），底层 `app_api_permission` → `app_api_grant`；新增 `/permission/{id}/approve`、`/reject`、`/renew`、`/pending`                 |
-| 6  | `CallLogController`          | `/log/**`        | **保留 + 扩展**    | 查询参数增加 `envCode / errorCode / rejectStage / traceId / apiVersion`；导出能力原样复用                                                                                        |
-| 7  | `AlertController`            | `/alert/**`      | **保留 + 语义对齐**  | 响应增加 `ruleId/alarmType/alarmLevel/scopeDesc/triggerValue/envCode/handlerName`；`status` 语义扩展为 0待处理/1处理中/2已处理/3已忽略                                                  |
-| 8  | `SecurityController`         | `/security/**`   | **保留 + 扩展**    | `/ip-ban` 扩展为统一封禁名单（增加 `scope/target/envCode/reasonCode/ttlSeconds`）；新增 `/security/block-rule`                                                                    |
-| 9  | `EncryptionConfigController` | `/encryption/**` | **保留不动**       | 原型未覆盖，原样保留                                                                                                                                                        |
-| 10 | `DashboardController`        | `/dashboard/**`  | **保留 + 扩展**    | 新增 `/dashboard/overview` 返回原型结构（metrics/todos/risks/topApis/topApps）；现有 `/screen/*` 保留供大屏页                                                                        |
-| 11 | `GatewayController`          | `/gateway/**`    | **保留不动**       | 数据面入口，仅 `GatewayContext` 增加字段                                                                                                                                     |
-| 12 | `SystemController`           | `/system/**`     | **保留 + 扩展**    | 新增用户/角色/审计的原型字段；新增菜单权限、数据权限、字典、配置、环境、业务线、通知渠道、告警规则（或拆到新域 Controller，`/system/**` 保留为兼容入口）                                                                         |
+| 1 | `AuthController` | `/auth/**` | **保留 + 扩展** | 新增 `/auth/profile`、`/auth/menus`（返回权限树 + 权限点数组）；`/auth/login` 返回体增加 `perms`、`menus` |
+| 2 | `AppController` | `/app/**` | **保留 + 扩展** | 请求/响应 DTO 增加 `appCode/lineId/appType/envScope/contact*/approvalRequired`；新增子资源 `/app/{id}/credentials`（CRUD + reset + revoke）、`/app/{id}/quota`（按 env） |
+| 3 | `InterfaceController` | `/interface/**` | **保留 + 扩展** | DTO 增加原型字段；新增 `/interface/{id}/params`、`/versions`、`/env-configs`、`/change-logs`、`/publish`、`/offline`；**另注册别名 `/api/**`（新 `ApiDefController`）**，两条路径指向同一 Service |
+| 4 | `ApiGroupController` | `/group/**` | **保留 + 扩展** | DTO 增加 `groupCode/lineId/owner*` |
+| 5 | `PermissionController` | `/permission/**` | **保留路径 + 换底层** | 对外契约不变（`/list`、`/grant`、`/batch`、`/revoke`），底层 `app_api_permission` → `app_api_grant`；新增 `/permission/{id}/approve`、`/reject`、`/renew`、`/pending` |
+| 6 | `CallLogController` | `/log/**` | **保留 + 扩展** | 查询参数增加 `envCode/errorCode/rejectStage/traceId/apiVersion`；导出能力原样复用 |
+| 7 | `AlertController` | `/alert/**` | **保留 + 语义对齐** | 响应增加 `ruleId/alarmType/alarmLevel/scopeDesc/triggerValue/envCode/handlerName`；`status` 语义扩展为 0待处理/1处理中/2已处理/3已忽略 |
+| 8 | `SecurityController` | `/security/**` | **保留 + 扩展** | `/ip-ban` 扩展为统一封禁名单（增加 `scope/target/envCode/reasonCode/ttlSeconds`）；新增 `/security/block-rule` |
+| 9 | `EncryptionConfigController` | `/encryption/**` | **保留不动** | 原型未覆盖，原样保留 |
+| 10 | `DashboardController` | `/dashboard/**` | **保留 + 扩展** | 新增 `/dashboard/overview` 返回原型结构（metrics/todos/risks/topApis/topApps）；现有 `/screen/*` 保留供大屏页 |
+| 11 | `GatewayController` | `/gateway/**` | **保留不动** | 数据面入口，仅 `GatewayContext` 增加字段 |
+| 12 | `SystemController` | `/system/**` | **保留 + 扩展** | 新增用户/角色/审计的原型字段；新增菜单权限、数据权限、字典、配置、环境、业务线、通知渠道、告警规则（或拆到新域 Controller，`/system/**` 保留为兼容入口） |
 
 **新增 Controller（本期）**：`EnvController`、`BizLineController`、`MenuController`、`DataScopeController`、`DictController`、`ConfigController`、`NotifyChannelController`、`AlarmRuleController`、`BlockRuleController`、`ApiDefController`（`/api/**` 别名）、`GrantController`（`/grant/**`，与 `/permission/**` 同 Service）。
 
 ### 6.2 前端 API 调用平滑过渡
 
-| 阶段         | 动作                                                                        |
+| 阶段 | 动作 |
 | ---------- | ------------------------------------------------------------------------- |
-| 阶段 1       | 后端保证**所有存量接口响应字段只增不减**（`app/list` 多返回 `appCode/lineId/appType` 等，老前端忽略即可） |
-| 阶段 2       | 前端 `api/modules.js` 拆分为按域文件 + 聚合再导出，老 `import` 路径零改动                      |
-| 阶段 3       | 新页面使用新路径（`/api/app/list`、`/api/grant/list`），老页面继续用老路径                     |
-| 阶段 4（V2.1） | 老路径标记 `@Deprecated`，前端全部切完后删除                                             |
+| 阶段 1 | 后端保证**所有存量接口响应字段只增不减**（`app/list` 多返回 `appCode/lineId/appType` 等，老前端忽略即可） |
+| 阶段 2 | 前端 `api/modules.js` 拆分为按域文件 + 聚合再导出，老 `import` 路径零改动 |
+| 阶段 3 | 新页面使用新路径（`/api/app/list`、`/api/grant/list`），老页面继续用老路径 |
+| 阶段 4（V2.1） | 老路径标记 `@Deprecated`，前端全部切完后删除 |
 
 **响应体格式保持不变**：`{code, data, message}`（`common/Result.java`），前端 `api/index.js` 的拦截器零改动。分页保持 `PageResult` 结构。
 
@@ -1066,15 +1066,15 @@ getters: { hasPerm: state => code => state.perms.includes(code) || state.perms.i
 3) 应用切换       —— 网关改读新表（app_credential / app_quota / app_api_grant）
 ```
 
-**回滚预案**：`app_api_permission`、`app_rate_limit`、`app.app_key/app_secret` 全部保留且迁移脚本不删除任何数据 —— 一旦 V2 出问题，改回 `AppAuthHandler` / `RateLimitHandler` / `PermissionHandler` 的读取源即可（3 个类的行数级改动），无需回滚数据库。
+**回滚预案**：`app_api_permission`、`app_rate_limit`、`app.app_key/app_secret` 全部保留且迁移脚本不删除任何数据 —— 一旦 V2 出问题，改回 `AppAuthHandler`/`RateLimitHandler`/`PermissionHandler` 的读取源即可（3 个类的行数级改动），无需回滚数据库。
 
 ### 6.4 存量枚举冲突处理（3 处，已在 DDL 注释中标注）
 
-| 表                      | 存量语义              | 原型语义                                  | 处理                                                         |
+| 表 | 存量语义 | 原型语义 | 处理 |
 | ---------------------- | ----------------- | ------------------------------------- | ---------------------------------------------------------- |
-| `app.status`           | 1启用 / 0停用 / 2已过期  | 0=待审核                                 | 新增 `audit_status`（0待审核/1已通过），`status` 保持不变                 |
-| `api_interface.status` | 1启用 / 0停用         | `api_status`: 0草稿/1待审核/2已发布/3已弃用/4已下线 | 新增 `publish_status`，网关放行 = `status=1 AND publish_status=2` |
-| `alert.status`         | 0未读/1已读/2已处理/3已忽略 | `handleStatus`: 0待处理/1处理中/2已处理/3已忽略   | 语义微调（0→待处理, 1→处理中），旧数据无需迁移                                 |
+| `app.status` | 1启用/0停用/2已过期 | 0=待审核 | 新增 `audit_status`（0待审核/1已通过），`status` 保持不变 |
+| `api_interface.status` | 1启用/0停用 | `api_status`: 0草稿/1待审核/2已发布/3已弃用/4已下线 | 新增 `publish_status`，网关放行 = `status=1 AND publish_status=2` |
+| `alert.status` | 0未读/1已读/2已处理/3已忽略 | `handleStatus`: 0待处理/1处理中/2已处理/3已忽略 | 语义微调（0→待处理, 1→处理中），旧数据无需迁移 |
 
 ---
 
@@ -1083,61 +1083,61 @@ getters: { hasPerm: state => code => state.perms.includes(code) || state.perms.i
 
 ### 7.1 表清单与来源
 
-| #  | 表                                                 | 来源                   | 说明                       |
+| # | 表 | 来源 | 说明 |
 | -- | ------------------------------------------------- | -------------------- | ------------------------ |
-| 1  | `biz_line`                                        | 🆕 原型 bizLines       | 业务线                      |
-| 2  | `env`                                             | 🆕 原型 envs           | 环境主数据，env_code 不可变       |
-| 3  | `sys_menu`                                        | 🆕 原型 menus          | 6 模块 + 28 权限点 + 20 页面节点  |
-| 4  | `sys_role_menu`                                   | 🆕 原型 rolePerms      | 角色权限点                    |
-| 5  | `sys_role_datascope`                              | 🆕 原型 数据权限页          | 角色数据范围（业务线/环境/分组）        |
-| 6  | `api_param`                                       | 🆕 原型 apiParams      | 参数/响应/错误码，支持嵌套           |
-| 7  | `api_version`                                     | 🆕 原型 apiVersions    | 版本 + 灰度比例                |
-| 8  | `api_env_config`                                  | 🆕 原型 apiEnvConfigs  | 按环境（+可选版本）的上游配置          |
-| 9  | `api_change_log`                                  | 🆕 原型 apiChangeLogs  | 接口变更历史                   |
-| 10 | `app_credential`                                  | 🆕 原型 credentials    | 多密钥 + 环境 + 轮换            |
-| 11 | `app_quota`                                       | 🆕 原型 appQuotas      | 按环境配额（替代 app_rate_limit） |
-| 12 | `app_api_grant`                                   | 🆕 原型 grants         | 带审批/有效期/环境的授权            |
-| 13 | `alarm_rule`                                      | 🆕 原型 alarmRules     | 告警规则                     |
-| 14 | `notify_channel`                                  | 🆕 原型 notifyChannels | 通知渠道                     |
-| 15 | `sys_config`                                      | 🆕 原型 configs        | 参数配置（19 项种子）             |
-| 16 | `sys_dict`                                        | 🆕 原型 dicts          | 字典（6 个）                  |
-| 17 | `sys_dict_item`                                   | 🆕 原型 dicts[].items  | 字典项（22 项）                |
-| 18 | `block_rule`                                      | 🆕 原型 blockRules     | 动态封禁规则（5 条种子）            |
-| 19 | `app`                                             | 🔧 ALTER             | +9 列                     |
-| 20 | `app_ip_whitelist`                                | 🔧 ALTER             | +env_code, +status       |
-| 21 | `api_group`                                       | 🔧 ALTER             | +6 列                     |
-| 22 | `api_interface`                                   | 🔧 ALTER             | +13 列                    |
-| 23 | `api_call_log`                                    | 🔧 ALTER             | +7 列 + 2 索引              |
-| 24 | `ip_ban`                                          | 🔧 ALTER             | 扩展为统一封禁名单，+10 列          |
-| 25 | `alert`                                           | 🔧 ALTER             | +10 列（承载 alarmRecords）   |
-| 26 | `sys_user`                                        | 🔧 ALTER             | +3 列                     |
-| 27 | `sys_role`                                        | 🔧 ALTER             | +3 列                     |
-| 28 | `sys_operation_log`                               | 🔧 ALTER             | +6 列（承载 auditLogs）       |
-| —  | `app_rate_limit`                                  | ⏸ 保留                 | 配额降级回退源                  |
-| —  | `app_api_permission`                              | ⏸ 保留                 | 授权回滚快照                   |
-| —  | `api_encryption_config` / `app_encryption_config` | ⏸ 保留                 | 加解密资产                    |
-| —  | `security_rule` / `security_event`                | ⏸ 保留                 | 安全检测资产                   |
-| —  | `export_task` / `sys_user_role`                   | ⏸ 保留                 | —                        |
+| 1 | `biz_line` | 🆕 原型 bizLines | 业务线 |
+| 2 | `env` | 🆕 原型 envs | 环境主数据，env_code 不可变 |
+| 3 | `sys_menu` | 🆕 原型 menus | 6 模块 + 28 权限点 + 20 页面节点 |
+| 4 | `sys_role_menu` | 🆕 原型 rolePerms | 角色权限点 |
+| 5 | `sys_role_datascope` | 🆕 原型 数据权限页 | 角色数据范围（业务线/环境/分组） |
+| 6 | `api_param` | 🆕 原型 apiParams | 参数/响应/错误码，支持嵌套 |
+| 7 | `api_version` | 🆕 原型 apiVersions | 版本 + 灰度比例 |
+| 8 | `api_env_config` | 🆕 原型 apiEnvConfigs | 按环境（+可选版本）的上游配置 |
+| 9 | `api_change_log` | 🆕 原型 apiChangeLogs | 接口变更历史 |
+| 10 | `app_credential` | 🆕 原型 credentials | 多密钥 + 环境 + 轮换 |
+| 11 | `app_quota` | 🆕 原型 appQuotas | 按环境配额（替代 app_rate_limit） |
+| 12 | `app_api_grant` | 🆕 原型 grants | 带审批/有效期/环境的授权 |
+| 13 | `alarm_rule` | 🆕 原型 alarmRules | 告警规则 |
+| 14 | `notify_channel` | 🆕 原型 notifyChannels | 通知渠道 |
+| 15 | `sys_config` | 🆕 原型 configs | 参数配置（19 项种子） |
+| 16 | `sys_dict` | 🆕 原型 dicts | 字典（6 个） |
+| 17 | `sys_dict_item` | 🆕 原型 dicts[].items | 字典项（22 项） |
+| 18 | `block_rule` | 🆕 原型 blockRules | 动态封禁规则（5 条种子） |
+| 19 | `app` | 🔧 ALTER | +9 列 |
+| 20 | `app_ip_whitelist` | 🔧 ALTER | +env_code, +status |
+| 21 | `api_group` | 🔧 ALTER | +6 列 |
+| 22 | `api_interface` | 🔧 ALTER | +13 列 |
+| 23 | `api_call_log` | 🔧 ALTER | +7 列 + 2 索引 |
+| 24 | `ip_ban` | 🔧 ALTER | 扩展为统一封禁名单，+10 列 |
+| 25 | `alert` | 🔧 ALTER | +10 列（承载 alarmRecords） |
+| 26 | `sys_user` | 🔧 ALTER | +3 列 |
+| 27 | `sys_role` | 🔧 ALTER | +3 列 |
+| 28 | `sys_operation_log` | 🔧 ALTER | +6 列（承载 auditLogs） |
+| — | `app_rate_limit` | ⏸ 保留 | 配额降级回退源 |
+| — | `app_api_permission` | ⏸ 保留 | 授权回滚快照 |
+| — | `api_encryption_config`/`app_encryption_config` | ⏸ 保留 | 加解密资产 |
+| — | `security_rule`/`security_event` | ⏸ 保留 | 安全检测资产 |
+| — | `export_task`/`sys_user_role` | ⏸ 保留 | — |
 
 > 注：`dashboard`（概览）与原型中的 `blocklists` 不新建表 —— 概览是聚合查询，封禁名单由 `ip_ban` 扩展承担。
 
 ### 7.2 字段映射备注（原型名 → 库表列）
 
-| 原型字段                        | 库表列                                        | 备注                               |
+| 原型字段 | 库表列 | 备注 |
 | --------------------------- | ------------------------------------------ | -------------------------------- |
-| `apis.apiId`                | `api_interface.id`                         | 实体主键                             |
-| `callLogs.apiId`            | `api_call_log.interface_id`                | **同义，不新增冗余列**                    |
-| `ipWhitelists.ipValue`      | `app_ip_whitelist.ip_cidr`                 | **同义，不新增冗余列**                    |
-| `users.mobile`              | `sys_user.phone`                           | **同义，不新增冗余列**                    |
-| `grants.usedToday`          | Redis `gk:grant:used:{yyyyMMdd}:{grantId}` | **不落库**，避免热行写放大                  |
-| `apps.envScope`（数组）         | `app.env_scope`（逗号分隔串）                     | MySQL 无数组类型；长度 ≤ 64              |
-| `apis.tags`（数组）             | `api_interface.tags`（逗号分隔串）                | 同上                               |
-| `credentials.secretMask`    | `app_credential.secret_mask`               | 展示用掩码，真实 secret 加密存 `app_secret` |
-| `blocklists.blockBy`        | `ip_ban.created_by`                        | 0=系统自动，其他=用户ID                   |
-| `blocklists.expireTime`     | `ip_ban.ban_end_time`                      | **同义**                           |
-| `blocklists.reasonDetail`   | `ip_ban.ban_reason`                        | **同义**                           |
-| `alarmRecords.handleStatus` | `alert.status`                             | 语义扩展对齐                           |
-| `auditLogs.*`               | `sys_operation_log.*`                      | **不新建表**，加列承载                    |
+| `apis.apiId` | `api_interface.id` | 实体主键 |
+| `callLogs.apiId` | `api_call_log.interface_id` | **同义，不新增冗余列** |
+| `ipWhitelists.ipValue` | `app_ip_whitelist.ip_cidr` | **同义，不新增冗余列** |
+| `users.mobile` | `sys_user.phone` | **同义，不新增冗余列** |
+| `grants.usedToday` | Redis `gk:grant:used:{yyyyMMdd}:{grantId}` | **不落库**，避免热行写放大 |
+| `apps.envScope`（数组） | `app.env_scope`（逗号分隔串） | MySQL 无数组类型；长度 ≤ 64 |
+| `apis.tags`（数组） | `api_interface.tags`（逗号分隔串） | 同上 |
+| `credentials.secretMask` | `app_credential.secret_mask` | 展示用掩码，真实 secret 加密存 `app_secret` |
+| `blocklists.blockBy` | `ip_ban.created_by` | 0=系统自动，其他=用户ID |
+| `blocklists.expireTime` | `ip_ban.ban_end_time` | **同义** |
+| `blocklists.reasonDetail` | `ip_ban.ban_reason` | **同义** |
+| `alarmRecords.handleStatus` | `alert.status` | 语义扩展对齐 |
+| `auditLogs.*` | `sys_operation_log.*` | **不新建表**，加列承载 |
 
 ---
 
@@ -1145,7 +1145,7 @@ getters: { hasPerm: state => code => state.perms.includes(code) || state.perms.i
 
 ### 8.1 Required Packages（全部沿用现有技术栈，不新增框架）
 
-后端（Java 8 / Spring Boot 2.7，以下版本与现有 `pom.xml` 保持一致即可）：
+后端（Java 8/Spring Boot 2.7，以下版本与现有 `pom.xml` 保持一致即可）：
 
 ```
 - spring-boot-starter-web@2.7.x: Web MVC（已有）
@@ -1181,9 +1181,7 @@ getters: { hasPerm: state => code => state.perms.includes(code) || state.perms.i
 - **来源文件**：
   - `docs/sql/schema-v2.sql`（新建）
   - `docs/sql/migrate-v2.sql`（新建）
-  - `entity/` 新增 18 个实体：`BizLine, Env, SysMenu, SysRoleMenu, SysRoleDataScope, ApiParam, ApiVersion, ApiEnvConfig, ApiChangeLog, AppCredential, AppQuota, AppApiGrant, AlarmRule, NotifyChannel, SysConfig, SysDict, SysDictItem, BlockRule`
-  - 存量实体补充新字段：`App, ApiGroup, ApiInterface, ApiCallLog, IpBan, Alert, SysUser, SysRole, SysOperationLog`
-  - `mapper/` 新增 18 个 Mapper + 对应 XML（若用 XML）
+  - `entity/` 新增 18 个实体、`mapper/` 新增 18 个 Mapper（清单见 §7.1）；存量实体（`App, ApiGroup, ApiInterface, ApiCallLog, IpBan, Alert, SysUser, SysRole, SysOperationLog`）补充新字段
 - **验收**：两个 SQL 在 MySQL 8 上执行通过且可重复执行；`schema-v2.sql` 的变更清单与本文 §7.1 一致
 
 #### T02 · 权限基座：菜单权限点 + 数据权限 + 字典/配置缓存
@@ -1238,7 +1236,7 @@ getters: { hasPerm: state => code => state.perms.includes(code) || state.perms.i
 - **优先级**：P1
 - **依赖**：T02, T03, T04
 - **来源文件**：
-  - `frontend/src/api/` 拆分：`app.js / apidef.js / grant.js / alarm.js / log.js / sys.js / conf.js / block.js` + `modules.js`（改：聚合 re-export）
+  - `frontend/src/api/` 拆分：`app.js/apidef.js/grant.js/alarm.js/log.js/sys.js/conf.js/block.js` + `modules.js`（改：聚合 re-export）
   - `frontend/src/router/modules/*.js`（新建 6 个）+ `router/index.js`（改：聚合 + meta.perm）
   - `frontend/src/directive/perm.js`（新建）、`store/index.js`（改：perms/menus + hasPerm）
   - `frontend/src/components/Layout.vue`（**改**：后端菜单树渲染）
@@ -1297,15 +1295,15 @@ graph TD
 
 ### 9.1 需要产品（Alice）确认的问题
 
-| # | 问题                                          | 我的默认假设（已按此设计，可推翻）                                                      |
+| # | 问题 | 我的默认假设（已按此设计，可推翻） |
 | - | ------------------------------------------- | ---------------------------------------------------------------------- |
-| 1 | `alarmRules.scopeType` 的 1/2 具体含义？          | 1=按对象（应用/接口）评估，2=平台全局评估                                                |
-| 2 | `app_quota` 是否要支持「按接口覆盖配额」？                 | 本期只做应用×环境级；接口级配额由 `app_api_grant.qps_limit/daily_quota` 承担             |
-| 3 | 原型 `apps.status=0`（待审核）与存量 `status=0`（停用）冲突 | 新增 `audit_status` 承载待审核，`status` 保持不变                                  |
-| 4 | 授权到期前是否需要「提前提醒」告警？                          | 由 `KEY_EXPIRE` 类规则扩展（原型概览页有"授权 32 天后到期"的风险项，建议纳入）                      |
-| 5 | 「数据权限」中「自定义」（CUSTOM）具体指什么？                  | 由 `sys_role_datascope` 的 BIZ_LINE/ENV/API_GROUP 三类范围组合表达               |
-| 6 | 是否需要「授权申请单」独立表（一个申请包含多个接口）？                 | 本期 `app_api_grant` 一行 = 一个应用×接口×环境授权，申请多个接口产生多行（共享 applicant/audit 信息） |
-| 7 | 外部应用（`appType=2`）是否强制 IP 白名单？               | 由 `sys_config.external.ip.whitelist.required` 控制（原型已有该配置项，默认 true）     |
+| 1 | `alarmRules.scopeType` 的 1/2 具体含义？ | 1=按对象（应用/接口）评估，2=平台全局评估 |
+| 2 | `app_quota` 是否要支持「按接口覆盖配额」？ | 本期只做应用×环境级；接口级配额由 `app_api_grant.qps_limit/daily_quota` 承担 |
+| 3 | 原型 `apps.status=0`（待审核）与存量 `status=0`（停用）冲突 | 新增 `audit_status` 承载待审核，`status` 保持不变 |
+| 4 | 授权到期前是否需要「提前提醒」告警？ | 由 `KEY_EXPIRE` 类规则扩展（原型概览页有"授权 32 天后到期"的风险项，建议纳入） |
+| 5 | 「数据权限」中「自定义」（CUSTOM）具体指什么？ | 由 `sys_role_datascope` 的 BIZ_LINE/ENV/API_GROUP 三类范围组合表达 |
+| 6 | 是否需要「授权申请单」独立表（一个申请包含多个接口）？ | 本期 `app_api_grant` 一行 = 一个应用×接口×环境授权，申请多个接口产生多行（共享 applicant/audit 信息） |
+| 7 | 外部应用（`appType=2`）是否强制 IP 白名单？ | 由 `sys_config.external.ip.whitelist.required` 控制（原型已有该配置项，默认 true） |
 
 ### 9.2 V2.1 待办（本期明确不做）
 
@@ -1319,23 +1317,23 @@ graph TD
 
 ### 9.3 技术风险与缓释
 
-| 风险                                            | 影响       | 缓释                                                     |
+| 风险 | 影响 | 缓释 |
 | --------------------------------------------- | -------- | ------------------------------------------------------ |
-| `DataPermissionInterceptor` 对复杂 SQL 改写失败      | 查询报错     | 只对白名单表生效 + `@InterceptorIgnore` 逃生口 + 后台任务天然放行（无登录上下文） |
-| 网关改读 `app_credential` / `app_api_grant` 后行为差异 | 调用方大面积失败 | 存量表与列全保留，回滚只需改 3 个 Handler 的读取源；建议灰度切流（先 1 个测试应用）      |
-| `env_code` 冗余列不一致                             | 数据错乱     | Service 层强制 env_code 不可修改（更新接口不接受该字段）                  |
-| Redis 埋点失败影响主链路                               | 网关可用性    | 异步 + 静默失败 + 与 fail-open 同策略                            |
-| 告警风暴（一条规则刷屏）                                  | 通知渠道被封   | 静默期 TTL + 按 (ruleId, scopeKey) 去重                      |
+| `DataPermissionInterceptor` 对复杂 SQL 改写失败 | 查询报错 | 只对白名单表生效 + `@InterceptorIgnore` 逃生口 + 后台任务天然放行（无登录上下文） |
+| 网关改读 `app_credential`/`app_api_grant` 后行为差异 | 调用方大面积失败 | 存量表与列全保留，回滚只需改 3 个 Handler 的读取源；建议灰度切流（先 1 个测试应用） |
+| `env_code` 冗余列不一致 | 数据错乱 | Service 层强制 env_code 不可修改（更新接口不接受该字段） |
+| Redis 埋点失败影响主链路 | 网关可用性 | 异步 + 静默失败 + 与 fail-open 同策略 |
+| 告警风暴（一条规则刷屏） | 通知渠道被封 | 静默期 TTL + 按 (ruleId, scopeKey) 去重 |
 
 ---
 
 ## 附录 A：产出文件清单
 
-| 文件                        | 内容                                                                  |
+| 文件 | 内容 |
 | ------------------------- | ------------------------------------------------------------------- |
-| `docs/架构设计-APIM重新设计.md`   | 本文档（演进策略 + 目标架构 + 分层 + 7 个关键决策 + 前端 + 迁移 + 任务分解）                    |
-| `docs/sql/schema-v2.sql`  | 增量 DDL：新建 18 表 + ALTER 10 表（幂等，含 `gk_add_column`/`gk_add_index` 守卫） |
-| `docs/sql/migrate-v2.sql` | 数据迁移：主数据种子 + 存量回填 + 旧表→新表搬迁（全幂等）                                    |
+| `docs/架构设计-APIM重新设计.md` | 本文档（演进策略 + 目标架构 + 分层 + 7 个关键决策 + 前端 + 迁移 + 任务分解） |
+| `docs/sql/schema-v2.sql` | 增量 DDL：新建 18 表 + ALTER 10 表（幂等，含 `gk_add_column`/`gk_add_index` 守卫） |
+| `docs/sql/migrate-v2.sql` | 数据迁移：主数据种子 + 存量回填 + 旧表→新表搬迁（全幂等） |
 
 ## 附录 B：文档中标注为「推断」的字段清单（便于评审时逐条确认）
 

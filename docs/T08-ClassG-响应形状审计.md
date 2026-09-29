@@ -195,8 +195,8 @@ this.total = res.data.total
 
 ## 6. 存疑 / 潜在陷阱（🟡，非当前故障）
 
-1. **`components/common/RoutePreview.vue:104`**（活，`ApiEnvConfigTab` 引用）—— 端点 `/api-env-config/list` 为**裸数组**，该行写法③ `(res.data && res.data.records) || res.data || []`：`.records` 恒 undefined，靠 `|| res.data` 兜底**当前能工作**；但它是**唯一**在活代码里「对裸端点触碰 `.records`」的站点，属擦边。若后端改为分页、或有人删掉 `|| res.data`，立即退化为静默空列表。**建议**：改为写法①以消除歧义。
-2. **`components/common/CrudTable.vue:154-163` `normalize()`** —— 仅识别 `d.list` / `d.records` / `res.list` / `res.records` 四类；对**原始裸数组响应**（`res.data` 本身是数组，且未被外层 fetch 拆包）**无兜底**，会返回 `{list:[],total:0}`（静默空）。当前唯一直接 `return getXxx()` 的 `AppList`/`ApiList` 均传**分页**端点，故未触发。属**潜在陷阱**：任何 view 若把裸数组端点直接 `return` 给 CrudTable 即静默空表。**建议**：在 `normalize` 追加 `if (Array.isArray(d)) return {list:d, total:d.length}`。
+1. **`components/common/RoutePreview.vue:104`**（活，`ApiEnvConfigTab` 引用）—— 端点 `/api-env-config/list` 为**裸数组**，该行写法③ `(res.data && res.data.records) || res.data || []`：`.records` 恒 undefined，靠 `|| res.data` 兜底**当前能工作**；但它是**唯一**在活代码里「对裸端点触碰 `.records`」的站点，属擦边。若后端改为分页、或有人删掉 `|| res.data`，立即退化为静默空列表。**建议**改写法①。
+2. **`components/common/CrudTable.vue:154-163` `normalize()`** —— 仅识别 `d.list` / `d.records` / `res.list` / `res.records` 四类；对**原始裸数组响应**（`res.data` 本身是数组，未被外层 fetch 拆包）**无兜底**，返回 `{list:[],total:0}`（静默空）。当前唯一直接 `return getXxx()` 的 `AppList`/`ApiList` 均传**分页**端点，故未触发。属**潜在陷阱**：任何 view 若把裸数组端点直接 `return` 给 CrudTable 即静默空表。**建议**在 `normalize` 追加 `if (Array.isArray(d)) return {list:d, total:d.length}`。
 3. **字段名勘误（非形状问题）**：`common/Result.java` 实为 `{code, message, data}`（字段 `message`，非 `msg`）；前端拦截器 `api/index.js:36-38` 读的正是 `res.message`，一致，无缺陷。仅备注以免后续文档继续写 `msg`。
 
 ---
@@ -224,16 +224,9 @@ this.total = res.data.total
 ### 9.2 擦边 2 处：留 T09，且**禁止顺手修**
 > 下列 2 处本轮**不动**；「为何不动」须随行保留，否则下轮会被「顺手修」而引入回归。
 
-- **① `src/frontend/src/components/common/RoutePreview.vue:104`**
-  - 现状：`(res.data && res.data.records) || res.data || []` 对端点 `/api-env-config/list`（**裸数组**）靠 `|| res.data` 兜底，**当前可工作**。
-  - **为何能侥幸工作**：该接口恰好返回裸数组、无 `records` 信封 ⇒ 回落到 `res.data`。
-  - **为何排后**：其触发路径 `load()`（含 104 行）仅在 `autoLoad=true` 时执行；当前唯一调用方 `api/tabs/ApiEnvConfigTab.vue:3` 以 `:envs="envCards"` 传入、**未开 `autoLoad`** ⇒ **该行在当前路由链路下不执行**，属**非主链路**预览构件（与 team-lead「非主链路」定性一致，理由已用源码坐实）。
-  - **建议（T09）**：改为写法① `const list = (res && res.data) || []` 消除歧义。**低风险**，因不在主链路而排后。
+- **① `src/frontend/src/components/common/RoutePreview.vue:104`** —— 现状 `(res.data && res.data.records) || res.data || []` 对端点 `/api-env-config/list`（**裸数组**）靠 `|| res.data` 兜底，**当前可工作**（该接口恰好返回裸数组、无 `records` 信封）。**为何排后**：触发路径 `load()`（含 104 行）仅在 `autoLoad=true` 时执行，而唯一调用方 `api/tabs/ApiEnvConfigTab.vue:3` 以 `:envs="envCards"` 传入、**未开 `autoLoad`** ⇒ **该行在当前路由链路下不执行**，属**非主链路**预览构件（与 team-lead「非主链路」定性一致，理由已用源码坐实）。**建议（T09）**：改为写法① `const list = (res && res.data) || []`；**低风险**，因不在主链路而排后。
 
-- **② `src/frontend/src/components/common/CrudTable.vue` 的 `normalize()`（第 154-163 行）**
-  - 现状：仅认 `d.list` / `d.records` / `res.list` / `res.records`，**缺「`res.data` 本身即裸数组」分支** ⇒ 对未被外层拆包的裸数组响应返回 `{ list: [], total: 0 }`（第 163 行，静默空）。
-  - **⚠️ 高风险共享组件纪律**：`CrudTable` 为**全仓所有表格共用**，改 `normalize()` 波及**每一个列表页**。**必须独立一轮 + 独立回归验证；禁止与其他改动混批**（不得搭车进任何无关修复）。
-  - **建议（T09）**：单独补 `if (Array.isArray(d)) return { list: d, total: d.length }`，随后跑**全列表页**回归。
+- **② `src/frontend/src/components/common/CrudTable.vue` 的 `normalize()`（第 154-163 行）** —— 仅认 `d.list` / `d.records` / `res.list` / `res.records`，**缺「`res.data` 本身即裸数组」分支** ⇒ 对未被外层拆包的裸数组响应返回 `{ list: [], total: 0 }`（第 163 行，静默空）。**⚠️ 高风险共享组件纪律**：`CrudTable` 为**全仓所有表格共用**，改 `normalize()` 波及**每一个列表页** ⇒ **必须独立一轮 + 独立回归验证；禁止与其他改动混批**（不得搭车进任何无关修复）。**建议（T09）**：单独补 `if (Array.isArray(d)) return { list: d, total: d.length }`，随后跑**全列表页**回归。
 
 ### 9.3 明确写入结论的一句话
 > **「0 不匹配 ≠ 无隐患」**：形状适配层对**非数组一律兜底成 `[]`**，使该类缺陷**运行时不可见** —— 空数组不崩、不报错，只静默渲染空列表（本仓可验证的兜底点即 `CrudTable.vue:155` 与 `:163` 的 `return { list: [], total: 0 }`）。

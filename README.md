@@ -122,9 +122,9 @@ GateKeeper 把企业内部各后端系统的接口统一登记、集中授权，
 | 前端构建 | Vue CLI（`@vue/cli-service`） | ~5.0.0 |
 | 部署 | Docker Compose（MySQL + Redis + 后端 + Nginx） | — |
 
-**代码规模**：后端主代码 **297** 个 `.java`，单元测试 **86** 个 `.java`（`mvn -o test` 跑 **773** 个用例，全绿）；前端 **50** 个 `.vue`。
+**代码规模**：后端主代码 **295** 个 `.java`，单元测试 **89** 个 `.java`（`mvn -o test` 跑 **780** 个用例，全绿）；前端 **50** 个 `.vue`。
 
-> 📌 本节所有数字核对于 2026-09-18。业务全景与核心流程另见 [`docs/GateKeeper-业务与核心流程.md`](docs/GateKeeper-业务与核心流程.md)。
+> 业务全景与核心流程另见 [`docs/GateKeeper-业务与核心流程.md`](docs/GateKeeper-业务与核心流程.md)。
 
 ---
 
@@ -138,7 +138,7 @@ GateKeeper/
 │   │   ├── Dockerfile               # 多阶段构建（maven 编译 → JRE 运行）
 │   │   └── src/
 │   │       ├── main/java/com/gatekeeper/
-│   │       │   ├── controller/      # 24 个 REST 控制器（管理面）
+│   │       │   ├── controller/      # 27 个 REST 控制器（管理面）
 │   │       │   ├── service/         # 业务逻辑层
 │   │       │   ├── mapper/          # MyBatis-Plus Mapper（注解实现）
 │   │       │   ├── entity/          # 实体类
@@ -184,7 +184,7 @@ GateKeeper/
 
 > 命令中 `<...>` 为占位符，请按实际环境替换。建议 Linux/macOS 或 Git Bash 环境；Windows PowerShell 的差异点会在步骤中标注。
 
-**验证范围声明**（便于你判断每条命令的可信度——标注为"未实测"的请在你的机器上验证）：
+**验证范围声明**（标「未实测」的请在你自己的机器上验证）：
 
 | 内容 | 状态 | 验证方式与范围 |
 |------|------|---------------|
@@ -196,7 +196,7 @@ GateKeeper/
 | Docker Compose 一键部署 | ✅ **已实测** | 2026-09-29 在 CentOS 7.9 + Docker 24.0.7 实机从零跑通；并额外验证了**无源码、仅用 Release 发布物**的部署路径。详见「一键部署」章 §6 实测记录 |
 | 其余各平台 Redis/MySQL 启动命令 | ⚠️ **未实测** | 属于各平台通用标准命令，非在单一机器上逐条执行 |
 
-> 上表中「已实测」的前提是：后端与前端在本机已按步骤 3 配置并启动过。**步骤 1 的裸机手工 `mysql` 导入仍未逐条实测**——请在首次部署时优先验证它（导入后可用 `SHOW TABLES` 核对表数；表数有三个口径，见 [1. 初始化数据库](#1-初始化数据库) 的说明）。
+> 上表「已实测」的前提是后端 / 前端已按步骤 3~5 配置并启动过。**步骤 1 的裸机手工 `mysql` 导入仍未逐条实测**（本机无 `mysql` 客户端），首次部署请优先验证它：导入后用 `SHOW TABLES` 核对表数，三个口径见 [1. 初始化数据库](#1-初始化数据库)。
 
 ### 0. 前置依赖
 
@@ -209,9 +209,8 @@ GateKeeper/
 | Node.js | 16 / 18 LTS（20/22 亦可） | `node -v` | 需与 Vue CLI 5 兼容 |
 | npm | 8+ | `npm -v` | 随 Node 安装 |
 
-> **一线实测环境**（下述版本号均为实际执行版本命令所得）：JDK `1.8.0_391`、`Apache Maven 3.8.8`、
-> Node `22.22.2` / npm `10.9.7`；后端实际连接 MySQL 8、Redis（本机 `PING` → `+PONG`）。
-> JDK 与 Maven 的版本号来自 `java -version` 与 classworlds 兜底命令的 `-v` 输出。
+> **一线实测环境**：JDK `1.8.0_391`、`Apache Maven 3.8.8`、Node `22.22.2` / npm `10.9.7`；
+> 后端实际连接 MySQL 8、Redis（本机 `PING` → `+PONG`）。
 
 ### 1. 初始化数据库
 
@@ -230,12 +229,10 @@ mysql --default-character-set=utf8mb4 -h 127.0.0.1 -P 3306 -u root -p \
 ```
 
 > 🔴 **`--default-character-set=utf8mb4` 不是可选项**。`mysql` 客户端在 `LANG`/`LC_ALL` 为空的环境
-> （典型：容器、`cron`、CI）会**静默回退到 `latin1`**，于是脚本里的 UTF-8 中文字节被当作 cp1252
-> 再编码一次入库，变成 `æ–°å¢žåˆ†ç»„...` 这类乱码。
-> **2026-09-29 实测**：这正是「角色管理 → 配置权限」弹窗里权限点名称乱码的根因——`docker-entrypoint.sh`
-> 调 `mysql` 客户端导入 `/docker-entrypoint-initdb.d/*.sql` 时不传字符集，受害面为 `sys_menu.name` **17 行** +
-> `sys_dict.remark` **1 行**（全库 216 个文本列精确扫描所得）。
-> 仓库内**所有** `.sql` 现已自带 `SET NAMES utf8mb4;` 作第一道保险；命令行显式指定是第二道。
+> （容器、`cron`、CI）会**静默回退到 `latin1`**，把脚本里的 UTF-8 中文字节当作 cp1252 再编码一次入库，
+> 变成 `æ–°å¢žåˆ†ç»„...` 这类乱码 —— 这正是 2026-09-29「角色管理 → 配置权限」弹窗权限名乱码的根因
+> （受害面 `sys_menu.name` **17 行** + `sys_dict.remark` **1 行**，全库 216 个文本列精确扫描所得；容器侧
+> 根因与修复见「一键部署」章）。仓库内**所有** `.sql` 已自带 `SET NAMES utf8mb4;` 作第一道保险。
 
 执行后会提示输入密码。验证导入结果（**仅 `init.sql` 时期望 34 张表**）：
 
@@ -259,41 +256,36 @@ mysql --default-character-set=utf8mb4 -h 127.0.0.1 -P 3306 -u root -p -e "
 `CONVERT(BINARY(CONVERT(col USING latin1)) USING utf8mb4)` 还原，并带 `HEX()` 与 `LOCATE('?', ...) = 0`
 两道护栏防误伤；2026-09-29 已在实机以 `START TRANSACTION` + `ROLLBACK` 非破坏性演练，17+1 行全部还原为正确中文。
 
-> ⚠️ **本步骤未在本仓库开发环境中实测**（该环境未安装 `mysql` 客户端）。上面两条命令是按 MySQL 官方
-> 语法与 `init.sql` 实际头部语句（`SET NAMES utf8mb4;` / `CREATE DATABASE IF NOT EXISTS` / `USE`）核对得出。
-> 请首次部署时优先执行并确认表数为 **34**。可参考已验证的脚本静态事实：1417 行、34 张表、
-> 全部 `CREATE TABLE IF NOT EXISTS`（幂等）、种子数据落在 9 张系统域表上。
+> ⚠️ **本步骤未在本仓库开发环境实测**（未装 `mysql` 客户端）：两条命令按 MySQL 官方语法与 `init.sql`
+> 实际头部语句（`SET NAMES utf8mb4;` / `CREATE DATABASE IF NOT EXISTS` / `USE`）核对得出。首次部署请优先
+> 执行并确认表数为 **34**。脚本静态事实：1417 行、34 张表、全部 `CREATE TABLE IF NOT EXISTS`（幂等）、
+> 种子数据落在 9 张系统域表上。
 >
-> ℹ️ **表数有三个口径，别混**（2026-09-27 记；2026-09-29 实机复核）：① `init.sql` 单独导入 = **34 张**；
-> ② 再叠加下面五个迁移脚本 = **40 张**；③ 走完整 Docker 初始化链（`init.sql` + `docs/sql/` 下 15 个脚本）
-> = **42 张** —— 开发库与 2026-09-29 的容器实机部署实测同为此数。②与③差在 `app_quota` / `biz_line`：
-> 这两张死表的建表语句已于 2026-09-27 从 `init.sql` 移除，但 `schema-v2.sql`（T01 期历史迁移脚本）
-> 仍会建出它们 —— 按项目「不追改历史迁移脚本」惯例未改，仅在此说明。
+> ℹ️ **表数三个口径，别混**：① `init.sql` 单独导入 = **34 张**；② 叠加下面五个迁移脚本 = **40 张**；
+> ③ 完整 Docker 初始化链（`init.sql` + `docs/sql/` 下 15 个脚本）= **42 张**（开发库与 2026-09-29 容器
+> 实机部署同为此数）。②③ 差的 `app_quota` / `biz_line` 建表语句已于 2026-09-27 从 `init.sql` 移除，
+> 但 `schema-v2.sql`（T01 期历史迁移脚本）仍会建出 —— 按「不追改历史迁移脚本」惯例未改。
 >
-> 🔴 **要把表数凑到完整的 40 张，还需按需执行后续迁移脚本**（都是 `CREATE TABLE IF NOT EXISTS`，可重复执行）：
-> `docs/sql/t13-group-env-config.sql`（`api_group_env_config`）、
-> `docs/sql/t15-1-group-encryption.sql`（`api_group_encryption_config`）、
-> `docs/sql/t15-4-whitelist.sql`（`sys_ip_whitelist`）、
-> `docs/sql/t16-1-encryption-master-switch.sql`（`sys_encryption_config`）、
-> `docs/sql/t17-interface-crypto.sql`（`sys_interface_visibility`、`sys_interface_crypto_config`）。
+> 🔴 **②口径的五个迁移脚本**（均 `CREATE TABLE IF NOT EXISTS`，可重复执行）：`docs/sql/t13-group-env-config.sql`
+> → `api_group_env_config`、`docs/sql/t15-1-group-encryption.sql` → `api_group_encryption_config`、
+> `docs/sql/t15-4-whitelist.sql` → `sys_ip_whitelist`、`docs/sql/t16-1-encryption-master-switch.sql` →
+> `sys_encryption_config`、`docs/sql/t17-interface-crypto.sql` → `sys_interface_visibility` +
+> `sys_interface_crypto_config`。
 >
-> 🧹 **清理类脚本**（做「减法」，须在**所有**种子脚本之后执行；`init.sql` 已同步移除对应种子，用于修复已建库）：
-> `docs/sql/t15-remove-bizline.sql`（下线业务线功能，表保留）、
-> `docs/sql/t20-remove-dead-perms.sql`（移除 8 个无引用权限点 + 39 条角色授权）、
-> `docs/sql/t19-config-wiring.sql` §3（说明 13 项无读取点 `sys_config` 的移除口径，默认不动存量库）。
+> 🧹 **清理类脚本**（做减法，须在**所有**种子脚本之后执行；`init.sql` 已同步移除对应种子）：
+> `docs/sql/t15-remove-bizline.sql`（下线业务线，表保留）、`docs/sql/t20-remove-dead-perms.sql`（移除
+> 8 个无引用权限点 + 39 条角色授权）、`docs/sql/t19-config-wiring.sql` §3（13 项无读取点 `sys_config`
+> 的移除口径，默认不动存量库）。
 >
-> 📉 **2026-09-27 死代码清理**（`init.sql` / `migrate-v2.sql` 已生效；存量库一律按"不动"口径处理）：
-> ① 移除 `app_quota` / `biz_line` 两张死表（全仓 0 个 Java/前端引用）的建表语句；
-> ② 移除 13 项自始至终无读取点的 `sys_config`（`sys_config` 由 19 行收敛为 6 行）；
-> ③ 移除 49 个无调用端点、24 个前端 API 函数、14 个孤儿 Service 方法、8 个孤儿权限点 + 39 条角色授权。
+> 📉 **2026-09-27 死代码清理**（存量库按「不动」口径处理）：移除 `app_quota` / `biz_line` 建表语句
+> （全仓 0 个 Java/前端引用）；`sys_config` 由 19 行收敛为 6 行；移除 49 个无调用端点、24 个前端 API
+> 函数、14 个孤儿 Service 方法、8 个孤儿权限点 + 39 条角色授权。
 >
-> ⚠️ **切勿把 `init.sql` 直接导入已存在数据的库**：脚本第 25–26 行是 `CREATE DATABASE IF NOT EXISTS \`gatekeeper\``
-> + `USE \`gatekeeper\``，会**指向 `gatekeeper` 库本身**。若你想在别处试用，请先做文本替换改成临时库名，
-> 或直接在全新的 MySQL 实例上执行。
-
-> **前置条件**：`init.sql` 中的 `CREATE DATABASE` 需要该账号具备建库权限。
-> 若你的运维规范不允许应用账号建库，请由 DBA 预先执行 `CREATE DATABASE gatekeeper DEFAULT CHARACTER SET utf8mb4;`，
-> 再单独导入其余建表语句。
+> ⚠️ **切勿把 `init.sql` 直接导入已有数据的库**：第 25–26 行 `CREATE DATABASE IF NOT EXISTS \`gatekeeper\``
+> + `USE \`gatekeeper\`` 会指向 `gatekeeper` 库本身；请在全新实例执行，或先做文本替换改成临时库名。
+>
+> **前置条件**：`CREATE DATABASE` 需该账号具备建库权限。若运维规范不允许应用账号建库，请由 DBA 预先执行
+> `CREATE DATABASE gatekeeper DEFAULT CHARACTER SET utf8mb4;`，再单独导入其余建表语句。
 
 ### 2. 启动 Redis
 
@@ -312,9 +304,8 @@ docker run -d --name gatekeeper-redis -p 6379:6379 \
   redis:7-alpine redis-server --requirepass "GkRedis#9fQ2mL7pX!4sT8nB"
 ```
 
-> 🔴 **Redis 必须设置访问密码**（`--requirepass`），且必须与后端的 `GATEKEEPER_REDIS_PASSWORD` 一致。
-> 默认口令 `GkRedis#9fQ2mL7pX!4sT8nB` 见[「默认账号与密钥」](#默认账号与密钥)。
-> 一个无口令的 Redis 若暴露在网络中，等于把限流计数、封禁名单与权限缓存完全对外敞开。
+> 🔴 **Redis 必须设访问密码**（`--requirepass`），且与后端 `GATEKEEPER_REDIS_PASSWORD` 一致；无口令的
+> Redis 暴露在网络中，等于把限流计数、封禁名单与权限缓存对外完全敞开。默认口令见[「默认账号与密钥」](#默认账号与密钥)。
 
 校验：
 
@@ -323,10 +314,9 @@ redis-cli -a 'GkRedis#9fQ2mL7pX!4sT8nB' ping     # 期望输出：PONG
 redis-cli ping                                  # 期望输出：NOAUTH Authentication required.
 ```
 
-> 若 Redis 使用非默认地址/端口，请在第 3 步配置 `GATEKEEPER_REDIS_HOST` / `GATEKEEPER_REDIS_PORT`。
-> Redis 不可用时后端**仍能启动**，网关防护组件会按 fail-open 策略降级放行（详见 FAQ Q5）。
-> ⚠️ **口令不一致的表现与「Redis 没启动」完全相同**（后端连不上 → 走 fail-open 降级），
-> 排查时请先核对两侧口令是否一致。
+> 非默认地址 / 端口请在步骤 3 配置 `GATEKEEPER_REDIS_HOST` / `GATEKEEPER_REDIS_PORT`。Redis 不可用时
+> 后端**仍能启动**，网关防护按 fail-open 降级放行（详见 FAQ Q5）；⚠️ **口令不一致的表现与「Redis 没
+> 启动」完全相同**，排查时先核对两侧口令。
 
 ### 3. 配置后端
 
@@ -345,8 +335,8 @@ cp application.example.yml application.yml
 | JWT 签名密钥 | `GATEKEEPER_JWT_SECRET` | **≥ 32 位**随机串 | 泄露 = 任何人可伪造管理员令牌 |
 | AES 加密密钥 | `GATEKEEPER_AES_KEY` | **≥ 32 位**随机串 | 加密落库的 AppSecret；**一旦轮换历史数据将无法解密** |
 
-> 另有一项 `GATEKEEPER_REDIS_PASSWORD`（Redis 访问口令）**已内置默认值**，本地可不填；
-> 但必须与 Redis 服务 `--requirepass` 的口令一致，否则后端连不上 Redis。取值见[「默认账号与密钥」](#默认账号与密钥)。
+> 另有一项 `GATEKEEPER_REDIS_PASSWORD`（Redis 访问口令）**已内置默认值**，本地可不填；但须与 Redis 服务
+> `--requirepass` 一致，否则后端连不上 Redis。取值见[「默认账号与密钥」](#默认账号与密钥)。
 
 生成随机密钥：
 
@@ -420,10 +410,8 @@ Security startup check passed: jwt/aes/db secrets are properly configured
 
 后端监听 **8080**，全局路径前缀 **`/api`**。
 
-> 说明：第一行来自源码 `config/SecurityStartupCheck` 的日志语句（本仓库已按该实现核对）；
-> 后两行为 Spring Boot 2.7 的标准启动日志。**本次未捕获一份完整的后端启动日志原文**
-> （验证时的后端实例先于本次工作已在运行），因此这里给出的是"应看到的标志"，
-> 判断是否启动成功请以此三行为准。
+> 第一行来自源码 `config/SecurityStartupCheck` 的日志语句（已按实现核对），后两行为 Spring Boot 2.7
+> 标准启动日志。**未捕获完整启动日志原文**（验证时后端实例已在运行），故此处给的是「应看到的标志」。
 
 ### 5. 启动前端
 
@@ -440,8 +428,8 @@ App running at:
 - Local:   http://localhost:8081/
 ```
 
-> 说明：本次未捕获 dev server 的控制台原文（验证时前端已在运行），判断依据是
-> `curl -s -o /dev/null -w "%{http_code}" http://localhost:8081` **返回 200**，以及端口 8081 处于监听状态。
+> 判断依据是 `curl -s -o /dev/null -w "%{http_code}" http://localhost:8081` **返回 200** 且端口 8081 在监听
+> （未捕获 dev server 控制台原文，验证时前端已在运行）。
 
 前端 dev server 端口 **8081**，`vue.config.js` 中已将 `/api` 代理到 `http://localhost:8080`，因此前端代码只需请求 `/api/xxx`（见 `src/frontend/src/api/index.js` 的 `baseURL: '/api'`），无需处理跨域。
 
@@ -527,19 +515,18 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081
 
 ## 一键部署（Docker Compose）
 
-> ✅ **已实测**（2026-09-29）：本节步骤已在 **CentOS 7.9 + Docker 24.0.7 + Compose v5.5.1**
-> 的实机上从零跑通，并通过仓库自带的 E2E 剧本 `docs/sql/t09-docker-e2e.sh`（U0–U7 全绿）。
-> 实测环境、耗时、以及**首跑暴露并已修复的 3 个缺陷**见本章末尾 §6「实测记录」。
-> 仍请以你本机的 Docker 版本为准。
+> ✅ **已实测**（2026-09-29）：本节步骤已在 **CentOS 7.9 + Docker 24.0.7 + Compose v5.5.1** 的实机上从零
+> 跑通，并通过仓库自带的 E2E 剧本 `docs/sql/t09-docker-e2e.sh`（U0–U7 全绿）；实测环境、耗时与**首跑暴露
+> 并已修复的 3 个缺陷**见本章末尾 §6。仍请以你本机的 Docker 版本为准。
 >
 > ⚠️ **最容易卡住的一步是镜像拉取**（国内直连 Docker Hub 通常不通）——先看 §0 前置条件的第 3 条。
 
 **多实例 / 集群部署限制（未验证）**
 
-> 本项目**仅在单实例下验证**。仓库自带的 Docker E2E 剧本 `docs/sql/t09-docker-e2e.sh`（U0–U2b–U7）
-> 同样是**单实例**编排——U0 起栈为「4 业务容器 + 1 mock-upstream」，不含任何副本或横向扩容；
-> 该剧本已于 2026-09-29 在实机跑通（U0–U7 全绿），但**仍然是单实例**，且 U0 的 `down -v` 会清掉数据卷。
-> **本文档未做过多实例 / 集群部署测试，也不构成对集群部署的支持声明。**
+> 本项目**仅在单实例下验证**；仓库自带的 Docker E2E 剧本 `docs/sql/t09-docker-e2e.sh`（U0–U2b–U7）
+> 同样是**单实例**编排（U0 起栈为「4 业务容器 + 1 mock-upstream」，不含副本或横向扩容），已于 2026-09-29
+> 在实机跑通（U0–U7 全绿），但 U0 的 `down -v` 会清掉数据卷。**本文档未做过多实例 / 集群部署测试，也不
+> 构成对集群部署的支持声明。**
 
 后端存在 **6 个 `@Scheduled` 定时任务，且没有任何分布式互斥机制**：
 
@@ -559,24 +546,17 @@ grep -iE "shedlock|quartz|redisson|curator|zookeeper" src/backend/pom.xml       
 grep -rnE "lock|Lock|mutex" src/backend/src/main/java/com/gatekeeper/job/             # → 0 命中
 ```
 
-代码中 `setIfAbsent` 的用途**均与任务调度无关**，只服务于防重放与告警去重：
-`AppAuthHandler.java:181`（Nonce 防重放）、`HighFrequencyDetector.java:63` 与 `OffHoursDetector.java:56`（同一时间窗内告警只发一次）。
+代码中 `setIfAbsent` 的用途**均与任务调度无关**，只服务于防重放与告警去重：`AppAuthHandler.java:181`
+（Nonce 防重放）、`HighFrequencyDetector.java:63` 与 `OffHoursDetector.java:56`（同一时间窗内告警只发一次）。
 
-**后果**：若以多个后端副本部署（集群，或 `docker compose up -d --scale backend=N`），这 6 个任务会在
-**每个副本各执行一遍**。其中：
+**后果**：多副本部署（集群，或 `docker compose up -d --scale backend=N`）时这 6 个任务会在**每个副本各执行
+一遍**；其中 `GrantExpireJob`（授权过期处理）、`LogRetentionJob`（调用日志 `DELETE` 清理）、`QuotaResetJob`
+（配额重置）并发重复执行会导致**状态错乱或重复动作** —— 它们**不是**"多跑几次也无妨"的幂等任务。
 
-- `GrantExpireJob`（授权过期处理）
-- `LogRetentionJob`（调用日志 `DELETE` 清理）
-- `QuotaResetJob`（配额重置）
-
-并发重复执行会导致**状态错乱或重复动作**——它们**不是**"多跑几次也无妨"的幂等任务。
-
-**如需多实例部署，必须由部署方自行补齐以下之一（本项目未内置）：**
-
-1. 引入 **ShedLock** 一类的分布式调度锁（`@SchedulerLock`），保证同一时刻只有一个副本真正执行；
-2. 将定时调度**移出应用**，交由外部单点承担（独立调度服务、K8s CronJob 等）；
-3. 若某些副本不需要后台任务（例如纯转发副本），可为它们关闭调度——但当前 `@EnableScheduling`
-   与各任务类都是无条件启用的，**关闭需改动代码或自行增加配置开关**。
+**如需多实例部署，必须由部署方自行补齐以下之一（本项目未内置）**：① 引入 **ShedLock** 一类分布式调度锁
+（`@SchedulerLock`），保证同一时刻只有一个副本真正执行；② 将定时调度**移出应用**，交由外部单点承担
+（独立调度服务、K8s CronJob 等）；③ 为不需要后台任务的副本关闭调度 —— 但当前 `@EnableScheduling` 与各
+任务类都是无条件启用的，**关闭需改动代码或自行增加配置开关**。
 
 不想装 JDK/MySQL/Redis 时，可用仓库自带的编排一键拉起全栈（MySQL + Redis + 后端 + 前端 Nginx + mock 上游）。
 
@@ -661,31 +641,23 @@ bash docs/sql/t09-docker-e2e.sh
 
 容器启动时由 `docker-entrypoint-initdb.d/` 下的 SQL 链自动完成建库、建表与种子数据初始化，无需手动导入。
 
-> 🔴 **`docker/mysql-conf.d/99-client-charset.cnf` 必须随 compose 一起分发**（v1.0.3 起仓库已内置）。
-> `docker-entrypoint.sh` 调 `mysql` 客户端导入 `/docker-entrypoint-initdb.d/*.sql` 时**不指定字符集**，
-> 而 mysql 官方镜像里 `LANG`/`LC_ALL` 为空 ⇒ 客户端回退到 `latin1` ⇒ 脚本中的 UTF-8 中文字节被
-> **双重编码**成乱码。2026-09-29 实测受害面：`sys_menu.name` **17 行** + `sys_dict.remark` **1 行**，
-> 症状即「角色管理 → 配置权限」弹窗里权限点名称显示为 `æ–°å¢žåˆ†ç»„...`。
-> 该 cnf 以只读方式挂进容器的 `/etc/mysql/conf.d/`，强制客户端按 `utf8mb4` 解析；
-> 仓库内**所有** `.sql` 同时自带 `SET NAMES utf8mb4;`，构成双保险。
-> 手工导入旧库时若已乱码，执行 `docs/sql/fix-mojibake.sql` 就地修复。
+> 🔴 **`docker/mysql-conf.d/99-client-charset.cnf` 必须随 compose 一起分发**（v1.0.3 起仓库已内置）：它被只读
+> 挂进容器 `/etc/mysql/conf.d/`，强制 `mysql` 客户端按 `utf8mb4` 解析。缺它时客户端回退 `latin1`，把 initdb
+> 导入的中文**双重编码**成乱码（2026-09-29 实测受害面 `sys_menu.name` **17 行** + `sys_dict.remark` **1 行**，
+> 症状即「角色管理 → 配置权限」弹窗里权限点名称显示为 `æ–°å¢žåˆ†ç»„...`）。仓库内**所有** `.sql` 同时自带
+> `SET NAMES utf8mb4;`，构成双保险；手工导入旧库若已乱码，执行 `docs/sql/fix-mojibake.sql` 就地修复。
 
-> **初始化链 = 16 个脚本，按文件名顺序执行**（`init.sql` + `docs/sql/` 下 15 个历史脚本），
-> 建出与开发库逐表一致的 **42 张表**、`sys_menu` **121** 行。完整清单见 `docker-compose.yml`
-> 中 `mysql.volumes` 的挂载项。
+> **初始化链 = 16 个脚本，按文件名顺序执行**（`init.sql` + `docs/sql/` 下 15 个历史脚本），建出与开发库逐表
+> 一致的 **42 张表**、`sys_menu` **121** 行；完整清单见 `docker-compose.yml` 中 `mysql.volumes` 的挂载项。其余
+> 脚本按用途分两类：① seed 类（`t02` / `t03a` / `t03b` / `t05` / `t07a` / `t08` 等）用 `INSERT IGNORE`（只补不
+> 覆盖）、幂等；② 结构 / 迁移类（`schema-v2` / `migrate-v2` / `t09-hygiene` / `t13` / `t15-1` / `t15-4` /
+> `t16-1` / `t17`）含 `CREATE TABLE IF NOT EXISTS` / `ALTER` / `UPDATE` / `DELETE`，**并非纯 no-op**，属
+> "历史回放"性质。
 >
-> 其中 `init.sql` 现已**自足**（36 张表 + 系统域种子数据），其余脚本按用途分两类：
-> ① seed 类（`t02` / `t03a` / `t03b` / `t05` / `t07a` / `t08` 等）用 `INSERT IGNORE`（只补不覆盖），幂等；
-> ② 结构/迁移类（`schema-v2` / `migrate-v2` / `t09-hygiene` / `t13` / `t15-1` / `t15-4` / `t16-1` / `t17`）
-> 含 `CREATE TABLE IF NOT EXISTS` / `ALTER` / `UPDATE` / `DELETE`，**并非纯 no-op**，属"历史回放"性质。
->
-> ⚠️ `docker-entrypoint.sh` 在任一脚本报错时**会中止整条链**（后续脚本全部不执行，容器随后
-> 以"已有数据"重启并跳过 initdb）。因此**表数与菜单数是最灵敏的健康指标** —— 部署后请核对
-> §4 的两条断言（42 张表、`sys_menu` = 121）。
->
-> 想简化也可只用 `init.sql` 单独导入（见上一节本地启动步骤 1）——它已能独立构建出 36 张表与
-> 基础种子数据，但会**缺 6 张表**（白名单、分组加解密、接口级加解密相关），对应功能会抛
-> SQL 异常。**生产部署请走完整链。**
+> ⚠️ `docker-entrypoint.sh` 在任一脚本报错时**会中止整条链**（后续脚本全部不执行，容器随后以"已有数据"重启
+> 并跳过 initdb）。因此**表数与菜单数是最灵敏的健康指标** —— 部署后请核对 §4 的两条断言（42 张表、`sys_menu`
+> = 121）。想简化也可只用 `init.sql` 单独导入（见上一节步骤 1）：它能独立构建 **34 张表**与基础种子数据，但会
+> **缺 6 张表**（白名单、分组加解密、接口级加解密相关），对应功能会抛 SQL 异常。**生产部署请走完整链。**
 
 ### 5. 常见问题
 
@@ -723,13 +695,12 @@ chmod +x /opt/gk-tools/docker
 PATH=/opt/gk-tools:$PATH bash docs/sql/t09-docker-e2e.sh
 ```
 
-> 反向情形同样存在，且**离线部署脚本目前只能走这条路**：`docker/deploy-from-release.sh` 里写死的是
-> **独立版 `docker-compose`**（前置检查也会校验它存在），**没有做 V2 探测**。所以在「只有 V2 插件、
-> 没有独立二进制」的机器上，本文档「离线部署」一节会失败 —— 需自行装独立版
-> `docker-compose`，或把脚本中的 `docker-compose` 换成 `docker compose`。这是**已知的可移植性缺口**。
->
-> 实测环境（2026-09-29）属前者：`docker compose version` → `docker: 'compose' is not a docker command.`，
-> 而 `docker-compose version` → `Docker Compose version v5.5.1`，故脚本恰好开箱可用。
+> 反向情形同样存在，且**离线部署脚本目前只能走这条路**：`docker/deploy-from-release.sh` 写死的是**独立版**
+> `docker-compose`（前置检查也校验它存在），**没有做 V2 探测**。因此「只有 V2 插件、没有独立二进制」的机器上
+> 「离线部署」一节会失败 —— 需自行装独立版 `docker-compose`，或把脚本里的 `docker-compose` 换成
+> `docker compose`。这是**已知的可移植性缺口**。实测环境（2026-09-29）属前者：`docker compose version` →
+> `docker: 'compose' is not a docker command.`，`docker-compose version` → `Docker Compose version v5.5.1`，
+> 故脚本恰好开箱可用。
 
 **FAQ-3 · 起栈后访问 8081 得到 502**
 
@@ -848,30 +819,25 @@ bash deploy-from-release.sh all
 | `objects.githubusercontent.com:443` | ✅ | ✅ |
 | `release-assets.githubusercontent.com:443` | ✅ | ✅ |
 
-> **所以不要把「某个域名不可达」当成前提。** 脚本的做法是：下载前先用**最小的资产**探一次，
-> 直链能取到完整尺寸就走直链，否则改走 **assets API**
-> （`GET /repos/<owner>/<repo>/releases/assets/<id>` + `Accept: application/octet-stream`，
-> 由 302 跳到 `release-assets.githubusercontent.com` —— 资产的真实存储域）。
-> 两条通道的下载内容已实测**逐字节一致**。
+> **不要把「某个域名不可达」当成前提。** 脚本下载前先用**最小的资产**探一次：直链能取到完整尺寸就走直链，
+> 否则改走 **assets API**（`GET /repos/<owner>/<repo>/releases/assets/<id>` + `Accept: application/octet-stream`，
+> 由 302 跳到 `release-assets.githubusercontent.com` —— 资产的真实存储域）。两条通道的下载内容已实测
+> **逐字节一致**。
 
-🔴 **探测结果只是「首选通道」，不是全局开关 —— 通道会在下载途中劣化。**
+🔴 **探测结果只是「首选通道」，不是全局开关 —— 通道会在下载途中劣化。** v1.0.3 复验实测到过一次：探测阶段
+`github.com` 直链正常（选中 direct），跑到一半 `github.com:443` 被阻断（`curl: (7) 拒绝连接`），**后续 5 个
+资产的下载全部失败**，整批 `fetch` 在第 3 步 SHA256 校验处以「发布物可能损坏」中止 —— 而发布物其实完好。
+同一时刻改用 assets API 逐项重试 **5 项全部成功**，之后 `github.com` 又短暂恢复（同批最后一项直链成功）⇒
+是**间歇性劣化**，不是域名级永久不可达。因此 `dl_one()` 改为**逐资产故障转移**：某资产在某通道失败（curl
+非 0 或尺寸不符）立刻用另一通道重试**同一资产**，两者都失败才报 `[FAIL] 下载失败（已试遍通道：…）`；另提供
+`GK_DL_MODE=auto|direct|api` 显式覆盖（`auto` 为默认、带回落；显式指定则不回落，便于排障）。
 
-v1.0.3 复验时实测到过一次：探测阶段 `github.com` 直链正常（选中 direct），跑到一半
-`github.com:443` 被阻断（`curl: (7) 拒绝连接`），**后续 5 个资产的下载全部失败**，
-整批 `fetch` 在第 3 步 SHA256 校验处以「发布物可能损坏」中止 —— 而发布物其实完好。
-同一时刻改用 assets API 逐项重试，**5 项全部成功**；之后 `github.com` 又短暂恢复
-（同一批里最后一项直链成功）⇒ 是**间歇性劣化**，不是域名级永久不可达。
+> **踩坑提醒（若你手上是 v1.0.3 原始脚本）**：旧版只在起下载前探一次通道并全局沿用，遇到中途劣化会让整批
+> `fetch` 失败。因已完成的文件会「跳过（已完整）」，**重跑一次通常即可续上**；若仍在同一资产上失败，用
+> `GK_DL_MODE=api` 强制走 API 通道。
 
-因此 `dl_one()` 改为**逐资产故障转移**：某资产在某通道失败（curl 非 0 或尺寸不符），
-立刻用另一通道重试**同一资产**；两者都失败才报 `[FAIL] 下载失败（已试遍通道：…）`。
-另提供 `GK_DL_MODE=auto|direct|api` 显式覆盖（`auto` 为默认，带回落；显式指定则不回落，便于排障）。
-
-> **踩坑提醒（v1.0.3 原始脚本，若你手上是旧版）**：旧版只在起下载前探一次通道并全局沿用，
-> 遇到上述中途劣化会让整批 `fetch` 失败。由于已完成的文件会「跳过（已完整）」，
-> **重跑一次通常即可续上**；若重跑仍在同一资产上失败，用 `GK_DL_MODE=api` 强制走 API 通道。
-
-大文件按 `Range` 分 `${GK_PARALLEL:-4}` 段并发后按序拼接。
-实测：单流约 341 KB/s，4 段并发约 **180 MB/min**（228 MB 全量约 **11 分钟**）。
+大文件按 `Range` 分 `${GK_PARALLEL:-4}` 段并发后按序拼接；实测单流约 341 KB/s，4 段并发约 **180 MB/min**
+（228 MB 全量约 **11 分钟**）。
 
 ### 4. 起栈后断言什么
 
@@ -894,19 +860,7 @@ v1.0.3 复验时实测到过一次：探测阶段 `github.com` 直链正常（�
 
 ### 5. 实测记录（2026-09-29，v1.0.2）
 
-```text
-clean → 容器 / 卷 / 镜像 / 源码全清（镜像数归 0）
-fetch → 9 项资产；SHA256 6/6 全过；从 jar 抽出 init.sql 88,198 B，指纹逐字节一致；
-        16 个 compose 挂载源全部就位
-load  → Loaded image: changeonly/gatekeeper:backend-1.0.2 / :frontend-1.0.2
-up    → 5 容器全起，mysql / redis / backend 均 healthy
-断言  → 初始化链执行 16 次；tables=42 / sys_menu=121 / sys_config=6 / junk221=0   全 ✅
-E2E   → 登录（错误口令被拒 + 默认账号通过）· 鉴权（无 token / 伪造 token → 401）·
-        应用 CRUD 全链路 · 审计按 id 增量留痕（1×CREATE / 2×UPDATE / 1×DELETE，操作人 admin）·
-        同步 CSV（Content-Type + UTF-8 BOM + 表头逐字节）·
-        异步导出三步（taskId → SUCCESS → 下载 200 → 匿名下载 401）   全 ✅
-可复现 → down -v 重建卷后，initdb 第 2 次独立运行仍得 42 / 121 / 6
-```
+> 该版记录已被下方 v1.0.3 复验取代（v1.0.2 的校验矩阵仍完整保留在「版本历史」章）。
 
 ### 5.1 实测记录（2026-09-29 复验，v1.0.3·纯 Release 部署）
 
@@ -1055,27 +1009,24 @@ docker run -d --name gk-frontend -p 8081:80 <namespace>/gatekeeper:frontend-1.0.
 
 ### 4. 镜像内不含真实密钥（重要）
 
-`src/main/resources/application.yml` 是本地真实配置（含真实密钥与内网库地址），
-它**未入库但确实存在于本地**。`.gitignore` 只管 git，**管不住 `docker build` 的构建上下文**——
-所以 `src/backend/.dockerignore` 显式排除了它。构建时改由官方模板顶替：
+`src/main/resources/application.yml` 是本地真实配置（含真实密钥与内网库地址），**未入库但确实存在于本地**。
+`.gitignore` 只管 git、**管不住 `docker build` 的构建上下文**，所以 `src/backend/.dockerignore` 显式排除了
+它，构建时改由官方模板顶替：
 
 ```dockerfile
 RUN cp src/main/resources/application.example.yml src/main/resources/application.yml && mvn -B package -DskipTests
 ```
 
-模板与本地配置**键集完全相同**（各 62 个键，已逐键比对），差异仅在 5 处：
-三项密钥的默认值为空、库地址默认 `localhost:3306`、库账号默认 `root`。
-
-因此镜像的安全基调是 **fail-fast**：不注入 `GATEKEEPER_JWT_SECRET` / `GATEKEEPER_AES_KEY` /
-`GATEKEEPER_DB_PASSWORD` 时，`SecurityStartupCheck` 会让进程**直接拒绝启动**，而不是以弱默认值裸奔。
-
-> 构建脚本已内置前置校验：若 `.dockerignore` 漏排 `application.yml`、或 Dockerfile 少了模板顶替那一步，
-> 脚本会**直接中止构建**，避免密钥被烤进镜像推到公开仓库。
+模板与本地配置**键集完全相同**（各 62 个键，已逐键比对），差异仅在 5 处：三项密钥的默认值为空、库地址默认
+`localhost:3306`、库账号默认 `root`。因此镜像的安全基调是 **fail-fast**：不注入 `GATEKEEPER_JWT_SECRET` /
+`GATEKEEPER_AES_KEY` / `GATEKEEPER_DB_PASSWORD` 时，`SecurityStartupCheck` 会让进程**直接拒绝启动**，而不是
+以弱默认值裸奔。构建脚本已内置前置校验：若 `.dockerignore` 漏排 `application.yml`、或 Dockerfile 少了模板
+顶替那一步，脚本会**直接中止构建**，避免密钥被烤进镜像推到公开仓库。
 
 #### 4.1 同一条闸门也适用于 Release 的 jar 资产（易漏）
 
-`gatekeeper-backend-<version>.jar` **不在 Dockerfile 流程内**，必须手工按同一口径打包，
-否则会把本地真实 `application.yml`（**内网库地址 + 真实密钥**）直接烤进发布物：
+`gatekeeper-backend-<version>.jar` **不在 Dockerfile 流程内**，必须手工按同一口径打包，否则会把本地真实
+`application.yml`（**内网库地址 + 真实密钥**）直接烤进发布物：
 
 ```bash
 cd src/backend
@@ -1085,17 +1036,15 @@ mvn package -DskipTests
 cp /path/to/application.yml.real src/main/resources/application.yml   # 打完立刻还原
 ```
 
-**判据**：解包 jar 后 `BOOT-INF/classes/application.yml` 中**不得**出现真实内网库主机，
-库地址应回落到 `localhost`：
+**判据**：解包 jar 后 `BOOT-INF/classes/application.yml` **不得**出现真实内网库主机，库地址应回落到 `localhost`：
 
 ```bash
 unzip -p target/gatekeeper.jar BOOT-INF/classes/application.yml | grep -E "url: jdbc|192\.168\."
 # 期望：只看到 ${GATEKEEPER_DB_HOST:localhost}，看不到任何内网 IP
 ```
 
-> 这条曾经真的踩过：直接用仓库工作区跑 `mvn package` 得到的 jar 里，
-> 库地址是内网实机、密钥是真实值 —— 而镜像包因为走 Dockerfile 反而是干净的，
-> **同一个版本出现「镜像干净、jar 泄漏」的不一致**。发布前请对 jar 单独复检。
+> 这条真的踩过：直接用仓库工作区 `mvn package` 得到的 jar，库地址是内网实机、密钥是真实值 —— 而镜像包因走
+> Dockerfile 反而干净，**同一版本出现「镜像干净、jar 泄漏」的不一致**。发布前请对 jar 单独复检。
 
 ### 5. 从 Release 资产加载离线镜像
 
@@ -1110,18 +1059,16 @@ docker load -i gatekeeper-frontend-image-1.0.3.tar
 包内是标准 `docker save` 格式（`manifest.json` + 层目录 + config），平台为 `linux/amd64`。
 资产文件名中的版本号即当前 Release 版本，换版本时同步替换即可。
 
-> 🔴 **历史缺陷已修（2026-09-29）**：**v1.0.2 之前（含 v1.0.0 / v1.0.1）** 的这些镜像包
-> **无法加载**，`docker load` 会报：
+> 🔴 **历史缺陷已修（2026-09-29）**：**v1.0.2 之前（含 v1.0.0 / v1.0.1）** 的镜像包**无法加载**，`docker load` 会报：
 >
 > ```
 > invalid diffID for layer 0: expected "<hex>", got "sha256:<hex>"
 > ```
 >
-> 根因是打包时 `config.rootfs.diff_ids` 被写成了**裸 hex**，而 Docker 要求 `sha256:<hex>` 前缀。
-> 之所以长期没被发现，是因为打包机的自建校验脚本在比对前先把 `sha256:` 剥掉了 ——
-> **纯 Python 复算给出的绿灯是假绿灯，只有真实 `docker load` 才能发现。**
-> v1.0.2 的资产已就地替换修正（源码提交未变），并新增了 3 条格式硬断言防回归。
-> 若你手上是更早的镜像包，请**重新下载**，或按 §1 从源码自行构建。
+> 根因是打包时 `config.rootfs.diff_ids` 被写成**裸 hex**，而 Docker 要求 `sha256:<hex>` 前缀。长期未被发现，是因为
+> 打包机的自建校验脚本在比对前先把 `sha256:` 剥掉了 —— **纯 Python 复算给出的绿灯是假绿灯，只有真实 `docker load`
+> 才能发现。** v1.0.2 的资产已就地替换修正（源码提交未变），并新增 3 条格式硬断言防回归。若你手上是更早的镜像包，
+> 请**重新下载**，或按 §1 从源码自行构建。
 
 Release 资产清单（与 `v1.0.3` 一一对应，共 **9** 项）：
 
@@ -1145,11 +1092,9 @@ Release 资产清单（与 `v1.0.3` 一一对应，共 **9** 项）：
 
 ## 默认账号与密钥
 
-> ⚠️ **本节内容会随公开仓库一并发布。** 下列取值全部是**本地开发 / 演示环境的默认值**，
-> 一旦用于任何可被外部访问的环境即等同无效，请一律视为**已泄露**。部署前必须逐项替换。
->
-> 诚实说明：其中 AES 密钥的历史副本本就存在于本仓库的公开提交历史里；
-> 而**数据库口令与 JWT 密钥此前从未入库，是本节首次将其公开**——请据此评估风险。
+> ⚠️ **本节会随公开仓库一并发布**：下列取值全部是**本地开发 / 演示环境的默认值**，一旦用于任何可被外部访问
+> 的环境即等同无效，请一律视为**已泄露**，部署前必须逐项替换。诚实说明：AES 密钥的历史副本本就存在于本仓库
+> 公开提交历史中；而**数据库口令与 JWT 密钥此前从未入库，是本节首次将其公开** —— 请据此评估风险。
 
 ### 1. 默认账号
 
@@ -1265,13 +1210,12 @@ export GATEKEEPER_REDIS_PASSWORD="$(openssl rand -base64 24)"
 ====================================================================
 ```
 
-**原因**：`com.gatekeeper.config.SecurityStartupCheck` 在 Bean 初始化阶段（早于端口监听）强校验三项密钥。
-出现**缺失 / 长度 < 32 位 / 等于历史默认值或常见弱口令**（`123456`、`root`、`admin`、`password`）任一情况即 fail-fast。
+**原因**：`com.gatekeeper.config.SecurityStartupCheck` 在 Bean 初始化阶段（早于端口监听）强校验三项密钥；出现
+**缺失 / 长度 < 32 位 / 等于历史默认值或常见弱口令**（`123456`、`root`、`admin`、`password`）任一情况即
+fail-fast。**这是刻意的安全设计**：历史版本曾把 JWT/AES/DB 默认密钥写进配置文件并提交仓库，任何人拿到仓库
+即可伪造管理员令牌；现在配置文件中不再携带任何真实默认值。
 
-**这是刻意的安全设计**：历史版本曾把 JWT/AES/DB 默认密钥写进配置文件并提交仓库，任何人拿到仓库即可伪造管理员令牌。
-现在配置文件中不再携带任何真实默认值。
-
-**解决**：按第 3 步填好三项密钥（注意 JWT 与 AES 必须 ≥ 32 位）后重启。
+**解决**：按第 3 步填好三项密钥（JWT 与 AES 必须 ≥ 32 位）后重启。
 
 ### Q2. `mvn` 报「找不到或无法加载主类 org.codehaus.plexus.classworlds.launcher.Launcher」
 
@@ -1295,9 +1239,9 @@ java -classpath "<MAVEN_HOME>\boot\plexus-classworlds-2.6.0.jar" \
 把 `<MAVEN_HOME>` 换成你的 Maven 安装目录（如 `C:\apache-maven-3.8.8`）。
 校验该写法是否可用：把最后的 `spring-boot:run` 换成 `-v`，能打印 Maven 版本号即正常。
 
-> **实测依据**：本仓库开发环境确实复现了上述报错（`mvn -v` 即失败），且该兜底写法实测有效——
-> `-v` 输出 `Apache Maven 3.8.8` / `Java 1.8.0_391`；随后执行 `compile` 目标退出码为 0。
-> 结论为「本机必需」；在你的机器上 `mvn` 若正常，直接用标准写法即可。
+> **实测依据**：本仓库开发环境确实复现了上述报错（`mvn -v` 即失败），且兜底写法实测有效 —— `-v` 输出
+> `Apache Maven 3.8.8` / `Java 1.8.0_391`，随后执行 `compile` 退出码为 0。结论为「本机必需」；在你的机器上
+> `mvn` 若正常，直接用标准写法即可。
 
 ### Q3. `spring-boot:run` 报 `NoPluginFoundForPrefixException`
 
@@ -1306,9 +1250,9 @@ java -classpath "<MAVEN_HOME>\boot\plexus-classworlds-2.6.0.jar" \
 
 **解决**：启动后端时**不要加 `-o`**。只有 `mvn test`（其插件已缓存）才可以安全加 `-o`。
 
-> **验证范围**：本条为**机制性结论，未逐条实测**——我们实测过的是「`mvn` 在本机需走 classworlds 兜底」（Q2），
-> 以及「离线模式下插件前缀无法解析」这一 Maven 副作用。稳妥做法是：启动后端时不要加 `-o`，
-> 若你的环境网络受限，可预先 `mvn dependency:go-offline` 预热本地仓库后再试。
+> **验证范围**：本条为**机制性结论，未逐条实测**——实测过的是「`mvn` 在本机需走 classworlds 兜底」（Q2）与
+> 「离线模式下插件前缀无法解析」这一 Maven 副作用。稳妥做法：启动后端不加 `-o`；若环境网络受限，可预先
+> `mvn dependency:go-offline` 预热本地仓库后再试。
 
 ### Q4. 前端 `npm run build` 被拦截 / `dist/` 报权限或批量删除错误
 
@@ -1323,9 +1267,8 @@ npm run build -- --no-clean
 手动删除 `dist/` 后重跑 `npm run build` 亦可。
 
 > **实测依据**：`npm run build -- --no-clean` 在本仓库开发环境实测成功，输出
-> `DONE Build complete. The dist directory is ready to be deployed.`。
-> 需注意该参数**不清理旧产物**，多次构建会在 `dist/` 中累积同名不同 hash 的历史文件
-> （实测可见十几次构建的残留），发布前建议手动清空 `dist/` 再构建一次。
+> `DONE Build complete. The dist directory is ready to be deployed.`。需注意该参数**不清理旧产物**，多次构建会在
+> `dist/` 中累积同名不同 hash 的历史文件（实测可见十几次构建的残留），发布前建议手动清空 `dist/` 再构建一次。
 
 ### Q5. Redis 没启动（或口令不一致），网关防护还生效吗？
 
@@ -1341,12 +1284,10 @@ npm run build -- --no-clean
 安全性要求极高的场景（强合规）可把 `gatekeeper.redis.fail-open` 置为 `false`，改为 **fail-closed**：
 Redis 故障时防护组件直接抛错、网关整体拒绝请求，代价是 Redis 抖动会直接导致网关不可用。
 
-> **验证范围**：本条为**代码级结论，未做"停掉 Redis"的运行时实测**。依据是源码实现——
-> `gateway/handler/IpBanCheckHandler` 通过 `@Value("${gatekeeper.redis.fail-open:true}")` 读取该开关，
-> 并在 Redis 异常分支按开关决定「放行」或「抛错」；`AppAuthHandler` 的 Nonce 防重放同样标注为 fail-open 降级。
->
-> ⚠️ 另外提示一个配置细节：该开关的**正确配置键是 `gatekeeper.redis.fail-open`**（本仓库模板
-> `application.example.yml` 已按此放置），请勿写在 `spring.redis` 下——那样不会生效。
+> **验证范围**：本条为**代码级结论，未做"停掉 Redis"的运行时实测**。依据是源码实现 —— `IpBanCheckHandler` 通过
+> `@Value("${gatekeeper.redis.fail-open:true}")` 读取该开关，并在 Redis 异常分支按开关决定「放行」或「抛错」；
+> `AppAuthHandler` 的 Nonce 防重放同样标注为 fail-open 降级。⚠️ 该开关的**正确配置键是
+> `gatekeeper.redis.fail-open`**（模板 `application.example.yml` 已按此放置），请勿写在 `spring.redis` 下。
 
 > 生产环境请务必保证 Redis 高可用，不要依赖 fail-open 兜底。
 
@@ -1388,11 +1329,10 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 
 ## 数据库设计
 
-初始化脚本为 [`src/backend/src/main/resources/sql/init.sql`](src/backend/src/main/resources/sql/init.sql)，**单独执行可建 34 张表**；
-叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本后共 **40 张表**。
-（开发库实测 42 张 —— 多出的 2 张是 `app_quota` / `biz_line`，存量库按"只加不删"不动；
-完整 Docker 初始化链（16 文件）在 2026-09-29 实机部署实测同样为 **42 张**，且与开发库**表集合逐表一致**。
-口径见上文「1. 初始化数据库」。）
+初始化脚本为 [`src/backend/src/main/resources/sql/init.sql`](src/backend/src/main/resources/sql/init.sql)：单独执行 **34 张表**，
+叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本后共 **40 张表**，完整 Docker 初始化链（16 文件）
+实测 **42 张**且与开发库**表集合逐表一致**（口径与 `app_quota` / `biz_line` 的由来见上文「1. 初始化数据库」）。
+按域划分如下：
 按域划分如下：
 
 | 域 | 表 | 说明 |
@@ -1408,20 +1348,19 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 | 系统管理 | `sys_user`、`sys_role`、`sys_user_role`、`sys_menu`、`sys_role_menu`、`sys_role_datascope`、`sys_dict`、`sys_dict_item`、`sys_config`、`sys_operation_log`、`sys_ip_whitelist` | RBAC、菜单权限点、数据权限、字典、参数、操作审计、系统级访问白名单 |
 | 已下线 / 已移除 | — | **T15 下线的 `biz_line`** 与**从未被读取的 `app_quota`**：2026-09-27 起不再由 `init.sql` 建表（全仓 0 个 Java/前端引用）。`app.line_id` / `api_interface.line_id` / `sys_user.line_id` 等列按"只加列不删列"铁律物理保留，存量库中的两张表亦不动 |
 
-全部建表语句均为 `CREATE TABLE IF NOT EXISTS`，脚本可**重复执行**（幂等）；`init.sql` 规模 **1417 行**。
-种子数据仅包含**基础运行数据**，落在 **9 张系统域表**上：
-`sys_user`（管理员 `admin`）、`sys_role`、`sys_menu`（全部权限点，含菜单与按钮）、`sys_user_role`、
-`sys_role_menu`、`sys_role_datascope`（数据权限）、`sys_dict`、`sys_dict_item`、`sys_config`。
-——**不含任何业务数据**（无应用、接口、调用日志）。
-更详细的表结构说明见 [`docs/database-design.md`](docs/database-design.md)，
-业务视角的表域划分与核心流程见 [`docs/GateKeeper-业务与核心流程.md`](docs/GateKeeper-业务与核心流程.md)。
+全部建表语句均为 `CREATE TABLE IF NOT EXISTS`（幂等、可重复执行）；`init.sql` 规模 **1417 行**。种子数据仅含
+**基础运行数据**，落在 **9 张系统域表**上：`sys_user`（管理员 `admin`）、`sys_role`、`sys_menu`（全部权限点，
+含菜单与按钮）、`sys_user_role`、`sys_role_menu`、`sys_role_datascope`（数据权限）、`sys_dict`、
+`sys_dict_item`、`sys_config` —— **不含任何业务数据**（无应用、接口、调用日志）。更详细的表结构说明见
+[`docs/database-design.md`](docs/database-design.md)，业务视角的表域划分与核心流程见
+[`docs/GateKeeper-业务与核心流程.md`](docs/GateKeeper-业务与核心流程.md)。
 
 > ⚠️ **`sys_config` 的生效范围**（T19，2026-09-18 实测 / 2026-09-27 收敛）：全表 **6 项**全部被代码读取并真正生效
 > （`sign.algorithm`、`sign.timestamp.tolerance`、`sign.nonce.ttl`、`gateway.auth.enabled`、
-> `gateway.ratelimit.enabled`、`gateway.default.read.timeout`，`remark` 中均标注「读取点 xxx」）。
-> 原先另有 **13 项**"看起来能改、实际无任何读取点"的配置，已于 2026-09-27 连行移除，
-> 参数配置页不再出现误导性开关（存量库清理办法见 `docs/sql/t19-config-wiring.sql` §3）。
-> 新增读取点请通过 `config/SysConfigAccessor`，并在 `docs/sql/t19-config-wiring.sql` 同步备注。
+> `gateway.ratelimit.enabled`、`gateway.default.read.timeout`，`remark` 中均标注「读取点 xxx」）。原先另有
+> **13 项**"看起来能改、实际无任何读取点"的配置已于 2026-09-27 连行移除，参数配置页不再出现误导性开关
+> （存量库清理办法见 `docs/sql/t19-config-wiring.sql` §3）。新增读取点请通过 `config/SysConfigAccessor`，并在
+> `docs/sql/t19-config-wiring.sql` 同步备注。
 
 ---
 
@@ -1445,18 +1384,17 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 
 ## 安全说明
 
-本项目采用**激进密钥策略**——但这说的是**模板与启动自检**：
+本项目采用**激进密钥策略**——说的是**模板与启动自检**：
 
-- 被跟踪的模板文件（`application.example.yml`、`.env.example`）**不含任何可用密钥**：
-  JWT / AES / 数据库口令的占位符默认值一律留空，强制部署者通过环境变量注入。
-- `SecurityStartupCheck` 在 Bean 初始化阶段（**早于 Web 端口监听**）强校验 JWT / AES / 数据库口令：
-  缺失、过短、命中历史默认值黑名单、**或仍等于 yml 内置默认值**（生产环境致命）——任一命中即拒绝启动。
+- 被跟踪的模板（`application.example.yml`、`.env.example`）**不含任何可用密钥**：JWT / AES / 数据库口令的
+  占位符默认值一律留空，强制部署者通过环境变量注入。
+- `SecurityStartupCheck` 在 Bean 初始化阶段（**早于 Web 端口监听**）强校验三者：缺失、过短、命中历史默认值
+  黑名单、**或仍等于 yml 内置默认值**（生产环境致命）——任一命中即拒绝启动。
 - `application.yml`、`.env` 均已在 `.gitignore` 中忽略，**请勿提交**。
 
-> ⚠️ **一处刻意的例外，务必知悉**：README 的[「默认账号与密钥」](#默认账号与密钥)章节
-> **明文公开**了本地开发所用的默认口令与全部默认密钥（DB / Redis / AES / JWT）。
-> 这是为了让本地「零配置开箱即用」而做的**知情取舍**，代价是这些值在公开仓库中
-> **不再具备任何保密性**。请一律视为**已泄露**，并在任何非本地环境启动前完成替换
+> ⚠️ **一处刻意的例外，务必知悉**：README 的[「默认账号与密钥」](#默认账号与密钥)章节**明文公开**了本地开发
+> 所用的默认口令与全部默认密钥（DB / Redis / AES / JWT）。这是为让本地「零配置开箱即用」而做的**知情取舍**，
+> 代价是这些值在公开仓库中**不再具备任何保密性**：请一律视为**已泄露**，并在任何非本地环境启动前完成替换
 > （尤其 `GATEKEEPER_AES_KEY` 与 `GATEKEEPER_JWT_SECRET`）。
 
 ### 提交前自检
@@ -1480,16 +1418,11 @@ git grep -nE "GATEKEEPER_(JWT_SECRET|AES_KEY|DB_PASSWORD|REDIS_PASSWORD)=[^[:spa
 git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 ```
 
-> ②用于排查仓库内是否残留开发环境的内网主机地址。
-> **本项目已完成脱敏**：`docs/` 下历史验证与设计文档中出现的真实内网 IP 已全部替换为
-> `<MYSQL_HOST>` / `<REDIS_HOST>` 之类的占位符，本命令**预期无输出**。
->
-> 两点如实说明：
-> 1. 上述命令**只检查内网 IPv4 地址**，不覆盖端口号。`docs/` 中的历史记录可能仍保留当时的
->    非标准端口号——它不含主机信息，属于开发过程留痕，公开仓库时风险可接受；若你要求更严，
->    可在 fork 后一并脱敏。
-> 2. 真实密钥所在的 `application.yml` 因被 `.gitignore` 忽略，`git grep` **搜索不到它**，
->    所以命令①②的"无输出"不代表磁盘上不存在密钥文件，只代表**它们不会进入版本库**。
+> ②用于排查仓库内是否残留开发环境的内网主机地址。**本项目已完成脱敏**（`docs/` 下历史验证与设计文档中出现的
+> 真实内网 IP 已全部替换为 `<MYSQL_HOST>` / `<REDIS_HOST>` 之类占位符），本命令**预期无输出**。
+> 两点如实说明：① 命令**只检查内网 IPv4 地址**、不覆盖端口号 —— `docs/` 历史记录可能仍保留当时的非标准端口号，
+> 它不含主机信息、属开发过程留痕，公开仓库时风险可接受；② 真实密钥所在的 `application.yml` 因被 `.gitignore`
+> 忽略而 `git grep` **搜索不到**，故命令①②的「无输出」只代表**它们不会进入版本库**，不代表磁盘上不存在密钥文件。
 
 - 暴露到公网前必须完成：修改 `admin` 默认密码、替换**全部四项密钥**（`GATEKEEPER_DB_PASSWORD` / `GATEKEEPER_REDIS_PASSWORD` / `GATEKEEPER_AES_KEY` / `GATEKEEPER_JWT_SECRET`）、`knife4j.enable: false`、按实际域名收敛 `gatekeeper.cors.allowed-origins`。
 
@@ -1506,32 +1439,28 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 
 ### v1.0.3（2026-09-29）
 
-**缺陷**：登录后进入「系统管理 → 角色管理 →（任选角色）配置权限」，弹窗里的权限点名称有一部分显示为
-`æ–°å¢žåˆ†ç»„çŽ¯å¢ƒé…ç½®` 这类乱码（而权限码 `api_group_env_config:create` 本身是正常的）。
+**缺陷**：登录后进入「系统管理 → 角色管理 →（任选角色）配置权限」，弹窗里部分权限点名称显示为
+`æ–°å¢žåˆ†ç»„çŽ¯å¢ƒé…ç½®` 这类乱码（权限码 `api_group_env_config:create` 本身正常）。
 
 **根因**：MySQL 官方镜像的 `/usr/local/bin/docker-entrypoint.sh` 在遍历 `/docker-entrypoint-initdb.d/*.sql`
-时调用 `mysql` 客户端**不传 `--default-character-set`**，而容器内 `LANG`/`LC_ALL` 为空 ⇒ 客户端回退到
+时调用 `mysql` 客户端**不传 `--default-character-set`**，容器内 `LANG`/`LC_ALL` 为空 ⇒ 客户端回退到
 **`latin1`** ⇒ 脚本里以 UTF-8 存储的中文字节被当作 cp1252 **再编码一次**入库，形成双重编码乱码。
-
 **「为什么只有一部分行坏」**：`init.sql` 与少数几个脚本头部自带 `SET NAMES utf8mb4`，它们播的数据是好的；
-其余脚本没写这一行，播的数据就坏了。两者混在同一张表里，所以看起来「一半好一半乱」。
+其余脚本没写这一行，播的就坏了 —— 两者混在同一张表里。
 
 **受害面（全库 216 个文本列精确扫描）**：仅 2 列 —— `sys_menu.name` **17 行**、`sys_dict.remark` **1 行**。
 17 行分别是菜单 id 71–74（`biz_line:*`）、91（`app_credential:list`）、101（`api_param:import`）、
 102（`api_version:gray`）、103（`api_env_config:test`）、351–355（`api_group_env_config:*` / `interface:test`）、
 356–358（`api_group_encryption:*`）、359（`app:ipwhitelist:update`）。
 
-**修复（三道，治本 + 兜底 + 补救）**
-
-1. **治本**：`docs/sql/` 下**全部 15 个**缺声明的脚本补上 `SET NAMES utf8mb4;`（附成因注释）。
-   现仓库内**所有** `.sql` 均自带该声明，手工执行同样受益。
-2. **兜底**：新增 `docker/mysql-conf.d/99-client-charset.cnf`（`[client] default-character-set = utf8mb4`），
-   由 `docker-compose.yml` 只读挂载进容器 `/etc/mysql/conf.d/`。即使将来有人新写了忘加 `SET NAMES` 的脚本，
-   客户端层也已强制 utf8mb4。
-3. **补救存量库**：新增 `docs/sql/fix-mojibake.sql`，用
-   `CONVERT(BINARY(CONVERT(col USING latin1)) USING utf8mb4)` 还原，并带两道护栏——
-   `HEX(col) REGEXP '^(..)*C3'`（只挑含 UTF-8 首字节 C3 的行）+ `LOCATE('?', CONVERT(col USING latin1)) = 0`
-   （转 latin1 无信息丢失，排除本就该保留的行）。
+**修复（三道：治本 + 兜底 + 补救）**：① **治本** —— `docs/sql/` 下**全部 15 个**缺声明的脚本补上
+`SET NAMES utf8mb4;`（附成因注释），现仓库内**所有** `.sql` 均自带该声明，手工执行同样受益；② **兜底** ——
+新增 `docker/mysql-conf.d/99-client-charset.cnf`（`[client] default-character-set = utf8mb4`）并由
+`docker-compose.yml` 只读挂载进容器 `/etc/mysql/conf.d/`，此后即便有人新写忘加 `SET NAMES` 的脚本，客户端层
+也已强制 utf8mb4；③ **补救存量库** —— 新增 `docs/sql/fix-mojibake.sql`，用
+`CONVERT(BINARY(CONVERT(col USING latin1)) USING utf8mb4)` 还原，并带两道护栏 `HEX(col) REGEXP '^(..)*C3'`
+（只挑含 UTF-8 首字节 C3 的行）+ `LOCATE('?', CONVERT(col USING latin1)) = 0`（转 latin1 无信息丢失，
+排除本就该保留的行）。
 
 > 🔍 **扫描判据踩坑**：最初用 `HEX(col) LIKE '%C3%'` 扫全库，误报 4 列 18 行（`alarm_rule.channel_ids`、
 > `sys_menu.perm_code`、`sys_user.password` 等）——原因是 `LIKE '%C3%'` 会命中**半字节边界**
@@ -1590,27 +1519,19 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 
 ### v1.0.2（2026-09-29）
 
-**这是一次「发布物重建」版本，不含功能变更。** 目的是让 **GitHub Release 上的资产与修复后的源码完全对齐**——
-`v1.0.1` 的镜像包是在部署链缺陷修复**之前**构建的，其内 `init.sql` 仍带缺陷 1（见下）。
+**发布物重建版本，不含功能变更** —— 让 GitHub Release 上的资产与修复后的源码完全对齐（`v1.0.1` 的镜像包
+构建于部署链缺陷修复**之前**，其内 `init.sql` 仍带缺陷 1）。
 
-**修复**
+**修复**：① 镜像 / jar 内嵌 `init.sql` 与源码逐字节一致，缺陷 1（第 1393 行多余逗号）不再存在于任何发布物；
+② jar 改为 `mvn clean package` **干净构建** —— 此前的 jar 由**增量编译**产出，携带一个**已删除功能的孤儿 class**
+（`DataScopeOptionsVo$BizLineSimple`：模块 T15 已整体下线、源码中早已不存在，但仓库 `target/classes` 残留），
+本版不含该 class，且与镜像内 `app/app.jar` 逐字节一致；③ 随附 docker zip 内 `docker-compose.yml` 同步为修复后
+版本（补挂 5 个结构脚本 + backend `healthcheck`）。
 
-- **镜像 / jar 内嵌的 `init.sql` 已与源码逐字节一致**，部署链缺陷 1（第 1393 行多余逗号）不再存在于任何发布物中。
-- **Release 的 jar 资产改为「从源码干净构建」（`mvn clean package`）的产物**：此前的 jar 由**增量编译**产出，
-  携带一个**已删除功能的孤儿 class**（`DataScopeOptionsVo$BizLineSimple`，「业务线」模块 T15 已整体下线，
-  源码中早已不存在该内部类，但仓库 `target/classes` 残留了它）。本版 jar 不含该 class，
-  且与镜像内 `app/app.jar` **逐字节一致**。
-- 随附的 `gatekeeper-docker-<version>.zip` 内的 `docker-compose.yml` 同步为修复后版本
-  （补挂 5 个结构脚本 + backend `healthcheck`）。
-
-**工程**
-
-- 版本号 `1.0.1` → `1.0.2`：`src/backend/pom.xml`、`src/frontend/package.json`（含 `package-lock.json`）、
-  两个 `Dockerfile` 的 `ARG VERSION` 默认值。
-- 后端 jar 仍按 §4.1 的闸门打包（备份真实配置 → 模板顶替 → 打包 → 立即还原），
-  复检确认 jar 内配置仅含 `${…:localhost}` 占位、无内网地址。
-- 前端产物与 `v1.0.1` **59/59 文件逐字节相同** —— 本版未改前端源码，仅版本号变化（`package.json.version` 不进 bundle）。
-- 镜像 OCI 溯源标签 `org.opencontainers.image.revision` 指向本版 tag 的同一提交，`docker inspect` 可直接溯源。
+**工程**：版本号 `1.0.1` → `1.0.2`（`src/backend/pom.xml`、`src/frontend/package.json` 含 `package-lock.json`、
+两个 `Dockerfile` 的 `ARG VERSION` 默认值）；jar 仍按 §4.1 闸门打包（备份真实配置 → 模板顶替 → 打包 → 立即还原）
+并复检确认无内网地址；前端产物与 `v1.0.1` **59/59 文件逐字节相同**（仅版本号变化，`package.json.version` 不进
+bundle）；镜像 OCI `org.opencontainers.image.revision` 指向本版 tag 的同一提交。
 
 **校验矩阵（本版）**
 
@@ -1628,18 +1549,16 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 
 **发布后修正（资产就地替换，同日）**
 
-本版资产上传后，在实机 `docker load` 时暴露出一个**自 `v1.0.0` 起就存在**的镜像包格式缺陷：
+资产上传后在实机 `docker load` 暴露出一个**自 `v1.0.0` 起就存在**的镜像包格式缺陷：
 
 ```text
 invalid diffID for layer 0: expected "485d137f…", got "sha256:485d137f…"
 ```
 
-`manifest/config.json` 的 `rootfs.diff_ids` 被写成**裸 hex**，缺 `sha256:` 前缀，Docker 直接拒绝加载。
-根因在镜像合成脚本：`diff_id` 在收集阶段被剥过前缀，写入 config 时没补回来。
-**`v1.0.0` / `v1.0.1` 的全部镜像包同样不可加载**，而 README 当时宣称「可直接加载」。
-
-> 一直没被发现的原因：本地/CI 的**纯 Python 契约复算**在比对前也做了同样的剥离，
-> 于是裸 hex 也判「一致」，形成**假绿灯**；只有真实 `docker load` 才暴露。
+`manifest/config.json` 的 `rootfs.diff_ids` 被写成**裸 hex**、缺 `sha256:` 前缀，Docker 直接拒绝加载；根因在镜像
+合成脚本：`diff_id` 在收集阶段被剥过前缀，写入 config 时没补回来。**`v1.0.0` / `v1.0.1` 的全部镜像包同样不可
+加载**，而 README 当时宣称「可直接加载」。长期未被发现的原因：本地 / CI 的**纯 Python 契约复算**在比对前也做了
+同样的剥离，于是裸 hex 也判「一致」，形成**假绿灯** —— 只有真实 `docker load` 才暴露。
 
 | 动作 | 说明 |
 |---|---|
@@ -1649,49 +1568,34 @@ invalid diffID for layer 0: expected "485d137f…", got "sha256:485d137f…"
 
 > 更早版本的镜像包（`v1.0.0` / `v1.0.1`）**未做就地替换**；如需使用请按同一修复重打包，或直接改用 `v1.0.2`。
 
-**追加资产：`deploy-from-release.sh`**
+**追加资产 `deploy-from-release.sh`**
 
 同日追加第 9 个资产 `deploy-from-release.sh`（纯 Release 离线部署脚本，用法见
-[「离线部署」](#离线部署只用-release-发布物目标机不留源码)）。
-追加原因：实测目标机 `raw.githubusercontent.com` **不可达**，从仓库取脚本这条路走不通；
-而 Release 资产通道（`api.github.com` → `release-assets.githubusercontent.com`）可用。
+[「离线部署」](#离线部署只用-release-发布物目标机不留源码)）。原因：实测目标机 `raw.githubusercontent.com`
+**不可达**，需改走 Release 资产通道（`api.github.com` → `release-assets.githubusercontent.com`）。
 **它是新增资产，不影响已有 8 项的任何校验和。**
 
 ### v1.0.1（2026-09-29）
 
-**修复**
+**修复**：① 补回「数据大屏」侧边栏入口（归入「监控与审计」组，免权限点），并在大屏页内新增「返回控制台」
+按钮 —— 该页此前只能靠手输 `#/screen` 访问；② 大屏应用排行 / 接口热度两个 Top10 图表在接口返回空数组时改渲染
+「暂无数据」占位，并复用已初始化的 ECharts 实例以免重复 `init` 告警。该现象是**数据缺口**而非功能缺陷
+（接口本身返回 200 且结构正确），本轮只加前端提示，未改后端统计口径。
 
-- 补回「数据大屏」侧边栏入口（归入「监控与审计」组，免权限点），并在大屏页内新增「返回控制台」按钮 ——
-  该页此前只能靠手输 `#/screen` 访问，侧边栏无任何入口。
-- 大屏应用排行 / 接口热度两个 Top10 图表在接口返回空数组时不再留下整块无声空白，
-  改为渲染「暂无数据」占位；同时对已初始化过的容器复用 ECharts 实例，避免重复 `init` 告警。
+**工程**：版本号 `1.0.0` → `1.0.1`（同 v1.0.2 的四处）；重建并发布完整资产；修正 README「Docker 镜像」章中的
+离线镜像资产文件名（实为 `gatekeeper-backend-image-<version>.tar` / `gatekeeper-frontend-image-<version>.tar`，
+此前误写为 `gatekeeper-backend-<version>.tar`）；新增 §4.1「同一条闸门也适用于 Release 的 jar 资产」——
+**本版打包过程中正是这条复检拦下了一次真实泄漏**：直接用仓库工作区 `mvn package` 得到的 jar 库地址指向内网
+实机、密钥为真实值，而镜像包因走 Dockerfile 反而是干净的，出现「同一版本镜像干净、jar 泄漏」的不一致。
 
-> 该现象是**数据缺口**而非功能缺陷：接口本身返回 200 且数据结构正确，只是库中暂无调用明细。
-> 本轮只增加前端提示，未改动后端统计口径。
-
-**工程**
-
-- 版本号 `1.0.0` → `1.0.1`：`src/backend/pom.xml`、`src/frontend/package.json`（含 `package-lock.json`）、
-  两个 `Dockerfile` 的 `ARG VERSION` 默认值。
-- 重新构建并发布 `v1.0.1` 的完整资产（jar / 前端 zip / SQL zip / 两个镜像包 / Docker 构建包 / 两份校验和）。
-- 修正 README「Docker 镜像」章节中的离线镜像资产文件名：实际为
-  `gatekeeper-backend-image-<version>.tar` 与 `gatekeeper-frontend-image-<version>.tar`，
-  此前误写为 `gatekeeper-backend-<version>.tar`。
-- 新增 README §4.1「同一条闸门也适用于 Release 的 jar 资产」：明确发布用 jar 必须按
-  Dockerfile 同口径打包（备份本地真实配置 → 模板顶替 → 打包 → 立即还原），
-  并给出「jar 内不得出现内网库主机」的复检命令。
-  **本版打包过程中正是这条复检拦下了一次真实泄漏**——直接用仓库工作区 `mvn package`
-  得到的 jar，库地址指向内网实机、密钥为真实值，而镜像包因走 Dockerfile 反而是干净的，
-  会出现「同一版本镜像干净、jar 泄漏」的不一致。
-
-> **关于 v1.0.0 的溯源**：`v1.0.0` 的 tag 指向 `3ae1db9`，该提交不含 Dockerfile；
-> 而 v1.0.0 的两个镜像包内 `org.opencontainers.image.revision` 为 `2e55dcc`（引入 Dockerfile 与密钥闸门的提交）。
-> 自 `v1.0.1` 起，tag、源码提交与镜像 revision 三者已对齐。
+> **关于 v1.0.0 的溯源**：`v1.0.0` tag 指 `3ae1db9`（该提交不含 Dockerfile），而其两个镜像包内的
+> `org.opencontainers.image.revision` 为 `2e55dcc`（引入 Dockerfile 与密钥闸门的提交）。自 `v1.0.1` 起，
+> tag、源码提交与镜像 revision 三者已对齐。
 
 **v1.0.1 补记 · 首次实机部署修复（2026-09-29）**
 
-v1.0.1 发布后，在 CentOS 7.9 实机上按「一键部署」章节首次真机跑通 docker-compose 部署，
-暴露出 3 个**只在真实 Docker 环境才会显现**的部署链缺陷，均已修复：
+v1.0.1 发布后在 CentOS 7.9 实机按「一键部署」章首次真机跑通 docker-compose，暴露出 3 个**只在真实 Docker
+环境才会显现**的部署链缺陷，均已修复：
 
 | # | 缺陷 | 影响 |
 |---|---|---|
@@ -1699,15 +1603,14 @@ v1.0.1 发布后，在 CentOS 7.9 实机上按「一键部署」章节首次真�
 | 2 | `docker-compose.yml` 漏挂 5 个结构脚本 | 只有 36 张表（缺 6 张）⇒ 白名单 / 分组加解密 / 接口级加解密**抛 SQL 异常**；9 个权限点**连超管都拿不到** |
 | 3 | 起栈后立即探活得到 502 | backend 就绪前有 8~15 秒窗口；已补 healthcheck + E2E 就绪等待 |
 
-修复提交：`a5979e3`（缺陷 1）；缺陷 2、3 改动 `docker-compose.yml` 与 `docs/sql/t09-docker-e2e.sh`。
-README「一键部署」章节据此重写（原为"未实测"的应然步骤），并新增 §5 常见问题与 §6 实测记录。
-修复后 E2E **U0–U7 全绿**、部署态自检 **23/23**、表集合与开发库 **42/42 逐表一致**。
+修复提交 `a5979e3`（缺陷 1）；缺陷 2、3 改动 `docker-compose.yml` 与 `docs/sql/t09-docker-e2e.sh`。README
+「一键部署」章据此重写（原为"未实测"的应然步骤）并新增 §5 常见问题与 §6 实测记录。修复后 E2E **U0–U7 全绿**、
+部署态自检 **23/23**、表集合与开发库 **42/42 逐表一致**。
 
-> ✅ **该遗留已在 `v1.0.2` 关闭**：v1.0.2 的镜像包内 `init.sql` 与源码**逐字节一致**，
-> 上述「镜像包与源码不一致」的情况不再存在。
-> 回顾 v1.0.1 的镜像包：其内 `init.sql` 带缺陷 1，但该差异**不影响 docker-compose 部署** ——
-> compose 挂载的是宿主机的 `src/backend/src/main/resources/sql/init.sql`，镜像内那份不参与初始化。
-> 只有「直接取镜像内 `init.sql` 手动导入」才会踩到缺陷 1；此类用法请改用 v1.0.2 及以后的镜像包。
+> ✅ **该遗留已在 `v1.0.2` 关闭**（镜像包内 `init.sql` 与源码逐字节一致）。回顾 v1.0.1 的镜像包：其内
+> `init.sql` 带缺陷 1，但**不影响 docker-compose 部署** —— compose 挂载的是宿主机的
+> `src/backend/src/main/resources/sql/init.sql`，镜像内那份不参与初始化；只有「直接取镜像内 `init.sql`
+> 手动导入」才会踩到缺陷 1，此类用法请改用 v1.0.2 及以后的镜像包。
 
 ### v1.0.0（2026-09-28）
 

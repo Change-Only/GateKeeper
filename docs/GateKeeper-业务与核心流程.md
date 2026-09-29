@@ -21,8 +21,8 @@
 - **只关心安全与告警** → 读 §8
 - **要对着库表理解** → 读 §11
 
-> 一句话总纲：**网关是执行面，平台的核心资产是「接口 + 应用身份 + 授权关系」三张主数据。**
-> 所有模块都在做三件事之一：把这三张主数据**录进来**（登记）、**管起来**（治理）、**用起来**（网关执行 + 观测）。
+> 一句话总纲：**网关是执行面；平台核心资产是「接口 + 应用身份 + 授权关系」三张主数据。**
+> 所有模块都在做三件事之一：把主数据**录进来**（登记）、**管起来**（治理）、**用起来**（网关执行 + 观测）。
 
 ---
 
@@ -30,9 +30,9 @@
 
 ### 1.1 一句话定位
 
-GateKeeper 是一个**统一的 API 接口管理平台**：为企业的内部/外部接口提供**统一登记、统一鉴权、统一授权、统一安全防护、统一观测与审计**。
+GateKeeper 是**统一的 API 接口管理平台**：为企业内/外部接口提供**统一登记、统一鉴权、统一授权、统一安全防护、统一观测与审计**。
 
-它对外呈现的是一个**网关**（所有调用都打到 `/gateway/**` 再转发到后端真实服务），但平台的真正价值不在转发，而在转发之外的四件事：
+对外它是**网关**（调用都打到 `/gateway/**` 再转发到后端真实服务），但价值在转发之外的四件事：
 
 | 问题 | 平台给的答案 |
 |---|---|
@@ -74,7 +74,7 @@ graph LR
     S -.告警与处置.-> B
 ```
 
-**读图要点**：三张主数据都是"人录入的、可治理的"；网关是"读这三位数据后做决策的"；安全与观测是"网关跑起来之后反向产生价值"的。改任何功能时先问：**它在治哪张主数据，还是在动执行面？**
+**读图要点**：三张主数据"人录入、可治理"；网关"读它们做决策"；安全与观测"跑起来后反向产生价值"。改功能前先问：**治的是哪张主数据，还是在动执行面？**
 
 ### 1.4 六条演进铁律（不可违反）
 
@@ -87,7 +87,7 @@ graph LR
 | 5 | **双套枚举语义不可混用** | `alert.status` 是**告警处理态**（0未读/1已读/2已处理/3已忽略）；`app.status` 是**启停态**（0停用/1启用/2过期）。两者数值含义完全不同 |
 | 6 | **环境不可伪造** | 环境码不靠客户端传，由部署参数 `GK_ENV` + 凭证 `env_code` 二次校验共同保证 |
 
-> 铁律 6 的工程含义：`X-Env` 请求头只是**解析入口**，真正的防线是"该应用在该环境下有没有活跃凭证"与"该应用在该环境下有没有授权"。
+> 铁律 6 的工程含义：`X-Env` 只是**解析入口**，真正防线是"该应用在该环境下有无活跃凭证 / 有无授权"。
 
 ### 1.5 产品北极星指标
 
@@ -130,7 +130,7 @@ graph LR
 | **平台用户** | `sys_user` | 登录控制台的人（线上仅 1 个） |
 | **应用** | `app` | 调用接口的"机器身份"（线上仅 1 个） |
 
-平台用户和应用**是两个独立体系**：用户靠账号密码 + 权限点进控制台；应用靠 `AppKey + 签名` 调网关。二者仅在"谁是接口负责人""谁是应用负责人"这类**关联字段**上发生联系（`api_interface.owner_id`、`app.owner_id`）。
+平台用户与应用**是两个独立体系**：用户靠账号密码 + 权限点进控制台，应用靠 `AppKey + 签名` 调网关；二者仅在负责人等**关联字段**（`api_interface.owner_id`、`app.owner_id`）上联系。
 
 ---
 
@@ -177,7 +177,7 @@ graph LR
 
 隐蔽路由：`/encryption`（加解密管理，保留但不进侧边菜单，后续并入安全策略）。
 
-> 🔴 **不要在前端页面里写死模块/权限清单**。菜单由 `MENU_TREE` 按登录用户的 `perms` 过滤生成；权限点唯一数据源是 `sys_menu.perm_code`。
+> 🔴 **不要在前端页面写死模块/权限清单**：菜单由 `MENU_TREE` 按登录用户 `perms` 过滤生成；权限点唯一数据源是 `sys_menu.perm_code`。
 
 ### 3.2 八大业务模块
 
@@ -194,16 +194,14 @@ graph LR
 
 ### 3.3 业务线（biz_line）已于 T15 下线 —— 不要写进现行模块
 
-`biz_line` 表与 `app.line_id` / `api_interface.line_id` 列，在**存量库**中物理保留（遵守"只加列不删列"铁律）；
-**2026-09-27 起 `init.sql` 不再建 `biz_line` 表**（全仓 0 个 Java/前端引用，属死表）。除此之外：
+`biz_line` 表与 `app.line_id` / `api_interface.line_id` 列在**存量库**物理保留（"只加列不删列"）；**2026-09-27 起 `init.sql` 不再建 `biz_line` 表**（全仓 0 引用，死表）。
 
 - 权限点、侧边菜单、`sys_role_menu` 授权已在 `docs/sql/t15-remove-bizline.sql` 中删除
 - Java 实体层已移除 `lineId` 字段映射
 - **`BIZ_ADMIN` 角色名里的"业务线"是历史遗留命名**，实际能力已收窄为"按环境管数据"
 
 > 引用菜单/模块清单时，**不要把业务线列为现行功能**。
-> ⚠️ 历史脚本 `docs/sql/schema-v2.sql` 仍含 `CREATE TABLE IF NOT EXISTS biz_line` —— 按项目
-> 「不追改历史迁移脚本」惯例未动，故走完整 Docker 初始化链时该空表仍会被建出（详见 README 表数口径）。
+> ⚠️ 历史脚本 `docs/sql/schema-v2.sql` 仍含 `CREATE TABLE IF NOT EXISTS biz_line`；按「不追改历史脚本」惯例未动，故完整 Docker 初始化链仍会建出该空表（见 README 表数口径）。
 
 ---
 
@@ -227,11 +225,11 @@ graph LR
 | **8** | `ForwardHandler` | 转发上游（超时 / 重试 / Mock 短路） | 上游错误原样透传 | `api_env_config` |
 | **9** | `LogHandler` | 异步落库调用日志 | 不影响主链路 | `api_call_log` |
 
-> ⚠️ **Order 6 有两个 Handler**（`EncryptionHandler` 与 `VersionRouteHandler` 同为 `@Order(6)`）。排序是稳定排序，二者相对次序取决于 Spring 注入顺序，因此**二者的执行先后不作为契约**。工程上二者互不依赖：一个解密入参，一个选版本写 `ctx.version`，没有共享可变状态。
+> ⚠️ **Order 6 有两个 Handler**（`EncryptionHandler` 与 `VersionRouteHandler` 同为 `@Order(6)`）：次序取决于 Spring 注入顺序，**不作契约**；二者互不依赖。
 >
-> ⚠️ **`LogHandler` 不在循环里执行**：`GatewayCore.executeWithStatus()` 显式 `if (handler instanceof LogHandler) continue;`，把日志挪到 `finally` 里通过 `@Async` 异步执行。这样做的原因是日志落库不能占主链路耗时，**且拦截场景也要留痕**（被拦的请求同样要记日志）。
+> ⚠️ **`LogHandler` 不在循环里执行**：`executeWithStatus()` 显式跳过它，日志挪到 `finally` 里 `@Async` 执行 —— 既不占主链路耗时，**拦截场景也要留痕**。
 >
-> 📌 文档一致性提示：`GatewayCore.init()` 的 Javadoc 写的是"白名单→封禁→认证→…"，与 `@Order` 实际顺序（白名单→**认证**→IP白名单→**封禁**→…）不一致。**以 `@Order` 注解为准**，该类方法注释属笔误。
+> 📌 `GatewayCore.init()` 的 Javadoc 顺序（白名单→封禁→认证…）与 `@Order` 实际顺序（白名单→**认证**→IP白名单→**封禁**…）不一致，**以 `@Order` 为准**。
 
 ### 4.2 链路全景（含拦截与兜底）
 
@@ -281,7 +279,7 @@ X-Signature = SM3( AppKey + AppSecret明文 + X-Timestamp + X-Nonce )
 ```
 
 - 自定义 SM3 实现（`CryptoService.digest("SM3", …)`），输出十六进制
-- `AppSecret` 在库中以 **AES/ECB/PKCS5Padding 密文**存储，校验前先解密；解密失败时**回退按明文比较**（兼容未加密的历史行）
+- `AppSecret` 以 **AES/ECB/PKCS5Padding 密文**存储，校验前先解密；解密失败时**回退按明文比较**（兼容未加密历史行）
 - 比较使用 `MessageDigest.isEqual()` **恒时比较**，防时序侧信道
 
 **时间窗口、Nonce 与验签开关（T19 起改为 `sys_config` 可控）**：
@@ -293,13 +291,13 @@ X-Signature = SM3( AppKey + AppSecret明文 + X-Timestamp + X-Nonce )
 | 签名算法 | `sign.algorithm` | `SM3` | 固定 SM3 | ⚠️ 读取但**只接受 SM3**；配成其它值会打 WARN 并回退 SM3 |
 | 是否验签 | `gateway.auth.enabled` | `true` | `true` | ✅ 已接线，置 `false` 跳过防伪造/防重放 |
 
-> ✅ **T19 已接线**：上表 4 项均由 `config/SysConfigAccessor.java` 在运行时读取（`sys_config` 唯一读取入口，本地缓存 60s，任何异常 fail-open 回退调用方默认值）。改配置后最多 60s 生效；通过「参数配置」页保存则会立即 `evictAll()` 生效。
+> ✅ **T19 已接线**：上表 4 项由 `config/SysConfigAccessor.java` 运行时读取（`sys_config` 唯一入口，缓存 60s，异常 fail-open 回退默认值）；改配置最多 60s 生效，经「参数配置」页保存立即 `evictAll()`。
 >
-> 🔴 **`gateway.auth.enabled=false` 的准确语义**：只跳过**防伪造 / 防重放**四步（头完整性、时间戳窗口、Nonce 去重、签名比对），**AppKey 存在性、应用启停状态、应用到期时间仍强制校验**。即关闭的是"签名校验"，不是"身份认证"。启动时若该开关为 `false`，`SecurityStartupCheck` 会打 **ERROR** 日志（刻意不阻断启动）。
+> 🔴 **`gateway.auth.enabled=false` 的准确语义**：只跳过**防伪造/防重放**四步，**AppKey 存在性、应用启停、到期时间仍强制校验** —— 关的是"签名校验"而非"身份认证"；该值为 `false` 时启动打 **ERROR**（不阻断）。
 >
-> 🔴 **`sign.algorithm` 刻意不做真可切换**：签名算法是**跨端契约**（客户端 SDK、接口文档、`InterfaceTestServiceImpl` 自测全部按 SM3 实现），做成可切换等于留一个"改一行配置 → 全量验签失败"的开关。因此读取该配置仅用于**配错时告警并回退 SM3**，而非真的支持多算法。
+> 🔴 **`sign.algorithm` 刻意不做真可切换**：签名算法是**跨端契约**（SDK / 文档 / 自测全按 SM3），可切换等于留"改一行即全量验签失败"的开关；读取它仅用于**配错告警并回退 SM3**。
 
-> 🔴 **环境头口径（T19 已修复）**：环境解析统一走 `EnvResolver.resolve(ctx)`，四级优先级 —— **`X-Gk-Env` > `X-Env` > `gatekeeper.env`（`application.yml`）> `prod`**。修复前 `AppAuthHandler` 与 `VersionRouteHandler` 两处竞争写 `ctx.envCode`，因"已存在则不覆盖"导致 `X-Gk-Env` 永不生效；现已合并为**单一读取点**，两个头都能用，且 `X-Gk-Env` 优先。
+> 🔴 **环境头口径（T19 已修复）**：解析统一走 `EnvResolver.resolve(ctx)`，优先级 **`X-Gk-Env` > `X-Env` > `gatekeeper.env` > `prod`**；修复前两处竞争写 `ctx.envCode` 致 `X-Gk-Env` 永不生效，现为**单一读取点**。
 
 ### 4.4 拦截语义与状态码
 
@@ -315,7 +313,7 @@ X-Signature = SM3( AppKey + AppSecret明文 + X-Timestamp + X-Nonce )
 | 权限校验 | 403 | 无权调用此接口 | ✅ `recordPermissionBreach` |
 | 网关内部异常 | 500 | 未预期异常（会推 `CRITICAL` 告警） | 否 |
 
-> 关键设计：**"接口不存在"（404）不做安全事件记录，"无权调用"（403）要记录**。前者可能是路径写错，后者一定是越权探测。
+> 关键设计：**404（接口不存在）不记安全事件，403（无权）要记** —— 前者可能路径写错，后者一定是越权探测。
 
 ### 4.5 应急降级：Redis fail-open
 
@@ -330,7 +328,7 @@ X-Signature = SM3( AppKey + AppSecret明文 + X-Timestamp + X-Nonce )
 
 **仍然基于 DB 生效（不降级）**：应用身份校验、IP 白名单、接口授权校验、签名校验。
 
-`RedisHealthMonitor` 每 **30 秒**探活，状态翻转（健康 ↔ 异常）时推送告警。设计立场很明确：**宁可短时限额失效，也不能因为 Redis 挂了把全部业务链路掐死。**
+`RedisHealthMonitor` 每 **30 秒**探活，状态翻转时推告警；立场：**宁可短时限额失效，也不因 Redis 挂了掐死全部业务链路。**
 
 ---
 
@@ -361,7 +359,7 @@ graph TD
 | `status` | **网关开关** —— 决定网关能否匹配到这个接口 | `1`=启用 `0`=停用 |
 | `publish_status` | **发布生命周期** —— 决定治理流程走到哪一步 | `0`=草稿 `1`=待审核 `2`=已发布 `3`=已弃用 `4`=已下线 |
 
-> `PermissionHandler` 匹配接口时用的是 `status = 1`，**不看** `publish_status`。这意味着"草稿态接口只要 `status=1` 就能被网关转到"——这是一个必须知道的语义边界（当前依赖录入规范约束）。
+> `PermissionHandler` 匹配接口用 `status = 1`、**不看** `publish_status` ⇒ 草稿态接口只要 `status=1` 就能被转发（当前依赖录入规范约束）。
 
 ### 5.2 登记的两条路径
 
@@ -386,7 +384,7 @@ graph TD
 
 **配置继承链**：`api_env_config`（接口级）← `api_group_env_config`（分组级）
 
-解析由 `EnvConfigResolver` 统一负责，产出 `EffectiveEnvConfig`，被 `PermissionHandler` 写入 `ctx` 后供 `ForwardHandler` 消费（**同一请求只解析一次**，避免"页面显示继承自 A、网关实际走 B"的口径错位）。
+解析由 `EnvConfigResolver` 统一负责，产出 `EffectiveEnvConfig` 写入 `ctx` 供 `ForwardHandler` 消费（**同一请求只解析一次**，避免"页面显示 A、网关走 B"）。
 
 | 配置项 | 说明 |
 |---|---|
@@ -398,7 +396,7 @@ graph TD
 
 **兜底规则（零回归）**：环境配置未命中时，回退使用 `api_interface.backend_url`（改造前行为）。
 
-> ⚠️ **Mock 的状态码契约**：Mock 的 HTTP 状态码是"用户在环境配置里显式填的"，属于可配置响应的一部分，必须**原样透传给调用方**。历史缺陷：`GatewayCore.execute()` 只回 String 导致 `GatewayController` 一律返回 200（实测：配了 `mockStatus=503` 却收到 200）。修复方式：新增 `executeWithStatus()` 返回 `GatewayResult`（含 `mock()` / `forward()` 两种来源标识），`GatewayController` 据此区分。
+> ⚠️ **Mock 状态码契约**：状态码由用户在环境配置中填写，必须**原样透传**。历史缺陷：`GatewayController` 一律返 200（实测配 `mockStatus=503` 却收到 200），已由 `executeWithStatus()` 返回 `GatewayResult` 修复。
 
 ### 5.4 灰度版本路由（T04-B）
 
@@ -410,13 +408,13 @@ graph TD
 | 强制指定 | 请求头 `X-Gk-Version` 可强制指定版本（绕过灰度比例） |
 | 失败处理 | **FAIL-OPEN** —— 无版本、服务异常、Redis 故障一律只记日志并保留默认，绝不抛异常 |
 
-> 🔴 **为什么用 `appId` 而不是随机数**：随机分流会让**同一个应用在多个版本间跳变**，导致"刚调用成功、下一次就失败"的无法复现问题。用 appId 哈希后，同一应用稳定落在同一版本，问题可复现、可定位。
+> 🔴 **为何用 `appId` 而非随机数**：随机分流会让**同一应用在版本间跳变**，造成"刚成功、下次失败"的不可复现问题；appId 哈希后稳定落同一版本。
 >
-> 🔴 与 §4.3 呼应：`X-Gk-Env` 在环境解析上失效，但 `X-Gk-Version` 是**真实生效**的版本强制头，二者不要混淆。
+> 🔴 与 §4.3 呼应：`X-Gk-Env` 曾失效，`X-Gk-Version` 才是**真实生效**的版本强制头，勿混淆。
 
 ### 5.5 变更留痕
 
-`api_change_log`（线上 42 行）记录接口变更历史。**注意**：字段级加密只会作用于 `api_interface` / `api_param` 的特定列，`api_change_log` 是独立的历史快照表，其内容口径需单独确认。
+`api_change_log`（线上 42 行）记录变更历史。**注意**：字段级加密只作用于 `api_interface` / `api_param` 特定列，该表是独立快照，口径需单独确认。
 
 ---
 
@@ -472,17 +470,17 @@ sequenceDiagram
 
 设计意图：轮换期间**新旧密钥并存**，调用方平滑切换。
 
-职责链上的关键点：**轮换中的新密钥不能成为主密钥**。历史教训（已写入长期记忆）：主密钥查询必须用
-`rotate_flag = 0 AND status = 1` + `selectList` + 按 `id desc` 取首条，**绝不能用 `selectOne`** —— 否则一旦存在多条匹配行会抛 `TooManyResultsException`，把"取密钥"变成 500。
+关键点：**轮换中的新密钥不能成为主密钥**。历史教训：主密钥查询必须用
+`rotate_flag = 0 AND status = 1` + `selectList` + 按 `id desc` 取首条，**绝不能用 `selectOne`**（多条匹配会抛 `TooManyResultsException`）。
 
 ### 6.5 凭证门面与"不阻断"原则
 
-`AppAuthHandler` 会通过 `CredentialFacadeService.getActiveCredential(appId, envCode)` 探测"该应用在该环境下有没有活跃凭证"：
+`AppAuthHandler` 通过 `CredentialFacadeService.getActiveCredential(appId, envCode)` 探测"该应用在该环境下有没有活跃凭证"：
 
 - 找不到凭证 → **只记安全事件（WARN），绝不阻断**
 - 凭证服务缺失/异常 → **fail-open 跳过**
 
-原因：**权威校验仍是 `app` 表的签名与状态**。新模型（`app_credential`）目前**零业务数据**，如果拿它做硬门禁，会把所有存量调用直接掐死。这是"新增能力 fail-open"原则的典型应用。
+原因：**权威校验仍是 `app` 表**；`app_credential` 目前**零业务数据**，拿它做硬门禁会掐死存量调用 —— "新增能力 fail-open"的典型应用。
 
 ---
 
@@ -520,14 +518,14 @@ flowchart TD
 
 **判定要点**：
 
-1. **环境硬匹配**：查询条件包含 `.eq("env_code", envCode)`。当前环境取自 `ctx.envCode`（默认 `prod`）。**授权配在 `dev` 而请求走 `prod` ⇒ 直接 403**，不会"降级到任意环境"。
-2. **状态必须为 1**：待审批（0）、已驳回（4）、已过期（2）、已撤销（3）全部在 SQL 层就被排除，**根本不进入时间判断**。
-3. **有效期双保险**：`GrantExpireJob` 每天 02:00 批量把到期授权置为 `2`；同时网关**读时再比一次日期**。任一侧失效都不会误放行。
-4. **存量兼容回退（重要）**：`app_api_grant` 未命中时会回退查 `app_api_permission`（`status = 1`）。**这张回退表没有环境维度、没有有效期、没有审批状态** —— 它是"零迁移"的兼容口子，不是目标形态。理解线上行为时不能只看 `grant` 表。
+1. **环境硬匹配**：查询含 `.eq("env_code", envCode)`（取自 `ctx.envCode`，默认 `prod`）。**授权在 `dev`、请求走 `prod` ⇒ 403**，不降级到任意环境。
+2. **状态必须为 1**：待审批（0）、已驳回（4）、已过期（2）、已撤销（3）在 SQL 层即被排除，**根本不进入时间判断**。
+3. **有效期双保险**：`GrantExpireJob` 每天 02:00 把到期授权置 `2`，网关**读时再比一次日期**；任一侧失效都不会误放行。
+4. **存量兼容回退（重要）**：未命中时回退 `app_api_permission`（`status = 1`）；**该表无环境、无有效期、无审批状态**，是"零迁移"兼容口子，理解线上行为不能只看 `grant` 表。
 
 ### 7.3 授权带来的额度控制
 
-`app_api_grant` 上有 `qps_limit` 与 `daily_quota`（`0` = 不限），即**授权粒度可以比应用粒度更细**——同一个应用调 A 接口限 100 QPS、调 B 接口限 10 QPS 是允许的。
+`app_api_grant` 上有 `qps_limit` 与 `daily_quota`（`0` = 不限），**授权粒度可细于应用粒度**。
 
 ---
 
@@ -558,7 +556,7 @@ graph LR
 | `AbnormalParamDetector` | 异常入参特征 | `PARAM_INVALID` |
 | `PermissionBreachDetector` | 权限越界（403） | `PERM_BREACH` |
 
-> 检测写入 `security_event`（线上 **80 行**）。安全事件是**原始事实**，告警是**规则命中后的通知**——两者不是一张表，别混。
+> 检测写入 `security_event`（线上 **80 行**）。安全事件是**原始事实**，告警是**规则命中后的通知** —— 不是一张表。
 
 ### 8.3 七条告警规则（种子实测，`migrate-v2.sql` §1.10 与 `init.sql` 双份保持一致）
 
@@ -574,8 +572,7 @@ graph LR
 
 **规则模型的两个关键设计**：
 
-1. **评估对象绑定（T11 新增）**：`target_type`（`APP` / `API`）+ `target_ids`（逗号串，**为空 = 该维度下全部对象**）。
-   `evaluateRealtime` 会**逐对象展开评估**——即"规则按对象逐一判断"，而不是把全平台混在一起算。
+1. **评估对象绑定（T11）**：`target_type`（`APP` / `API`）+ `target_ids`（逗号串，**空 = 全部对象**）；`evaluateRealtime` **逐对象展开评估**。
 2. **沉默键必须含对象 ID**：`gk:alarm:silence:{ruleId}:{APP|API}:{id}`。
    🔴 历史缺陷：静默键不含对象 ID 时，**一个对象的告警会把整条规则静默掉**，导致其他对象的问题被吞。
 
@@ -587,9 +584,8 @@ graph LR
 | `time_window` | **全程使用分钟数字**（禁止字符串键映射表） |
 | `alarm_level` | 1/2/3 级别 |
 
-> 🔴 **"打开编辑弹窗什么都不改、点确定，规则被写坏"** 是本项目已发生过的整族缺陷，根因是三段叠加：
-> ① `Number(表达式)` → `NaN` → ② `JSON.parse(JSON.stringify())` 把 `NaN` 静默变 `null` → ③ `el-input-number` 的 value watcher 把 `null` 当 `0` 并**钳成 `meta.min`**。
-> 结果就是 `>10000` 变成 `0`、`提前30天` 变成 `1`。
+> 🔴 **"打开编辑弹窗什么都不改、点确定，规则被写坏"** 是本项目发生过的整族缺陷，根因三段叠加：
+> ① `Number(表达式)` → `NaN` → ② `JSON.parse(JSON.stringify())` 把 `NaN` 静默变 `null` → ③ `el-input-number` 的 watcher 把 `null` 当 `0` 并钳成 `meta.min`（`>10000`→`0`）。
 > **规避铁律：任何含 `NaN` 风险的表单，禁止使用 `JSON.parse(JSON.stringify())` 做深拷贝。**
 
 ### 8.4 五条动态封禁规则（`block_rule`）
@@ -602,7 +598,7 @@ graph LR
 | 4 | IP | `IP_NOT_ALLOWED` | 同 IP 5min ≥ 30 次 | 3600s | 自动 | 否 |
 | 5 | APP | `MANUAL` | 人工触发（含永久） | — | **人工** | ✅ 启用 |
 
-> ⚠️ 实测 `block_rule` 表当前 **0 行**、`ip_ban` **0 行**——种子脚本已就绪但尚未落库。**自动封禁当前未生效**；仅规则 5（人工封禁）在种子中标记为启用。这是"能力已建成、策略尚未开启"的常态，评审时不要误判为缺陷。
+> ⚠️ 实测 `block_rule` **0 行**、`ip_ban` **0 行** —— 种子就绪但未落库，**自动封禁当前未生效**（仅规则 5 人工封禁在种子中启用）。
 
 ### 8.5 通知渠道（4 类）
 
@@ -613,16 +609,16 @@ graph LR
 | 3 | 平台告警邮件 | `EMAIL` | ✅ 启用 |
 | 4 | 安全事件 Webhook | `WEBHOOK` | ⛔ 停用（上次测试：连接超时） |
 
-**发送链路**：`NotifySender`（编排器）→ `ChannelSender` SPI → `WebhookSender`（WECOM/DINGTALK/WEBHOOK）/ `EmailSmtpSender`（SMTP 真发）；SMS / 未知类型为桩实现（打日志返回 true）。
+**发送链路**：`NotifySender`（编排器）→ `ChannelSender` SPI → `WebhookSender`（WECOM/DINGTALK/WEBHOOK）/ `EmailSmtpSender`（SMTP 真发）；SMS/未知类型为桩实现。
 
 **两条语义铁律**：
 
 1. **停用渠道（`status=0`）返回 `false`** —— 未发送 ≠ 成功。
 2. **企微/钉钉即使 HTTP 200，只要 `errcode ≠ 0` 也判失败** —— 否则会出现"配置了却不发"的假成功。
 
-**安全约定**：`channel_config.password` 写路径以 `enc:` 前缀密文落库（FAIL-CLOSED，加密失败拒绝落库）；读路径自动解密（兼容历史明文）；响应脱敏。**KEK 与 `app_secret` 共用同一个密钥**（`gatekeeper.crypto.aes-key`），因此**轮换必须同批重加密**。
+**安全约定**：`channel_config.password` 写路径以 `enc:` 密文落库（FAIL-CLOSED）、读路径自动解密、响应脱敏；**KEK 与 `app_secret` 共用同一密钥**（`gatekeeper.crypto.aes-key`），**轮换必须同批重加密**。
 
-> 🔴 脱敏口径：`enc:` 密文行 → `首4 + **** + 末4`；**历史明文行 → 固定 `****`**（绝不从明文派生，否则等于泄漏真密码的首末各 4 位）。
+> 🔴 脱敏口径：`enc:` 密文行 → `首4 + **** + 末4`；**历史明文行 → 固定 `****`**（不派生自明文，否则等于泄漏首末各 4 位）。
 
 ---
 
@@ -646,13 +642,13 @@ graph LR
 | `ENABLED` | 本级显式启用 |
 | `DISABLED` | 本级显式关闭 —— **不回退到应用级** |
 
-> 🔴 `DISABLED` **不是**"没配，往上找"，而是"明确关闭，到此为止"。这是与"没配=继承"最容易被搞错的地方。
+> 🔴 `DISABLED` **不是**"没配，往上找"，而是"明确关闭，到此为止" —— 最易与"没配=继承"搞混。
 
 **环境配置同样三层**：`api_env_config`（接口级）← `api_group_env_config`（分组级）。
 
 ### 9.2 平台级总开关
 
-`sys_encryption_config` 是**单行表**（缺表 = 启用）。它控制平台整体加解密能力是否开启，是"一键回退"的应急闸门。
+`sys_encryption_config` 是**单行表**（缺表 = 启用），控制平台整体加解密能力开关，是"一键回退"的应急闸门。
 
 ### 9.3 接口信息存储加密（T17）
 
@@ -667,7 +663,7 @@ graph LR
 
 **盲索引（Blind Index）—— 必须理解的一环**：
 
-随机 IV 的密文**无法参与等值查询**。网关按路径找接口时若直接 `eq("interface_path", path)`，**永远 404**。因此引入：
+随机 IV 的密文**无法参与等值查询**：网关按路径找接口若直接 `eq("interface_path", path)`，**永远 404**。因此引入：
 
 ```
 interface_path_hash = HMAC-SHA256( interface_path )   # 小写十六进制，带域前缀
@@ -706,7 +702,7 @@ interface_path_hash = HMAC-SHA256( interface_path )   # 小写十六进制，带
 | 配置级 | `api_env_config.env_code` / `api_group_env_config.env_code` |
 | 日志级 | `api_call_log.env_code`（25 列之一） |
 
-**线上实测**：`env` 表仅 1 条 `dev`（开发环境）。这意味着**生产环境的调用在授权校验上会因 `env_code` 不匹配而全部 403**——环境数据未铺齐前，网关不具备生产可用性。这是当前最重要的"数据缺口"而非"代码缺陷"。
+**线上实测**：`env` 表仅 1 条 `dev` ⇒ **生产调用会因 `env_code` 不匹配而全部 403**；环境未铺齐前网关不具备生产可用性（数据缺口，非代码缺陷）。
 
 ---
 
@@ -729,7 +725,7 @@ graph LR
 2. 🔴 **服务端无超管通配** —— `'*'` 只存在于前端 `utils/perm.js`，后端从不产出。
    ⇒ **任何未写入 `sys_menu` 的 perm_code，任何角色（含 `SUPER_ADMIN`）永远拿不到。**
    新增权限点必须**同时做两件事**：插 `sys_menu` **且** 插 `sys_role_menu` 授权。
-3. 🔴 **改完权限种子必须 `DEL gk:perm:*`** —— 登录走缓存优先且不强制刷新、TTL 24h。不清缓存会让"DB 已改对"看起来像没生效。
+3. 🔴 **改完权限种子必须 `DEL gk:perm:*`** —— 登录缓存优先且不强制刷新、TTL 24h，不清缓存会让"DB 已改对"看起来没生效。
 4. **命名风格统一为扁平 snake**：`env:list`、`log:call:list`、`block_rule:create`、`sys:user:update`。
 
 ### 10.3 闸门与注解必须两端对齐
@@ -739,7 +735,7 @@ graph LR
 | 前端有闸门、后端**无** `@RequirePerm` | **假保护** —— 直接 curl 就能绕过 |
 | 前端无闸门、后端**有** `@RequirePerm` | 无权者能看到按钮，点了 403 |
 
-> 核对方法：**逐按钮问"后端这个端点有没有 `@RequirePerm`"**。纯只读且仅涉及菜单可见性的权限点不要求后端注解（豁免）。
+> 核对方法：**逐按钮问"后端这个端点有没有 `@RequirePerm`"**；纯只读且仅涉菜单可见性的权限点豁免后端注解。
 
 ### 10.4 数据权限
 
@@ -750,7 +746,7 @@ graph LR
 | 11 | `BIZ_ADMIN` | `ENV` | `prod` |
 | 11 | `BIZ_ADMIN` | `ENV` | `test` |
 
-实现走 MyBatis-Plus 内置 `DataPermissionInterceptor`，**白名单表才生效**——这保证了既有查询零回归。
+实现走 MyBatis-Plus 内置 `DataPermissionInterceptor`，**白名单表才生效** —— 保证既有查询零回归。
 
 ### 10.5 当前权限执行基线（2026-09-27 重测）
 
@@ -770,16 +766,12 @@ graph LR
 > `api_version:gray`、`api_env_config:create|delete|test`、`api_change_log:append`）
 > 及其 **39 条** `sys_role_menu` 授权。
 >
-> **2026-09-27（D 层）**：`app_quota` / `biz_line` 两张死表（全仓 0 个 Java/前端引用）的**建表语句**
-> 已从 `init.sql` 移除；存量库中的表按"不动"口径保留，`schema-v2.sql`（历史脚本）未追改。
-> 另有 **13 项**无读取点 `sys_config` 连行移除，`sys_config` 由 19 行收敛为 6 行。
+> **2026-09-27（D 层）**：`app_quota` / `biz_line` 两张死表的**建表语句**已从 `init.sql` 移除（存量库按"不动"保留）；另有 **13 项**无读取点 `sys_config` 连行移除，19 行收敛为 6 行。
 >
-> ⚠️ **判定「权限点是否有用」必须同时覆盖三面**：源码 `@RequirePerm`、前端 `perm:` / `hasPerm()`、
-> 播种码本身。只查源码注解会把 `dashboard:view`、`app:list`、`api:list` 等 **18 个纯菜单码**
-> 误判为死码 —— 它们由前端静态菜单 `src/frontend/src/router/menu.js` 的 `perm:` 字段引用。
+> ⚠️ **判定「权限点是否有用」须覆盖三面**：源码 `@RequirePerm`、前端 `perm:`、播种码本身。只查源码会把 `dashboard:view`、`app:list`、`api:list` 等 **18 个纯菜单码**误判为死码（由 `src/frontend/src/router/menu.js` 的 `perm:` 引用）。
 
-> 全仓 `@RequirePerm` 统一使用 `value = "..."` 写法（另有 `risk = true/false` 标识高危操作，供 `OperationLogAspect` 强制写审计）。
-> 核对脚本口径：遍历 `src/backend/src/main/java/**/*.java`，正则提取 `@RequirePerm((…))` 内全部字符串字面量，与 `sys_menu.perm_code` 做集合差集。
+> 全仓 `@RequirePerm` 统一用 `value = "..."` 写法（另有 `risk = true/false` 标识高危，供 `OperationLogAspect` 强制写审计）。
+> 核对脚本口径：遍历 `src/backend/src/main/java/**/*.java`，正则提取 `@RequirePerm((…))` 内字符串字面量，与 `sys_menu.perm_code` 做差集。
 
 ---
 
@@ -787,11 +779,9 @@ graph LR
 
 > 线上实测 `SHOW TABLES` = **42 张**（2026-09-18）；**新装口径为 40 张**（`init.sql` 34 张 +
 > `t13`/`t15-1`/`t15-4`/`t16-1`/`t17` 五个脚本的 6 张）。差额即 `app_quota` / `biz_line` 两张死表：
-> 建表语句已于 2026-09-27 从 `init.sql` 移除，但线上存量库与历史脚本 `schema-v2.sql` 仍保留/建出它们
-> （见 §11.2、§11.8、§3.3）。口径说明见 `README.md`「1. 初始化数据库」。
+> 建表语句已于 2026-09-27 从 `init.sql` 移除，但线上存量库与 `schema-v2.sql` 仍保留/建出（见 §11.2、§11.8、§3.3）；口径见 `README.md`。
 >
-> 下表「行数」列取自 **2026-09-18 线上实测**（存量库按"不动"口径，故 `sys_config` 仍记 19 行；
-> 新装库现为 6 行，存量库清理办法见 `docs/sql/t19-config-wiring.sql` §3）。
+> 下表「行数」取自 **2026-09-18 线上实测**（存量库按"不动"口径，`sys_config` 仍记 19 行；新装库 6 行，清理见 `docs/sql/t19-config-wiring.sql` §3）。
 
 ### 11.1 接口资产域（7 张）
 
@@ -900,17 +890,15 @@ graph LR
 | `LogRetentionJob` | `cron = 0 30 2 * * ?`（每天 02:30） | 日志保留：90 天调用日志 / 7 天导出文件 |
 | `RedisHealthMonitor` | `fixedDelay = 30000`（30 秒） | Redis 探活 + 状态翻转告警 |
 
-> **2026-09-27 删除 `QuotaResetJob`**：它原本只重置 `app_quota` 的日配额计数，而该表无任何读取点
-> （死表）⇒ 任务永远空转。日配额的真实实现是 `RateLimitHandler:131-135` 的 Redis 键
-> `rate_limit:daily:{appId}:{yyyyMMdd}` —— **按键内嵌日期 + 1 天 TTL 自然过期**，本来就不需要重置任务。
+> **2026-09-27 删除 `QuotaResetJob`**：它只重置无读取点的 `app_quota` 日配额计数 ⇒ 永远空转；日配额真实实现是 `RateLimitHandler:131-135` 的 Redis 键 `rate_limit:daily:{appId}:{yyyyMMdd}`（内嵌日期 + 1 天 TTL 自然过期）。
 
-> 🔴 **已知边界：全部定时任务无分布式互斥**。多实例部署会导致：告警重复评估/重复推送、授权重复置态、日志重复清理、健康状态错乱。生产多副本前必须引入 **ShedLock** 或改为外部单点调度。这是当前最需要在部署方案里交代的一条。
+> 🔴 **已知边界：全部定时任务无分布式互斥**：多实例部署会导致告警重复评估/推送、授权重复置态、日志重复清理、健康状态错乱；生产多副本前必须引入 **ShedLock** 或外部单点调度。
 
 **异步导出能力（稳定性资产，不可重做）**：
 
 - `ExportTaskServiceImpl` + `CallLogExportExecutor`：百万级异步导出
 - 分批 **5000** 行流式写临时 CSV → **原子改名**（避免导出中途被读到半截文件）
-- `AsyncConfig`：**有界线程池 + `CallerRunsPolicy` 背压**（队列满时由调用线程自己跑，宁可拖慢也不能丢任务）
+- `AsyncConfig`：**有界线程池 + `CallerRunsPolicy` 背压**（队列满时由调用线程自己跑，宁可拖慢也不丢任务）
 - **单次导出无总量上限**（`CallLogExportExecutor` 只按 `BATCH_SIZE = 5000` 分批流式写盘，不设总行数闸）
   —— 勘误：旧版此处写的 `sys_config['export.max.rows'] = 50000` 从未被任何代码读取，该键已于 2026-09-27 移除
 
@@ -933,13 +921,13 @@ graph LR
 | 环境未铺 | `env` 表仅 1 条 `dev` | 请求环境码默认 `prod`，与授权/配置的 `env_code` **硬匹配** ⇒ 直接 403 |
 | 存量数据极少 | `app` 1 行、`sys_user` 1 行、`api_call_log` 25 行 | 平台处于"功能完备、数据空载"阶段 |
 
-**结论：当前状态是"代码就绪、数据未就绪"。** 谈"网关能不能用"时必须区分这两个维度。
+**结论：当前状态是"代码就绪、数据未就绪"。** 谈"网关能不能用"必须区分这两个维度。
 
 ### 13.2 配置项接线状态（T19 已修复，余项已如实标注）
 
-**修复前**：`sys_config` 全部 19 项**没有任何 Java 读取点**（全仓搜索仅命中 SQL 播种脚本），参数配置页改什么都不生效 —— 这是排查时的头号陷阱。
+**修复前**：`sys_config` 全部 19 项**没有任何 Java 读取点**（全仓只命中 SQL 播种脚本），参数配置页改什么都不生效 —— 排查头号陷阱。
 
-**修复方式**：新建 `config/SysConfigAccessor.java` 作为 `sys_config` 的**唯一运行时读取入口**（本地缓存 TTL 60s + 写侧 `evictAll` 立即失效 + 任何异常 fail-open 回退调用方默认值 + 失败也缓存，避免 DB 故障期反复撞库）。
+**修复方式**：新建 `config/SysConfigAccessor.java` 作为 `sys_config` 的**唯一运行时读取入口**（缓存 60s + 写侧 `evictAll` 立即失效 + 异常 fail-open 回退默认值）。
 
 | 状态 | 项数 | 键名 |
 |---|---|---|
@@ -961,9 +949,8 @@ graph LR
 > ```
 >
 > **这 13 项为何不是"接线"而是"移除"**：T19 当时选择保守做法——只在 `remark` 前缀打
-> 「⚠️ 未接线（预留）：」如实标注。但后续复核确认它们**自始至终没有任何读取点**，
-> 标注并不能消除误导：参数配置页里仍是 13 个可编辑、可保存、却对系统行为毫无影响的开关
-> （关闭与开启完全等价）。2026-09-27 故连行移除，`sys_config` 由 19 行收敛为 6 行。
+> 当时只在 `remark` 前缀打「⚠️ 未接线（预留）：」。但复核确认它们**自始至终没有任何读取点**：
+> 但复核确认它们**自始至终无读取点**，标注不能消除误导 —— 参数配置页仍是 13 个可编辑、可保存却无影响的开关。故 2026-09-27 连行移除，收敛为 6 行。
 > 将来若确需实现（如 `key.rotate.period` 的轮换告警），正确顺序是**先写读取点、再加配置行**。
 >
 > **特别说明**：`login.fail.threshold` 从未被 `sys_config` 消费，其真实控制点是 `application.yml`
@@ -972,9 +959,9 @@ graph LR
 
 ### 13.3 环境头口径（T19 已修复）
 
-**修复前**：`X-Env`（`AppAuthHandler`，`@Order(1)`）生效；`X-Gk-Env`（`EnvResolver`，`@Order(6)`）因"已存在则不覆盖"而**永不生效**。
+**修复前**：`X-Env`（`AppAuthHandler`，`@Order(1)`）生效；`X-Gk-Env`（`EnvResolver`，`@Order(6)`）因"已存在不覆盖"**永不生效**。
 
-**修复后**：环境解析收敛为**单一读取点** `EnvResolver.resolve(ctx)`，四级优先级 **`X-Gk-Env` > `X-Env` > `gatekeeper.env` > `prod`**。两个头都可用，`X-Gk-Env` 优先。参见 §4.3。
+**修复后**：解析收敛为**单一读取点** `EnvResolver.resolve(ctx)`，优先级 **`X-Gk-Env` > `X-Env` > `gatekeeper.env` > `prod`**，两头都可用。参见 §4.3。
 
 ### 13.4 业务线已下线
 
@@ -991,19 +978,19 @@ graph LR
 
 ### 13.7 自动封禁能力未开启
 
-`block_rule` 表 0 行、`ip_ban` 表 0 行 ⇒ 自动封禁链路**当前不会触发**（只有人工封禁规则在种子里标记启用）。安全检测仍在正常写 `security_event`（80 行）。
+`block_rule` 表 0 行、`ip_ban` 表 0 行 ⇒ 自动封禁链路**当前不触发**（仅人工封禁规则在种子中启用）；安全检测仍正常写 `security_event`（80 行）。
 
 ### 13.8 接口路径无唯一约束
 
-`api_interface.interface_path` 上没有唯一约束，因此 `PermissionHandler` 用 `selectList` 取 id 最小的一条并打 WARN 日志，而**不是** `selectOne`（`selectOne` 遇多行会抛 `TooManyResultsException`）。同一路径多版本并存时依赖"取最小 id"的约定。
+`api_interface.interface_path` 无唯一约束，故 `PermissionHandler` 用 `selectList` 取 id 最小者并打 WARN，而非 `selectOne`（多行抛 `TooManyResultsException`）；同路径多版本依赖"取最小 id"。
 
 ### 13.9 草稿态接口可被网关转发
 
-网关匹配只校验 `status = 1`，不看 `publish_status`。`publish_status = 0`（草稿）的接口只要 `status = 1` 就能被转发。
+网关匹配只校验 `status = 1`，不看 `publish_status`；`publish_status = 0`（草稿）只要 `status = 1` 就能被转发。
 
 ### 13.10 授权回退表无环境维度
 
-`app_api_grant` 未命中时回退 `app_api_permission`（无环境、无有效期、无审批状态）。这是兼容口子，会在"新表没配但旧表有记录"时意外放行。
+`app_api_grant` 未命中时回退 `app_api_permission`（无环境/有效期/审批状态），是兼容口子，会在"新表没配但旧表有记录"时意外放行。
 
 ---
 
@@ -1049,4 +1036,4 @@ graph LR
 
 ---
 
-*文档结束。所有"实测"结论均可通过 `docs/sql/*.sql`、`src/backend/.../gateway/handler/*.java`、线上库查询复现。*
+*文档结束。所有"实测"结论均可通过 `docs/sql/*.sql`、`src/backend/.../gateway/handler/*.java` 与线上库查询复现。*

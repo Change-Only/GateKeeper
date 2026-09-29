@@ -4,15 +4,10 @@
 > **⚠️ 头号事实（lead 07:35 实测，必须前置声明）**：**本机（Windows）无 docker 命令、无 Docker Desktop —— E2E 无法在本机执行。** 本方案不假装可验，所有「执行」步骤均为**待具备 Docker 环境后**的剧本（§5）；本轮可先行的是静态项（§6）。
 
 > **🔴 2026-09-29 实机部署补注（读本文前请先看这条）**
-> 本方案记录的「**11 文件挂载链**」已在 CentOS 7.9 实机上跑通，并**扩充为 16 文件**：
-> 补挂 `t13-group-env-config` / `t15-1-group-encryption` / `t15-4-whitelist` /
-> `t16-1-encryption-master-switch` / `t17-interface-crypto` 五个结构脚本。
-> 原因：原 11 文件链只建出 **36 张表**（完整为 42 张），缺的 6 张正是上述脚本所建 ——
-> 缺表会让白名单 / 分组加解密 / 接口级加解密功能直接抛 SQL 异常。
-> 相应地，本文 §3.2 的 U2b 断言值由 `sys_menu` = **112** 修订为 **121**
-> （t13 播 id 351~355、t15-1 播 356~358、t15-4 播 359）。
-> 另：`init.sql` 第 1393 行曾有多余逗号，使 initdb 中止 —— 亦已修复。
-> 完整过程与证据见 README「一键部署」§6「实测记录」。
+> 「**11 文件挂载链**」已在 CentOS 7.9 实机跑通并**扩充为 16 文件**：补挂 `t13-group-env-config` / `t15-1-group-encryption` / `t15-4-whitelist` / `t16-1-encryption-master-switch` / `t17-interface-crypto` 五个结构脚本。
+> 原因：原 11 文件链只建出 **36 张表**（完整 **42 张**），缺的 6 张正是上述脚本所建 —— 缺表会让白名单 / 分组加解密 / 接口级加解密功能直接抛 SQL 异常。
+> 相应地，§3.2 的 U2b 断言值由 `sys_menu` = **112** 修订为 **121**（t13 播 id 351~355、t15-1 播 356~358、t15-4 播 359）。
+> 另：`init.sql` 第 1393 行曾有多余逗号使 initdb 中止 —— 亦已修复。完整过程与证据见 README「一键部署」§6「实测记录」。
 
 ---
 
@@ -38,7 +33,7 @@ Docker 化资产**不是从零开始**，以下三件已在仓库中（HEAD@7a2b
 
 ### 1.4 配套文件（实测均存在）
 - `.env.example`（根目录，23 行）：3 必填密钥 + 选填（DB_NAME/DB_USERNAME/CORS_ORIGINS）；`.gitignore:34-36` 忽略 `.env*`（保留 example）。
-- `src/backend/src/main/resources/sql/init.sql`：**已重建为线上库忠实基线**（1513 行 / 36 表 / 9 基线种子表）—— 原「内容过时」描述作废，见 §3.2。
+- `src/backend/src/main/resources/sql/init.sql`：**已重建**（1513 行 / 36 表 / 9 基线种子表）—— 原「内容过时」描述作废，见 §1.3 / §3.2。
 
 ---
 
@@ -58,23 +53,14 @@ Docker 化资产**不是从零开始**，以下三件已在仓库中（HEAD@7a2b
 
 ### 2.2 ⚠️ 与 lead 口径的差异：第 4 处「Redis 口令」现状不存在（✅ 已裁定：不做）
 
-lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT」。**实测现状只有 3 处**：
-- `application.yml:26-30`：`spring.redis` 仅 host/port/database/timeout，**无 `password` 键**（注释原文「当前 Redis 未启用密码，如需可自行补充」）；
-- 后端全代码 `grep redis.*password` **零引用**；
-- compose redis 服务无 `--requirepass`；`.env.example` 无 `GATEKEEPER_REDIS_PASSWORD`。
+lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT」，2026-09-12 实测现状只有 3 处（`application.yml:26-30` 的 `spring.redis` 无 `password` 键；后端全代码 `grep redis.*password` 零引用；compose redis 无 `--requirepass`；`.env.example` 无 `GATEKEEPER_REDIS_PASSWORD`）。当时**裁定「不做对齐，保持 3 密钥」**（理由：加 `requirepass` 反会断连、内网隔离风险不成立）。
 
-**✅ 裁定：不做对齐，保持现状 3 密钥（lead，2026-09-12）**。理由：`spring.redis` 在 application.yml 里根本没有 password 配置行，compose 内 Redis 若加 `requirepass` 反而**直接断连**；本地栈内网隔离，风险不成立。（原「对齐方案」存档：`spring.redis.password: "${GATEKEEPER_REDIS_PASSWORD:}"` + compose `--requirepass` + backend env 传递 + `.env.example` 补行，演进式 4 行——将来若出内网部署再启用。）
-
-> **📌 后续更新（2026-09-28）：本条裁定已被推翻，上述「存档方案」已实际落地。**
-> 按用户要求新增 Redis 访问密码，改动与上面存档的 4 点一致，并额外提供**强随机默认值**：
+> **📌 后续更新（2026-09-28）：上述裁定已被推翻，原「存档方案」（演进式 4 行）已实际落地。** 按用户要求新增 Redis 访问密码，并额外提供**强随机默认值**：
 > - `spring.redis.password: "${GATEKEEPER_REDIS_PASSWORD:GkRedis#9fQ2mL7pX!4sT8nB}"`（`application.yml` 与 `application.example.yml` 同步）；
-> - `docker-compose.yml` 的 redis 服务加 `--requirepass`（口令经**运行时环境变量** `$$GATEKEEPER_REDIS_PASSWORD` 传入，不内联进 command；
->   healthcheck 改用 `REDISCLI_AUTH=$$GATEKEEPER_REDIS_PASSWORD redis-cli ping`，避免无鉴权探活恒失败）；
-> - backend 服务与 `.env.example` 补 `GATEKEEPER_REDIS_PASSWORD`；
-> - README 新增「默认账号与密钥」章节公开默认口令，FAQ Q5 补充「口令不一致表现与 Redis 未启动相同」。
+> - `docker-compose.yml` 的 redis 服务加 `--requirepass`（口令经**运行时环境变量** `$$GATEKEEPER_REDIS_PASSWORD` 传入，不内联进 command；healthcheck 改用 `REDISCLI_AUTH=$$GATEKEEPER_REDIS_PASSWORD redis-cli ping`，避免无鉴权探活恒失败）；
+> - backend 服务与 `.env.example` 补 `GATEKEEPER_REDIS_PASSWORD`；README 新增「默认账号与密钥」章节公开默认口令，FAQ Q5 补充「口令不一致表现与 Redis 未启动相同」。
 >
-> 已实测验证：无口令 `NOAUTH`、正确口令 `PONG`、错误口令被拒、后端登录与 `gk:perm:*` 缓存写入正常（11/11 断言通过）。
-> 上面 2026-09-12 的「实测现状」与"裁定"**保留为历史记录，不再代表当前实现**。
+> 已实测验证：无口令 `NOAUTH`、正确口令 `PONG`、错误口令被拒、后端登录与 `gk:perm:*` 缓存写入正常（11/11 断言通过）。上面 2026-09-12 的实测与裁定**保留为历史记录，不再代表当前实现**。
 
 ### 2.3 已知债（P2，留档不阻塞）：application.yml 占位默认值即真实密钥
 
@@ -83,7 +69,7 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 - **裸 `java -jar` 路径依赖默认值**（已知债，缓解已落地）：`.gitignore` **已补 `src/backend/src/main/resources/application.yml` 条目**（lead 提交于 `b3a0759`，含注释），误 `git add` 风险已闭环。备选方案「仓库内 application.yml 全空默认值 + 本地真值走 application-local.yml」改动面大，仅留档不实施。
 
 > **📌 后续更新（2026-09-28）：本节的「零命中」前提已不再成立。**
-> 按用户明确要求（仓库为 public），README 新增[「默认账号与密钥」](../../README.md#默认账号与密钥)章节，
+> 按用户明确要求（仓库为 public），README 新增[「默认账号与密钥」](../README.md#默认账号与密钥)章节，
 > **明文公开**了本地默认的 **DB 口令**与 **JWT 密钥**（AES 密钥此前已存在于公开提交历史中），
 > 并新增 Redis 默认口令。因此：
 > - 上面「全仓 grep 该三串零命中 / 密钥唯一载体就是此本地文件」**自 2026-09-28 起为假**；
@@ -115,19 +101,15 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 #### 3.2.1 根治结果（eng-db-init，lead 实测 + 本文档复核）
 
 - `init.sql`：416 行 → **1513 行 / 36 张表**（本文档复核：行首 `CREATE TABLE` 计数 = **36**）；按 FK 拓扑排序、`ON DUPLICATE KEY UPDATE` 幂等。
-- **自带 9 张基线种子表**（本文档复核 `INSERT INTO` 目标表 = 9：`sys_user` / `sys_role` / `sys_menu` / `sys_user_role` / `sys_role_menu` / `sys_role_datascope` / `sys_dict` / `sys_dict_item` / `sys_config`），逐项与线上库吻合（lead 实测：`sys_menu`=112 / `sys_role_menu`=409 / `sys_role`=9 / `sys_user`=1 / `sys_dict`=6 / `sys_dict_item`=22 / `sys_config`=19 / `sys_role_datascope`=2 / `sys_user_role`=2）。
-- `AUTO_INCREMENT=` 残留 **0** 处、`CREATE PROCEDURE` **0**（本文档复核）。已用 `zzck_` 前缀临时表在活库做等价导入校验，**结构 diff 为空**。
-- ⚠️ **`security_rule` 无 INSERT**（本文档复核 `INSERT INTO` 列表不含该表）—— 与线上一致，见 §3.2.3 裁定 **A2**。
+- **自带 9 张基线种子表**（本文档复核 `INSERT INTO` 目标表 = 9：`sys_user` / `sys_role` / `sys_menu` / `sys_user_role` / `sys_role_menu` / `sys_role_datascope` / `sys_dict` / `sys_dict_item` / `sys_config`），逐项与线上吻合（lead 实测：`sys_menu`=112 / `sys_role_menu`=409 / `sys_role`=9 / `sys_user`=1 / `sys_dict`=6 / `sys_dict_item`=22 / `sys_config`=19 / `sys_role_datascope`=2 / `sys_user_role`=2）。
+- `AUTO_INCREMENT=` 残留 **0** 处、`CREATE PROCEDURE` **0**；已用 `zzck_` 前缀临时表在活库做等价导入校验，**结构 diff 为空**。
+- ⚠️ **`security_rule` 无 INSERT**——与线上一致，见 §3.2.3 裁定 **A2**。
 
 **原 v1.0 描述（已不成立，作废留档）**：「init.sql 仅建 15 张 T01 表、缺 18 张 v2 演进表与全部权限种子 ⇒ 刷栈后挂注解端点全 403、告警/授权/字典域 500」——该结论**对 T01 旧版成立、对重建版不成立**，**勿再引用**。原 v1.0 曾据此给的「后果链」（登录可用但权限空 ⇒ 403/500）亦随之消解。
 
 #### 3.2.2 挂载链现状：`01–10` 退化为「历史回放」（裁定：本轮不动）
 
-**11 文件挂载链仍保留**（T10-D 已落地，勘误见 §3.2.4），但 **init.sql 重建后，它由「T01 基础表」升格为「唯一权威 bootstrap」**，其下 `01–10` 的语义随之由「补缺」变为**冗余回放**。lead 核定其与 init.sql 的相互作用**无破坏**，论证：
-
-- **过程定义自洽**：init.sql **0 个 `CREATE PROCEDURE`**（本文档复核）⇒ `schema-v2.sql:29/45` 定义的 `gk_add_column`/`gk_add_index`（**不带 IF NOT EXISTS**）在 `01` 空卷首跑时**不报错**（因过程尚不存在），到 `02` 才创建并复用 —— 顺序恰好自洽。
-- **冗余种子全 no-op、不覆盖权威值**：`03–09` 的基线数据 init.sql 已全含，且 7 个 seed **全为 `INSERT IGNORE`（本文档实测 **48** 处；`ON DUPLICATE KEY UPDATE` **0** 处）** ⇒ 全 **no-op**，**不会覆盖** init.sql 的权威值（这是链条「无害」的**安全性论据**）。
-- **终值一致**：`t03a-seed-permissions.sql:33` 仍插 `sys_menu.id=221`、`t09-hygiene.sql` 仍删它 ⇒ `sys_menu` 终值 **112**，U2b 断言（§3.2.4）仍成立。
+**11 文件挂载链仍保留**（T10-D 已落地，勘误见 §3.2.4），但 **init.sql 重建后它已升格为「唯一权威 bootstrap」**，其下 `01–10` 由「补缺」变为**冗余回放**。lead 核定其与 init.sql 相互作用**无破坏**，依据：① **过程定义自洽** —— init.sql **0 个 `CREATE PROCEDURE`**（本文档复核），故 `schema-v2.sql:29/45` 的 `gk_add_column`/`gk_add_index`（**不带 IF NOT EXISTS**）在 `01` 空卷首跑时不报错（因过程尚不存在），到 `02` 才创建复用；② **冗余种子全 no-op、不覆盖权威值** —— `03–09` 基线数据 init.sql 已全含，且 7 个 seed **全为 `INSERT IGNORE`（实测 **48** 处；`ON DUPLICATE KEY UPDATE` **0** 处）** ⇒ 全 **no-op**（这是链条「无害」的安全性论据）；③ **终值一致** —— `t03a-seed-permissions.sql:33` 仍插 `sys_menu.id=221`、`t09-hygiene.sql` 仍删它 ⇒ `sys_menu` 终值 **112**，U2b 断言（§3.2.4）仍成立。
 
 **▶ T11 候选（记档）**：init.sql 现为**唯一权威 bootstrap**、`01–10` 为**冗余回放** ⇒ **链条简化**（去冗余 seed 挂载）应作为 **T11** 议题。**理由**：冗余种子携带的历史数据长期有与 init.sql **漂移**的风险 —— 现靠 `INSERT IGNORE` 兜住，**一旦有人把 seed 改成 `ON DUPLICATE KEY UPDATE` 就会静默覆盖** init.sql 的权威值。
 
@@ -166,13 +148,12 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 > **存档口径（性质区分，勿混）**：本节记录的是**本方案自身的实质遗漏**（v1.0 写错），**不是**施工方偏离原文——两类问题归档时必须分开。
 
 **勘误项 E1：§3.2 对 `t09-hygiene.sql` 的必需性误标（方案 v1.0 自身错误）**
-- **原文缺陷**：v1.0 的挂载 YAML **已列入** `10-t09-hygiene.sql`，但「依据与注意」把它标注为「lead 数据卫生产出、**挂载前需 lead 确认终稿**」——**把 fresh bootstrap 必需件误标为可选项**。该标注会向读者暗示「可不挂」；一旦读者据此省略，空卷首跑终态 `sys_menu` = **113 行 ≠ dev 库现状 112 行**，T09-B 修掉的「授权树双业务线管理」缺陷会在新环境**种回去**。其后果与「清单漏列该文件」等同 ⇒ 定性为**方案的实质遗漏**。
+- **原文缺陷**：v1.0 的挂载 YAML **已列入** `10-t09-hygiene.sql`，但「依据与注意」把它标注为「lead 数据卫生产出、**挂载前需 lead 确认终稿**」——**把 fresh bootstrap 必需件误标为可选项**，暗示读者「可不挂」；一旦据此省略，空卷首跑终态 `sys_menu` = **113 行 ≠ dev 库现状 112 行**，T09-B 修掉的「授权树双业务线管理」缺陷会在新环境**种回去**。后果与「清单漏列该文件」等同 ⇒ 定性为**方案的实质遗漏**。
 - **成因（T10-D 实证）**：`t03a-seed-permissions.sql:33` **跨脚本重复播种** `sys_menu.id=221`（`(221, 5, '业务线管理', 2, NULL, '/sys/bizline', 0, 3, 1)`，与 `migrate-v2.sql:136` 播的 id=212 同值）⇒ `t09-hygiene.sql` 语句 1（七重守卫 DELETE）**空卷首跑实删 1 行、非 no-op**，是「先播坏行、链尾删掉」的**必需闭环**。
 - **v1.1 修正**：删除原「待确认终稿」注意项；明确 `10-t09-hygiene.sql` 为 **fresh bootstrap 必需件（非可选）**，其终稿已确认并提交（`7349f7f`）。
 
 **T10-D 施工核对结论（eng-shape，交叉印证）**
-- **实挂链 = 11 文件（00–10，含 hygiene）**，与 v1.1 清单一致。
-- **裁定**：保留 hygiene 挂载（理由 = 「初始化链 ＝ 历史时刻完整快照，可回放、可审计」，replay-then-govern）。
+- **实挂链 = 11 文件（00–10，含 hygiene）**，与 v1.1 清单一致。**裁定**：保留 hygiene 挂载（理由 = 「初始化链 ＝ 历史时刻完整快照，可回放、可审计」）。
 - **T11 候选**：删除源 `t03a-seed-permissions.sql:33` 那行（本轮**不做**——历史冻结种子，改内容破坏契约与 git blame；⚠️ **禁止**下一轮以「清理」为由顺手删源）。详见 `docs/T10-D-初始化链幂等性核对与T11候选.md`（另含 U2b 断言：`sys_menu` 总数=112、`id=221`=0）。
 - **归因订正（lead 共同纠偏）**：野行 221 **非**「种子外野行」，实为 **t03a 跨脚本重复播种**；hygiene 脚本注释已订正（`7349f7f`）。
 
