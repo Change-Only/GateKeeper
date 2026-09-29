@@ -1,0 +1,32 @@
+# ============================================================
+# GateKeeper：强制 mysql 客户端按 utf8mb4 解析 SQL 脚本
+# ============================================================
+#
+# 为什么需要这个文件（2026-09-29 实机定位的真实缺陷，不要删）：
+#   官方 mysql 镜像的 /usr/local/bin/docker-entrypoint.sh 在执行
+#   /docker-entrypoint-initdb.d/*.sql 时调用 `mysql` 客户端，**不传**
+#   --default-character-set；而 mysql 客户端的默认值是 `auto`，在容器里
+#   LANG / LC_ALL 均为空 ⇒ 回退到 latin1。此时脚本里的 UTF-8 中文字节会被
+#   当作 cp1252 再转一次入库，产生「双重编码」乱码：
+#
+#       本应写入「新增分组环境配置」
+#       实际入库 "æ–°å¢žåˆ†ç»„çŽ¯å¢ƒé…ç½®"
+#
+#   实测影响：v1.0.2 及更早版本全新部署后
+#       sys_menu.name  17 行乱码（角色管理「配置权限」弹窗里就是这些待选项）
+#       sys_dict.remark 1 行乱码
+#   受影响脚本：任何没有自带 `SET NAMES utf8mb4;` 的 .sql（已于 2026-09-29
+#   全量补齐，见 docs/sql/*.sql 文件头）。本文件是第二道保险：即使将来新增的
+#   脚本忘了写 SET NAMES，客户端字符集也已经是 utf8mb4。
+#
+# 实测证据（同一容器内，仅增删本文件）：
+#   无本文件 -> character_set_client = latin1
+#   有本文件 -> character_set_client = utf8mb4
+#
+# 影响面：`[client]` 段只被 mysql / mysqladmin / mysqldump 等客户端程序读取，
+#         对 mysqld 服务端无影响（服务端字符集由 compose 的
+#         `command: --character-set-server=utf8mb4` 与表级定义控制）。
+# ============================================================
+
+[client]
+default-character-set = utf8mb4

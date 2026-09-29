@@ -34,6 +34,11 @@ services:
     #   完整判据与 T11 候选见 docs/T10-D-初始化链幂等性核对与T11候选.md。
     volumes:
       - mysql-data:/var/lib/mysql
+      # 🔴 必须挂：强制 mysql 客户端按 utf8mb4 解析 initdb 里的 .sql。
+      #   不挂时容器内无 LANG ⇒ 客户端回退 latin1 ⇒ 脚本中的 UTF-8 中文
+      #   被双重编码成乱码（实测 v1.0.2 全新部署后 sys_menu.name 17 行乱码，
+      #   即角色管理「配置权限」弹窗里的待选项）。详见该文件头部注释。
+      - ./docker/mysql-conf.d/99-client-charset.cnf:/etc/mysql/conf.d/99-client-charset.cnf:ro
       - ./src/backend/src/main/resources/sql/init.sql:/docker-entrypoint-initdb.d/00-t01-base.sql:ro
       - ./docs/sql/schema-v2.sql:/docker-entrypoint-initdb.d/01-schema-v2.sql:ro
       - ./docs/sql/migrate-v2.sql:/docker-entrypoint-initdb.d/02-migrate-v2.sql:ro

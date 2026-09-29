@@ -21,7 +21,7 @@
 #    而 github.com / codeload.github.com / api.github.com 通常可达。
 # 可行做法（按推荐顺序）：
 #   ① 本脚本已作为 Release 资产发布，走资产通道取（不写死 asset id，避免换版本后过期）：
-#        TAG=v1.0.2
+#        TAG=v1.0.3
 #        ID=$(curl -s "https://api.github.com/repos/Change-Only/GateKeeper/releases/tags/$TAG" \
 #             | python3 -c 'import sys,json;print([a["id"] for a in json.load(sys.stdin)["assets"] \
 #                 if a["name"]=="deploy-from-release.sh"][0])')
@@ -29,13 +29,13 @@
 #             "https://api.github.com/repos/Change-Only/GateKeeper/releases/assets/$ID"
 #      （该 URL 会 302 跳到 release-assets.githubusercontent.com —— 资产的真实存储域）
 #   ② 直链（github.com 可达时更省事）：
-#        curl -fsSL -O https://github.com/Change-Only/GateKeeper/releases/download/v1.0.2/deploy-from-release.sh
+#        curl -fsSL -O https://github.com/Change-Only/GateKeeper/releases/download/v1.0.3/deploy-from-release.sh
 # ============================================================
 set -uo pipefail
 
 GK_REPO="${GK_REPO:-Change-Only/GateKeeper}"
-GK_TAG="${GK_TAG:-v1.0.2}"
-GK_VER="${GK_VER:-1.0.2}"
+GK_TAG="${GK_TAG:-v1.0.3}"
+GK_VER="${GK_VER:-1.0.3}"
 GK_DIR="${GK_DIR:-/opt/gatekeeper-release}"
 GK_PARALLEL="${GK_PARALLEL:-4}"
 
@@ -55,17 +55,23 @@ SUMS_DOCKER="gatekeeper-docker-${GK_VER}-SHA256SUMS.txt"
 # 换版本时在此登记；未登记的版本会自动跳过这些断言（其余流程照常），
 # 因此本脚本可跨版本复用，而不会因为指纹过期产生假 FAIL。
 case "$GK_VER" in
-  1.0.2)
+  1.0.2|1.0.3)
+    # 1.0.3 的 init.sql 与 1.0.2 逐字节相同（本次只改增量脚本的字符集声明
+    # 与部署配置，全量基线未动）—— 故两者共用同一指纹。
     EXPECT_INIT_SQL_SHA="7d14bb97c25cf577c94a9f8db8254e69e85d6dc5ead4f6ad47e8f8f22362dcb6"
     EXPECT_TABLES=42
     EXPECT_MENU=121
     EXPECT_CONFIG=6
+    # 字符集乱码必须为 0（2026-09-29 定位的缺陷：initdb 客户端 latin1
+    # ⇒ 无 SET NAMES 的脚本把中文双重编码）。0.0.0 表示"该版本应有此断言"。
+    EXPECT_MOJIBAKE=0
     ;;
   *)
     EXPECT_INIT_SQL_SHA=""
     EXPECT_TABLES=""
     EXPECT_MENU=""
     EXPECT_CONFIG=""
+    EXPECT_MOJIBAKE=""
     ;;
 esac
 # initdb 挂载数不写死 —— 直接从 Release 里的 compose 文件数出来（自洽、跨版本）
@@ -324,7 +330,7 @@ unpack() {
   step "4) 解包并重建 compose 所需的目录骨架"
   mkdir -p "${GK_DIR}/dist-docker" "${GK_DIR}/docs/sql" \
            "${GK_DIR}/src/backend/src/main/resources/sql" \
-           "${GK_DIR}/docker" "${GK_DIR}/images"
+           "${GK_DIR}/docker/mysql-conf.d" "${GK_DIR}/images"
 
   python3 - "$GK_DIR" "$GK_VER" "$DOCKER_ZIP" "$SQL_ZIP" "$JAR" <<'PY' || fail "解包失败"
 import os, sys, zipfile, hashlib, shutil
@@ -354,29 +360,69 @@ with zipfile.ZipFile(os.path.join(dl, dzip)) as z:
         n += 1
 print('  [OK]   docker zip 解出 %d 个文件 -> %s' % (n, dd))
 
-# ② sql zip -> docs/sql/（zip 内含 gatekeeper-sql-<ver>/ 前缀，剥掉）
+# ② sql zip -> 按 MANIFEST.tsv 还原到 compose 期望的路径
+#    v1.0.3 起 SQL 包改为结构化（full / incremental / standalone / fix），
+#    且 incremental/ 用的是 initdb 挂载名（01-schema-v2.sql），与仓库原名
+#    （docs/sql/schema-v2.sql）不同名 ⇒ 必须按 MANIFEST 落位，不能按 basename 平铺。
 with zipfile.ZipFile(os.path.join(dl, szip)) as z:
+    names = z.namelist()
+    prefix = names[0].split('/')[0] + '/'
+    man = None
+    for cand in ('MANIFEST.tsv',):
+        if prefix + cand in names:
+            man = z.read(prefix + cand).decode('utf-8')
     n = 0
-    for m in z.namelist():
-        if m.endswith('/') or not m.lower().endswith('.sql'):
-            continue
-        tgt = os.path.join(sqld, os.path.basename(m))
-        with z.open(m) as src, open(tgt, 'wb') as dst:
-            shutil.copyfileobj(src, dst)
-        n += 1
-print('  [OK]   sql zip   解出 %d 个 .sql -> %s' % (n, sqld))
+    pkg_full = None          # (路径, sha256)：包内全量脚本，供 ③ 交叉校验
+    if man:
+        for line in man.splitlines():
+            line = line.strip()
+            if not line or '\t' not in line:
+                continue
+            rel, repo_rel = line.split('\t', 1)
+            arc = prefix + rel
+            if arc not in names:
+                print('  [FAIL] MANIFEST 指向包内不存在的条目: %s' % arc); sys.exit(1)
+            tgt = os.path.join(base, repo_rel.replace('/', os.sep))
+            os.makedirs(os.path.dirname(tgt), exist_ok=True)
+            with z.open(arc) as src, open(tgt, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+            if rel.startswith('full/'):
+                pkg_full = (tgt, sha(tgt))
+            n += 1
+        print('  [OK]   sql zip   按 MANIFEST 还原 %d 个文件（全量+增量+修复）' % n)
+        if pkg_full:
+            print('         包内全量脚本 sha256 = %s' % pkg_full[1])
+    else:
+        # 兼容旧包（无 MANIFEST）：退化为平铺到 docs/sql/
+        for m in names:
+            if m.endswith('/') or not m.lower().endswith('.sql'):
+                continue
+            tgt = os.path.join(sqld, os.path.basename(m))
+            with z.open(m) as src, open(tgt, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+            n += 1
+        print('  [WARN] sql zip 无 MANIFEST.tsv（旧包），已平铺 %d 个 .sql -> %s' % (n, sqld))
 
-# ③ 从 jar 抽 init.sql（关键：SQL 包不含 init.sql，它只随 jar 分发）
+# ③ 从 jar 抽 init.sql（compose 的 00-t01-base.sql 挂的就是这个文件）
 src_init = 'BOOT-INF/classes/sql/init.sql'
 with zipfile.ZipFile(os.path.join(dl, jar)) as z:
     if src_init not in z.namelist():
         print('  [FAIL] jar 内不存在 %s' % src_init); sys.exit(1)
     data = z.read(src_init)
 dst = os.path.join(initsqld, 'init.sql')
+jar_sha = hashlib.sha256(data).hexdigest()
+# ③.1 交叉校验必须在覆盖之前用已记录的包内哈希比 —— 先比再写
+if pkg_full is not None and pkg_full[1] != jar_sha:
+    print('  [FAIL] SQL 包里的全量脚本与 jar 内置 init.sql 不一致')
+    print('         包内 %s' % pkg_full[1])
+    print('         jar  %s' % jar_sha)
+    sys.exit(1)
 with open(dst, 'wb') as f:
     f.write(data)
 print('  [OK]   init.sql  从 jar 抽出 %d B -> %s' % (len(data), dst))
 print('         sha256 = %s' % sha(dst))
+if pkg_full is not None:
+    print('  [OK]   SQL 包全量脚本 == jar 内置 init.sql（逐字节一致）')
 
 # ④ 顺带把镜像元数据中的 tag 记下来，供后续断言
 import json
@@ -445,10 +491,19 @@ EOF
     info "   变量名（值已隐去）：$(grep -oE '^[A-Z_]+=' "${GK_DIR}/.env" | tr -d '=' | tr '\n' ' ')"
   fi
 
-  # 5.3 mock-upstream.conf（Release 的 docker zip 未收录该文件 ⇒ 脚本内置等价内容）
-  cat > "${GK_DIR}/docker/mock-upstream.conf" <<'NGX'
+  # 5.3 docker/ 下的 bind-mount 源：优先用 Release 自带文件，缺失时回落到脚本内置
+  #     —— docker 会把「不存在的 bind-mount 源」当成目录创建，导致容器启动异常，
+  #        所以这两个文件必须真实存在。
+  #     v1.0.3 起 docker zip 已收录二者（v1.0.2 及更早只收录了 compose，见 README）。
+
+  # 5.3.1 mock-upstream.conf（E2E 网关转发用例的上游 mock）
+  if [ -f "${GK_DIR}/dist-docker/mock-upstream.conf" ]; then
+    cp "${GK_DIR}/dist-docker/mock-upstream.conf" "${GK_DIR}/docker/mock-upstream.conf"
+    ok "docker/mock-upstream.conf（取自 Release 的 docker zip）"
+  else
+    cat > "${GK_DIR}/docker/mock-upstream.conf" <<'NGX'
 # 由 deploy-from-release.sh 内置生成
-# 背景：Release 的 gatekeeper-docker-<ver>.zip 未收录 docker/mock-upstream.conf，
+# 背景：该 Release 的 gatekeeper-docker-<ver>.zip 未收录 docker/mock-upstream.conf，
 #       而官方 compose 的 mock-upstream 服务会 bind-mount 它。
 #       缺失时 docker 会把「不存在的文件」当成目录创建，导致 nginx 启动失败。
 # 用途：E2E 网关转发用例的上游 mock（复用 nginx:1.25-alpine，零新增下载）
@@ -467,7 +522,38 @@ server {
     }
 }
 NGX
-  ok "docker/mock-upstream.conf（脚本内置，补 Release 资产缺口）"
+    ok "docker/mock-upstream.conf（脚本内置，补该 Release 的资产缺口）"
+  fi
+
+  # 5.3.2 🔴 MySQL 客户端字符集（决定 initdb 脚本里的中文会不会被写成乱码）
+  #   不挂它时：容器内 LANG 为空 ⇒ mysql 客户端回退 latin1 ⇒ 没写 SET NAMES 的
+  #   脚本会把 UTF-8 中文双重编码（实测 sys_menu.name 出现 "æ–°å¢ž..."）。
+  #   这里按「语义」校验，而不是只看文件存在：必须含 [client] 且 charset=utf8mb4，
+  #   否则一律用内置版本覆盖（宁可覆盖也不放过乱码）。
+  local cnf="${GK_DIR}/docker/mysql-conf.d/99-client-charset.cnf"
+  local src_cnf="${GK_DIR}/dist-docker/99-client-charset.cnf"
+  local usability="missing"
+  if [ -f "$src_cnf" ]; then
+    if grep -q '^\[client\]' "$src_cnf" && grep -q 'default-character-set' "$src_cnf" \
+       && grep -qi 'utf8mb4' "$src_cnf"; then
+      cp "$src_cnf" "$cnf"; usability="release"
+    else
+      usability="release-malformed"
+    fi
+  fi
+  if [ "$usability" != "release" ]; then
+    cat > "$cnf" <<'CNF'
+# 由 deploy-from-release.sh 内置生成（补 Release 资产缺口 / 纠正不合规内容）
+# 作用：把 mysql 客户端字符集固定为 utf8mb4 —— 官方 mysql 镜像的 entrypoint
+#       执行 /docker-entrypoint-initdb.d/*.sql 时不指定字符集，容器内又无 LANG，
+#       客户端会回退 latin1，导致脚本里的 UTF-8 中文被双重编码成乱码。
+[client]
+default-character-set = utf8mb4
+CNF
+    ok "docker/mysql-conf.d/99-client-charset.cnf（脚本内置，原因为 $usability）"
+  else
+    ok "docker/mysql-conf.d/99-client-charset.cnf（取自 Release 的 docker zip）"
+  fi
 
   # 5.4 起栈前的总闸门：核对 compose 的每一个挂载源都已就位
   #     必须放在 scaffold 之后 —— mock-upstream.conf 是本脚本生成的，
@@ -557,12 +643,22 @@ assert_chain() {
   fi
 
   info ""
-  info "-- 8.1 落库计数 --"
+  info "-- 8.1 落库计数 + 字符集乱码闸门 --"
+  # moji_* 两行是 2026-09-29 定位的缺陷的回归闸门：
+  #   initdb 时 mysql 客户端字符集回退 latin1 ⇒ 没写 SET NAMES 的脚本
+  #   把 UTF-8 中文双重编码 ⇒ sys_menu.name 出现 "æ–°å¢ž..." 这类字符
+  #   （角色管理「配置权限」弹窗里看到的就是它们）。
+  #   判据说明：HEX 串里"偶数位出现 C3"＝该字符串含 U+00C0~U+00FF 的字符，
+  #   而正常汉字(U+4E00~U+9FFF)的 UTF-8 首字节是 E4~E9，不会命中。
+  #   ⚠ 必须用 REGEXP '^(..)*C3' 而不是 LIKE '%C3%' —— 后者会在半字节边界
+  #     误报（例如字节 4C 33 的十六进制串 "4C33" 里也含子串 "C3"）。
   local q="
 SELECT CONCAT('tables=',  (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='gatekeeper'));
 SELECT CONCAT('sys_menu=',(SELECT COUNT(*) FROM gatekeeper.sys_menu));
 SELECT CONCAT('sys_config=',(SELECT COUNT(*) FROM gatekeeper.sys_config));
 SELECT CONCAT('junk221=', (SELECT COUNT(*) FROM gatekeeper.sys_menu WHERE id=221));
+SELECT CONCAT('moji_menu=',(SELECT COUNT(*) FROM gatekeeper.sys_menu WHERE HEX(name) REGEXP '^(..)*C3'));
+SELECT CONCAT('moji_dict=',(SELECT COUNT(*) FROM gatekeeper.sys_dict WHERE remark IS NOT NULL AND HEX(remark) REGEXP '^(..)*C3'));
 "
   local out
   out=$(docker exec gatekeeper-mysql sh -c \
@@ -581,6 +677,8 @@ SELECT CONCAT('junk221=', (SELECT COUNT(*) FROM gatekeeper.sys_menu WHERE id=221
   chk sys_menu    "$EXPECT_MENU"
   chk sys_config  "$EXPECT_CONFIG"
   chk junk221     0
+  chk moji_menu   "$EXPECT_MOJIBAKE"
+  chk moji_dict   "$EXPECT_MOJIBAKE"
 
   info ""
   info "-- 8.2 容器健康态 --"

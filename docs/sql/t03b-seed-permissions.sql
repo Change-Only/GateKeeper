@@ -34,6 +34,12 @@
 -- ---------------------------------------------------------------------------
 -- 说明：pid=3 是 migrate-v2.sql 中 id=3 的「接口管理」模块节点（type=1）。
 --       api:list(31) / api:create(32) / api:update(33) / api:publish(34) 已存在。
+-- ⚠ 必须先声明字符集：MySQL 官方镜像的 docker-entrypoint.sh 调 mysql 客户端时**不指定**
+--   字符集，而容器内 LANG/LC_ALL 为空 ⇒ 客户端回退到 latin1，本文件的 UTF-8 中文会被
+--   双重编码成乱码（实测 sys_menu.name 出现 "æ–°å¢ž..."）。补此行后按 utf8mb4 解析。
+--   2026-09-29 实机验证。手工执行本脚本时同样受益。
+SET NAMES utf8mb4;
+
 INSERT IGNORE INTO sys_menu (id, pid, name, type, perm_code, route_path, risk_flag, sort_order, status) VALUES
 (101, 3, '导入接口参数',   3, 'api_param:import',    NULL, 1, 8,  1),
 (102, 3, '版本灰度发布',   3, 'api_version:gray',    NULL, 1, 9,  1),

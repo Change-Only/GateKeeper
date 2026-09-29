@@ -22,6 +22,12 @@
 -- ---------------------------------------------------------------------------
 -- 1) 业务线（biz_line）—— 新增 4 个权限点（1 高危）
 -- ---------------------------------------------------------------------------
+-- ⚠ 必须先声明字符集：MySQL 官方镜像的 docker-entrypoint.sh 调 mysql 客户端时**不指定**
+--   字符集，而容器内 LANG/LC_ALL 为空 ⇒ 客户端回退到 latin1，本文件的 UTF-8 中文会被
+--   双重编码成乱码（实测 sys_menu.name 出现 "æ–°å¢ž..."）。补此行后按 utf8mb4 解析。
+--   2026-09-29 实机验证。手工执行本脚本时同样受益。
+SET NAMES utf8mb4;
+
 INSERT IGNORE INTO sys_menu (id, pid, name, type, perm_code, route_path, risk_flag, sort_order, status) VALUES
 (71, 5, '查看业务线',   3, 'biz_line:list',     NULL, 0, 11, 1),
 (72, 5, '新建业务线',   3, 'biz_line:create',   NULL, 0, 12, 1),

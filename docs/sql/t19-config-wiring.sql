@@ -36,6 +36,12 @@
 -- 1.1 签名算法：历史种子写 HmacSHA256，但代码固定 SM3
 --     （CryptoService.digest 只支持 SM3/MD5/SHA256，根本没有 HmacSHA256，
 --      且客户端 SDK / 文档 / InterfaceTestServiceImpl 内置自测全部按 SM3 实现）
+-- ⚠ 必须先声明字符集：MySQL 官方镜像的 docker-entrypoint.sh 调 mysql 客户端时**不指定**
+--   字符集，而容器内 LANG/LC_ALL 为空 ⇒ 客户端回退到 latin1，本文件的 UTF-8 中文会被
+--   双重编码成乱码（实测 sys_menu.name 出现 "æ–°å¢ž..."）。补此行后按 utf8mb4 解析。
+--   2026-09-29 实机验证。手工执行本脚本时同样受益。
+SET NAMES utf8mb4;
+
 UPDATE sys_config
 SET config_value = 'SM3',
     remark = '客户端契约：固定 SM3（国密摘要），与客户端 SDK/接入文档一致，不支持运行时切换 · 读取点 AppAuthHandler（T19 已接线）'

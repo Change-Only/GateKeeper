@@ -8,6 +8,12 @@
 -- ============================================================
 
 -- 1) 权限点（pid=4 权限管理模块，紧接现有 type=3 菜单 41~47 之后）
+-- ⚠ 必须先声明字符集：MySQL 官方镜像的 docker-entrypoint.sh 调 mysql 客户端时**不指定**
+--   字符集，而容器内 LANG/LC_ALL 为空 ⇒ 客户端回退到 latin1，本文件的 UTF-8 中文会被
+--   双重编码成乱码（实测 sys_menu.name 出现 "æ–°å¢ž..."）。补此行后按 utf8mb4 解析。
+--   2026-09-29 实机验证。手工执行本脚本时同样受益。
+SET NAMES utf8mb4;
+
 INSERT IGNORE INTO sys_menu (id, pid, name, type, perm_code, route_path, risk_flag, sort_order, status) VALUES
 (48, 4, '数据权限查看', 3, 'sys:datascope:view',   NULL, 0, 8, 1),
 (49, 4, '数据权限配置', 3, 'sys:datascope:update', NULL, 1, 9, 1);  -- risk=1 高危写操作

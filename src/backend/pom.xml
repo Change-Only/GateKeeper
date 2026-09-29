@@ -13,7 +13,7 @@
 
     <groupId>com.gatekeeper</groupId>
     <artifactId>gatekeeper</artifactId>
-    <version>1.0.2</version>
+    <version>1.0.3</version>
     <packaging>jar</packaging>
     <name>GateKeeper</name>
     <description>API Gateway  Permission Management System</description>

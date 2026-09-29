@@ -36,6 +36,12 @@
 -- ---------------------------------------------------------------------------
 -- 1) 分组加解密配置表
 -- ---------------------------------------------------------------------------
+-- ⚠ 必须先声明字符集：MySQL 官方镜像的 docker-entrypoint.sh 调 mysql 客户端时**不指定**
+--   字符集，而容器内 LANG/LC_ALL 为空 ⇒ 客户端回退到 latin1，本文件的 UTF-8 中文会被
+--   双重编码成乱码（实测 sys_menu.name 出现 "æ–°å¢ž..."）。补此行后按 utf8mb4 解析。
+--   2026-09-29 实机验证。手工执行本脚本时同样受益。
+SET NAMES utf8mb4;
+
 CREATE TABLE IF NOT EXISTS `api_group_encryption_config` (
   `id`                 bigint       NOT NULL AUTO_INCREMENT COMMENT '主键',
   `group_id`           bigint       NOT NULL                COMMENT '接口分组ID（api_group.id）',
