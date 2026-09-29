@@ -11,45 +11,7 @@
 
 ---
 
-## 1. 资产清单（三件已存在，本轮逐一实测）
-
-Docker 化资产**不是从零开始**，以下三件已在仓库中（HEAD@7a2b6f5）：
-
-### 1.1 `src/backend/Dockerfile`（多阶段，实测 22 行）
-- 阶段1 `maven:3.8.8-eclipse-temurin-8`：先拷 pom.xml `dependency:go-offline`（层缓存）→ 拷 src → `mvn -B package -DskipTests`。
-- 阶段2 `eclipse-temurin:8-jre`：仅拷 `target/gatekeeper.jar`；`ENTRYPOINT java -XX:MaxRAMPercentage=75.0 -jar app.jar`（容器内存感知，避免固定 Xmx 冲突）；`EXPOSE 8080`。
-- ✅ 满足「Java 8 + maven build → JRE 运行」要求，无需改动。
-
-### 1.2 `src/frontend/Dockerfile` + `nginx.conf`（实测）
-- 阶段1 `node:16-alpine`：npmmirror 源 `npm install` → `npm run build`。
-- 阶段2 `nginx:1.25-alpine`：托管 dist + `nginx.conf`（实测 37 行）：SPA `try_files` 回退 + **`/api/` 反代 `http://backend:8080`**（保留 /api 前缀，与 `vue.config.js:15-23` devServer proxy 行为一致）+ 静态缓存 + gzip。`EXPOSE 80`。
-- ✅ 满足要求，无需改动。
-
-### 1.3 `docker-compose.yml`（根目录，实测 87 行）
-- 4 服务：`mysql:8.0`（utf8mb4）+ `redis:7-alpine` + `backend`（build ./src/backend）+ `frontend`（build ./src/frontend，端口 `8081:80`）。
-- 健康检查：mysql `mysqladmin ping`（`$$` 转义防 `docker inspect` 泄口令）、redis `redis-cli ping`；`depends_on: condition: service_healthy`（backend 等 mysql+redis 健康）。
-- 卷：`mysql-data` / `redis-data` / `export-data`（挂 `/app/data/exports` 对应 `GATEKEEPER_EXPORT_DIR`，`application.yml:103`）。
-- ✅ **已根治（原 P0，见 §3.2）**：mysql 初始化挂载 `./src/backend/src/main/resources/sql/init.sql`（`:22`）——该文件已由 eng-db-init **重建为线上库忠实基线**（1513 行 / **36 张表** / 自带 9 张基线种子表），不再是 T01 旧 schema。
-
-### 1.4 配套文件（实测均存在）
-- `.env.example`（根目录，23 行）：3 必填密钥 + 选填（DB_NAME/DB_USERNAME/CORS_ORIGINS）；`.gitignore:34-36` 忽略 `.env*`（保留 example）。
-- `src/backend/src/main/resources/sql/init.sql`：**已重建**（1513 行 / 36 表 / 9 基线种子表）—— 原「内容过时」描述作废，见 §1.3 / §3.2。
-
----
-
 ## 2. 密钥处理（对照 pre-commit 盯防口径）
-
-### 2.1 现状达标项（实测）
-
-| 密钥 | 配置键（application.yml） | 环境变量 | compose 注入 | 强制度 |
-|---|---|---|---|---|
-| JWT | `gatekeeper.jwt.secret`（:75） | `GATEKEEPER_JWT_SECRET` | `:59` | `:?` 缺失即拒起 + 启动自检 ≥32 位 |
-| AES | `gatekeeper.crypto.aes-key`（:72） | `GATEKEEPER_AES_KEY` | `:60` | 同上 |
-| DB 口令 | `spring.datasource.password`（:17） | `GATEKEEPER_DB_PASSWORD` | mysql `:16` + backend `:55` | 同上（mysql root 初始化同源） |
-
-- **fail-fast 启动自检**（`SecurityStartupCheck.java`）：三密钥缺失/过短/命中历史默认值黑名单 → 拒绝启动，且**先于 Web 端口开启**。
-- **Dockerfile 与 compose 内零明文密钥**（逐行实测确认）：compose 用 `${VAR:?}` 强制从 `.env` 读取；mysql healthcheck 用容器内运行时变量 `$$MYSQL_ROOT_PASSWORD`，不内联。
-- DB/AES/JWT 的 host、port、name、username 等非密钥项也全走环境变量占位（`application.yml:14-16`）。
 
 ### 2.2 ⚠️ 与 lead 口径的差异：第 4 处「Redis 口令」现状不存在（✅ 已裁定：不做）
 
@@ -83,29 +45,9 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 
 ## 3. 执行阻塞与架构结论变更（本方案核心产出）
 
-### 3.1 阻塞 A：本机无 Docker（lead 07:35 实测）
-
-**事实**：本机（Windows）无 `docker` 命令、无 Docker Desktop。E2E 的起栈/冒烟/停栈全部**不可在本机执行**。
-
-**执行环境前提（三选一，待用户/lead 决策）**：
-1. 本机安装 Docker Desktop（需 WSL2 后端）；
-2. 远程 Docker 主机：`export DOCKER_HOST=ssh://user@host` 后照常执行（compose 无需改动）；
-3. CI 环境（若引入）。
-
-**不得**为「验证」目的在本机伪造 docker 命令或跳过起栈只验编译——那属于 T07/T08 已定性的「绿灯漏检」。
-
 ### 3.2 阻塞 B（原 P0，**已根治**）：init.sql 基线重建 + 挂载链退化为「历史回放」
 
 > **存档口径（务必区分，勿混）**：阻塞 B 的处置经**两个性质不同**的阶段 —— **v1.0** 用「11 文件挂载链」**绕过**旧 init.sql（**workaround**）；**v1.2** 由 eng-db-init **重建 init.sql 本身**（**根治**）。归档时必须分开，否则后人会误以为 init.sql 仍是坏的。
-
-#### 3.2.1 根治结果（eng-db-init，lead 实测 + 本文档复核）
-
-- `init.sql`：416 行 → **1513 行 / 36 张表**（本文档复核：行首 `CREATE TABLE` 计数 = **36**）；按 FK 拓扑排序、`ON DUPLICATE KEY UPDATE` 幂等。
-- **自带 9 张基线种子表**（本文档复核 `INSERT INTO` 目标表 = 9：`sys_user` / `sys_role` / `sys_menu` / `sys_user_role` / `sys_role_menu` / `sys_role_datascope` / `sys_dict` / `sys_dict_item` / `sys_config`），逐项与线上吻合（lead 实测：`sys_menu`=112 / `sys_role_menu`=409 / `sys_role`=9 / `sys_user`=1 / `sys_dict`=6 / `sys_dict_item`=22 / `sys_config`=19 / `sys_role_datascope`=2 / `sys_user_role`=2）。
-- `AUTO_INCREMENT=` 残留 **0** 处、`CREATE PROCEDURE` **0**；已用 `zzck_` 前缀临时表在活库做等价导入校验，**结构 diff 为空**。
-- ⚠️ **`security_rule` 无 INSERT**——与线上一致，见 §3.2.3 裁定 **A2**。
-
-**原 v1.0 描述（已不成立，作废留档）**：「init.sql 仅建 15 张 T01 表、缺 18 张 v2 演进表与全部权限种子 ⇒ 刷栈后挂注解端点全 403、告警/授权/字典域 500」——该结论**对 T01 旧版成立、对重建版不成立**，**勿再引用**。原 v1.0 曾据此给的「后果链」（登录可用但权限空 ⇒ 403/500）亦随之消解。
 
 #### 3.2.2 挂载链现状：`01–10` 退化为「历史回放」（裁定：本轮不动）
 
@@ -173,25 +115,6 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 
 ---
 
-## 4. E2E 验收用例（待 Docker 环境后执行的剧本）
-
-统一前置：`cp .env.example .env` 并填三密钥（`openssl rand -base64 32` 生成）；admin 口令 `admin/admin123`（docs/sql/t03b-e2e.sh:16 既有范式；`init.sql:297-298` bcrypt 种子实测）。
-
-| # | 步骤 | 命令（要点） | 期望 |
-|---|---|---|---|
-| U0 | 全清起栈 | `docker compose down -v 2>/dev/null; docker compose up -d --build` | 4（+可选 mock）容器 Up；**首次必须 down -v 保证 initdb 执行** |
-| U1 | 基础设施健康 | `docker compose ps` | mysql/redis `healthy`；backend/frontend Up |
-| U2 | 后端探活 | `curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/doc.html`（knife4j enable=true，application.yml:63-66） | **200**（探活不依赖业务表） |
-| U3 | 登录 | `curl -X POST http://localhost:8081/api/auth/login -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin123"}'` | **code=200**（`Result.success()` 置 200，非 0；承 T10-E C1）+ `data.token`；**若 403/500 ⇒ 初始化链异常（init.sql 基线或 01–10 回放，见 §3.2）** |
-| U4 | 应用 CRUD 冒烟 | 带 token：`POST /api/app`（app:create，admin=ADMIN 角色全量种子）→ `GET /api/app/list` → `PUT` → `DELETE` | 全 200/204，list 可见新建（验证权限种子 + 表结构双链路） |
-| U5 | 网关转发 + 日志落库 | 配接口/版本/环境（upstreamUrl=`http://mock-upstream:80`，走 set-current 切生产）→ 用应用凭证调网关转发端点 → `GET /api/log/list?appId=N` | 转发返回 mock JSON；`total>=1`（**带数据的正面断言**，承 Class G 铁律：不验「不报错」） |
-| U6 | 异步导出 | `POST /api/log/export` → taskId → 轮询 `GET /api/log/export/tasks` 至 SUCCESS → `GET /api/log/export/{taskId}/download` | 200 + CSV 文件（Content-Disposition） |
-| U7 | 停栈清理 | `docker compose down -v` | 容器/卷全清（防脏数据影响下次 initdb） |
-
-> **验收纪律（承 T07/T08）**：U5 的 `total>=1`、U4 的「list 可见新建」是**能失败的用例**；只验「容器 Up / 接口不 500」属绿灯漏检。E2E 脚本建议落 `docs/sql/t09-docker-e2e.sh`（对齐 `docs/sql/t03b-e2e.sh` 惯例，`.gitignore` 不误伤），**本轮 doc-only 不落脚本**，剧本以本表为准。
-
----
-
 ## 5. 明确「本机无 Docker」阻塞段（承 §3.1）
 
 - **不可执行**：U0–U7 全部、镜像构建、compose config 之外的任何 docker 命令。
@@ -212,7 +135,7 @@ lead 派工口径「pre-commit 盯的 4 处：DB 口令/**Redis 口令**/AES/JWT
 
 | 项 | 状态 | 说明 |
 |---|---|---|
-| S1 Dockerfile ×2 review | ✅ 本轮已完成 | §1.1/§1.2，结论：无需改动 |
+| S1 Dockerfile ×2 review | ✅ 本轮已完成 | 结论：无需改动 |
 | S2 compose 密钥面 review | ✅ 本轮已完成 | §2.1，零明文、`:?` 强制、healthcheck 防泄露 |
 | S3 初始化 SQL 链组装 | ✅ 已施工（T10-D，静态验证） | compose volumes 11 文件挂载已落地（T10-D `7349f7f`）；**init.sql 另已根治**（v1.2）⇒ 链退化为历史回放，见 §3.2 |
 | S4 Redis 口令对齐（第 4 密钥） | 🟢 **已裁定：不做**（lead，2026-09-12） | §2.2：现状 3 密钥保持；compose 加 requirepass 反而断连，内网隔离风险不成立 |

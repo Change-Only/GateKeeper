@@ -10,16 +10,6 @@
 
 ---
 
-## 0. 阻塞项回顾（来自 `docs/T05-前端实施计划.md` §8）
-
-| 前端页面 | route | 依赖表 | 现状 |
-|---|---|---|---|
-| `sys-config` 参数配置 | `/sys/sys-config` | `sys_config` | 实体存在，**无 Controller** |
-| `sys-dict` 字典管理 | `/sys/sys-dict` | `sys_dict` + `sys_dict_item` | 实体存在，**无 Controller** |
-| `perm-datascope` 数据权限 | `/perm/perm-datascope` | `sys_role_datascope` | 实体存在，**无 Controller** |
-
----
-
 ## 1. 实施约束与既有约定（必读，全部对齐 `BizLineController`）
 
 1. **Context-path**：所有路径相对 `/api`。实际访问 = `http://localhost:8080/api/<RequestMapping><path>`。

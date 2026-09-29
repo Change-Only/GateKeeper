@@ -1327,17 +1327,3 @@ graph TD
 
 ---
 
-## 附录 A：产出文件清单
-
-| 文件 | 内容 |
-| ------------------------- | ------------------------------------------------------------------- |
-| `docs/架构设计-APIM重新设计.md` | 本文档（演进策略 + 目标架构 + 分层 + 7 个关键决策 + 前端 + 迁移 + 任务分解） |
-| `docs/sql/schema-v2.sql` | 增量 DDL：新建 18 表 + ALTER 10 表（幂等，含 `gk_add_column`/`gk_add_index` 守卫） |
-| `docs/sql/migrate-v2.sql` | 数据迁移：主数据种子 + 存量回填 + 旧表→新表搬迁（全幂等） |
-
-## 附录 B：文档中标注为「推断」的字段清单（便于评审时逐条确认）
-
-`api_param.sort_order`、`api_env_config.version`、`api_change_log.operator_id`、`app_credential.created_by`、  
-`app_api_grant.{applicant_id, auditor_id, audit_remark, revoke_reason}`、`alarm_rule.{scope_type 语义, receiver_scope, receiver_ids}`、  
-`block_rule.{threshold_count, window_minutes}`、`sys_menu.{route_path, sort_order, status}`、`app_ip_whitelist.status`、  
-`api_call_log.{app_key, api_version}`、`sys_role_datascope.{scope_type 取值}`、`biz_line`（默认业务线 id=100）。

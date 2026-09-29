@@ -9,7 +9,7 @@
 | 口径来源 | 源码（297 个 main Java / 86 个 test Java / 50 个 Vue）+ 线上库实测（`<db-host>:<db-port>`）+ `docs/` 既有契约记录 |
 | 适用范围 | 产品/研发/测试/运维对接，作为"这个系统到底在做什么"的统一口径 |
 | 时效声明 | 文中所有"实测"数据取自 **2026-09-18** 的线上库与 `d917570` 提交；表数量、行数、规则条数会随迭代变化，引用前请复核 |
-| 修订记录 | **v1.2（2026-09-27 死代码清理）**：删 49 个无调用端点 + 24 个前端 API 函数 + 14 个孤儿 Service 方法 + 8 个孤儿权限点（+39 条角色授权）+ `app_quota` / `biz_line` 两张死表建表语句 + 13 项无读取点 `sys_config`（19 → 6 行）；**v1.1（T19）**：新建 `SysConfigAccessor` 接线 6 项、`EnvResolver` 统一四级环境头、修正 3 处错误种子值。同步：§3.3 / §4.1 / §5.x / §10.5 / §11 / §13.2 / §13.3 / §13.4 / §4.3 / §5.4 / §13 / 附录 A。 |
+| 修订记录 | **v1.2（2026-09-27 死代码清理）**：删 49 个无调用端点 + 24 个前端 API 函数 + 14 个孤儿 Service 方法 + 8 个孤儿权限点（+39 条角色授权）+ `app_quota` / `biz_line` 两张死表建表语句 + 13 项无读取点 `sys_config`（19 → 6 行）；**v1.1（T19）**：新建 `SysConfigAccessor` 接线 6 项、`EnvResolver` 统一四级环境头、修正 3 处错误种子值。同步：§3.3 / §4.1 / §5.x / §10.5 / §11 / §13.2 / §13.3 / §13.4 / §4.3 / §5.4 / §13。 |
 
 ---
 
@@ -555,36 +555,6 @@ graph LR
 
 > 检测写入 `security_event`（线上 **80 行**）。安全事件是**原始事实**，告警是**规则命中后的通知** —— 不是一张表。
 
-### 8.3 七条告警规则（种子实测，`migrate-v2.sql` §1.10 与 `init.sql` 双份保持一致）
-
-| ID | 规则名 | `alarm_type` | 评估对象 | 阈值 | 窗口(min) | 级别 | 静默(min) | 渠道 | 状态 |
-|---|---|---|---|---|---|---|---|---|---|
-| 1 | 调用失败率告警 | `FAIL_RATE` | API | `>5`（%） | 5 | 3 | 30 | 1,3 | ✅ 启用 |
-| 2 | 鉴权失败告警 | `AUTH_FAIL` | APP | `>10`（次） | 5 | 3 | 10 | 1,3 | ✅ 启用 |
-| 3 | 配额使用率告警 | `QUOTA_USAGE` | APP | `>80`（%） | 60 | 2 | 120 | 1 | ✅ 启用 |
-| 4 | 后端超时告警 | `AVG_LATENCY` | API | `>10000`（ms） | 5 | 2 | 30 | 1 | ✅ 启用 |
-| 5 | 密钥即将过期 | `KEY_EXPIRE` | APP | `提前30天` | 1440 | 2 | 1440 | 3,1 | ✅ 启用 |
-| 6 | 僵尸接口告警 | `ZOMBIE_API` | API | `30天无调用` | 43200 | 1 | 10080 | 3 | ✅ 启用 |
-| 7 | QPS 突增告警 | `QPS_SURGE` | **平台全局** | `>200%基线` | 5 | 2 | 30 | 1 | ⛔ **未启用（`status=0`）** |
-
-**规则模型的两个关键设计**：
-
-1. **评估对象绑定（T11）**：`target_type`（`APP` / `API`）+ `target_ids`（逗号串，**空 = 全部对象**）；`evaluateRealtime` **逐对象展开评估**。
-2. **沉默键必须含对象 ID**：`gk:alarm:silence:{ruleId}:{APP|API}:{id}`。
-   🔴 历史缺陷：静默键不含对象 ID 时，**一个对象的告警会把整条规则静默掉**，导致其他对象的问题被吞。
-
-**规则编辑的往返保全（T11）**——这是整族缺陷的高发区：
-
-| 字段 | 契约 |
-|---|---|
-| `threshold` | **表达式字符串**（`>5` / `>10000` / `提前30天` / `30天无调用`）——前端必须**双模渲染**（数值型走 `el-input-number`，表达式型走文本输入） |
-| `time_window` | **全程使用分钟数字**（禁止字符串键映射表） |
-| `alarm_level` | 1/2/3 级别 |
-
-> 🔴 **"打开编辑弹窗什么都不改、点确定，规则被写坏"** 是本项目发生过的整族缺陷，根因三段叠加：
-> ① `Number(表达式)` → `NaN` → ② `JSON.parse(JSON.stringify())` 把 `NaN` 静默变 `null` → ③ `el-input-number` 的 watcher 把 `null` 当 `0` 并钳成 `meta.min`。
-> **规避铁律：任何含 `NaN` 风险的表单，禁止使用 `JSON.parse(JSON.stringify())` 做深拷贝。**
-
 ### 8.4 五条动态封禁规则（`block_rule`）
 
 | ID | 作用域 | `reason_code` | 触发条件 | 封禁时长 | 自动 | 启用 |
@@ -859,19 +829,6 @@ graph LR
 |---|---|---|
 | `biz_line` | 业务线表（**T15 已下线**）—— **⚠️ 死表，2026-09-27 起不再由 `init.sql` 建表**；存量库中表与 `line_id` 列物理保留 | 0 |
 
-### 11.9 代码规模（2026-09-27 清理后实测）
-
-| 项 | 数量 | 较 2026-09-18 |
-|---|---|---|
-| 后端 `main` Java 文件 | **295** | −2（删 `AppQuota.java`、`QuotaResetJob.java`） |
-| 后端 `test` Java 文件 | **89** | — |
-| 前端 `.vue` 文件 | **50** | — |
-| Controller 数 | **27** | — |
-| Entity 数 | **39** | −1（`AppQuota`） |
-| `mvn -o test` 用例数 | **780（全绿）** | +32 |
-
----
-
 ## 12. 定时任务与后台作业
 
 系统有 **5 个 `@Scheduled` 定时任务**：
@@ -946,7 +903,6 @@ graph LR
 
 **修复前**：`X-Env`（`AppAuthHandler`）生效，`X-Gk-Env`（`EnvResolver`）因"已存在不覆盖"**永不生效**；**修复后**收敛为**单一读取点** `EnvResolver.resolve(ctx)`，优先级 **`X-Gk-Env` > `X-Env` > `gatekeeper.env` > `prod`**。参见 §4.3。
 
-
 ### 13.4 业务线已下线
 
 `biz_line` 表与 `line_id` 列在存量库物理保留，功能模块（菜单/权限点/授权）已删除，2026-09-27 起 `init.sql` 不再建表（死表）。参见 §3.3。
@@ -976,47 +932,3 @@ graph LR
 `app_api_grant` 未命中时回退 `app_api_permission`（无环境/有效期/审批状态），是兼容口子，会在"新表没配但旧表有记录"时意外放行。详见 §7.2。
 
 ---
-
-## 附录 A：关键常量速查
-
-| 项 | 值 | 位置 |
-|---|---|---|
-| 网关入口前缀 | `/gateway/**` | `GatewayController` |
-| 签名算法 | `SM3(AppKey + AppSecret明文 + Timestamp + Nonce)` | `AppAuthHandler.verifySignature`；`sys_config['sign.algorithm']` 可读但**只接受 SM3** |
-| 时间戳容差 | 默认 ±5 分钟 | `sys_config['sign.timestamp.tolerance']`（已接线） |
-| Nonce TTL | 默认 600 秒 | `sys_config['sign.nonce.ttl']`（已接线，Redis SETNX） |
-| 验签开关 | 默认 `true` | `sys_config['gateway.auth.enabled']`（已接线；关闭只跳过防伪造，不跳过身份认证） |
-| 限流开关 | 默认 `true` | `sys_config['gateway.ratelimit.enabled']`（已接线） |
-| 转发默认读超时 | 默认 5000 ms | `sys_config['gateway.default.read.timeout']`（已接线，末级兜底） |
-| 环境头优先级 | `X-Gk-Env` > `X-Env` > `gatekeeper.env` > `prod` | `EnvResolver.resolve()`（唯一读取点） |
-| 并发计数键 | `rate_limit:concurrent:{appId}` | `GatewayCore.decrementConcurrent` |
-| Nonce 键 | `nonce:{appKey}:{nonce}` | `AppAuthHandler.checkNonce` |
-| 权限缓存键 | `gk:perm:{userId}`（TTL 24h） | `PermissionCacheService` |
-| 告警静默键 | `gk:alarm:silence:{ruleId}:{APP\|API}:{id}` | `AlarmRuleService` |
-| 接口密文格式 | `enc:v1:<iv>:<cipher>` | `InterfaceCryptoService` |
-| 盲索引算法 | `HMAC-SHA256(interface_path)` 小写十六进制 | `InterfaceCryptoServiceImpl:127` |
-| 日志保留 | 90 天调用日志 / 7 天导出文件 | `LogRetentionJob` |
-| 导出分批大小 | 5000 行 | `CallLogExportExecutor.BATCH_SIZE` |
-| 单次导出总量 | **无上限**（分批流式，只受磁盘/时间约束） | `CallLogExportExecutor`（旧 `sys_config['export.max.rows']` 从未被读取，已移除） |
-| JWT 会话超时 | **120 分钟** | `application.yml` → `gatekeeper.jwt.expire-minutes`（旧 `sys_config['session.timeout']` 从未被读取，已移除） |
-| 密钥轮换周期 | **无实现** | —（旧 `sys_config['key.rotate.period']` 从未被读取，已移除） |
-| 密钥最大有效天数 | **无实现** | —（旧 `sys_config['key.max.valid.days']` 从未被读取，已移除） |
-
-## 附录 B：术语表
-
-| 术语 | 含义 |
-|---|---|
-| **接口资产** | 已登记的 `api_interface` 及其配套的分组/参数/版本/环境配置 |
-| **应用身份** | `app` + `app_credential`，调用方的机器身份 |
-| **授权关系** | `app_api_grant`，应用调用接口的许可（带状态机与环境） |
-| **执行面** | 网关责任链，读三张主数据做实时决策 |
-| **治理面** | 控制台，人对三张主数据的增删改查与审批 |
-| **盲索引** | 确定性哈希，让加密字段仍可等值查询 |
-| **fail-open** | 组件异常时放行（准入类闸门 / 增强防护） |
-| **fail-safe** | 组件异常时拒绝（保护类闸门） |
-| **Default Deny** | 授权状态非"已生效"一律拒绝 |
-| **稳定哈希分流** | 用 `appId` 哈希而非随机数做灰度，保证同一应用落同一版本 |
-
----
-
-*文档结束。所有"实测"结论均可通过 `docs/sql/*.sql`、`src/backend/.../gateway/handler/*.java` 与线上库查询复现。*
