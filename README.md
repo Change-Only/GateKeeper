@@ -578,7 +578,7 @@ python3 -V
 ### 1. 获取源码
 
 ```bash
-git clone --depth 1 --branch v1.0.1 https://github.com/Change-Only/GateKeeper.git
+git clone --depth 1 --branch v1.0.2 https://github.com/Change-Only/GateKeeper.git
 cd GateKeeper
 ```
 
@@ -707,7 +707,7 @@ backend 尚未就绪（Spring Boot 启动约 8~15 秒）。编排已给 backend 
 | 主机 | CentOS Linux 7 (Core)，内核 3.10.0-693.el7.x86_64，4 核 / 7.8 GB / 50 GB 可用 |
 | Docker | 24.0.7（daemon active）；Compose **v5.5.1**（独立二进制，**无 `docker compose` V2 插件**） |
 | 其它 | SELinux `Enforcing`；firewalld `inactive`；系统自带 Python 2.7.5（另装 3.6.8） |
-| 部署方式 | `git clone --depth 1 --branch v1.0.1` → `.env` → `docker-compose up -d --build` |
+| 部署方式 | `git clone --depth 1 --branch v1.0.2` → `.env` → `docker-compose up -d --build` |
 
 **耗时**
 
@@ -780,7 +780,7 @@ powershell -ExecutionPolicy Bypass -File docker\build-and-push.ps1 -Push
 版本号同时写进镜像的 OCI 标签 `org.opencontainers.image.version`，可独立于 tag 读取：
 
 ```bash
-docker inspect <namespace>/gatekeeper:backend-1.0.1 \
+docker inspect <namespace>/gatekeeper:backend-1.0.2 \
   --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
 ```
 
@@ -791,9 +791,9 @@ docker run -d --name gk-backend -p 8080:8080 \
   -e GATEKEEPER_DB_HOST=<数据库主机> -e GATEKEEPER_DB_PASSWORD=<数据库口令> \
   -e GATEKEEPER_REDIS_HOST=<Redis主机> -e GATEKEEPER_REDIS_PASSWORD=<Redis口令> \
   -e GATEKEEPER_JWT_SECRET=<32位以上随机串> -e GATEKEEPER_AES_KEY=<32位以上随机串> \
-  <namespace>/gatekeeper:backend-1.0.1
+  <namespace>/gatekeeper:backend-1.0.2
 
-docker run -d --name gk-frontend -p 8081:80 <namespace>/gatekeeper:frontend-1.0.1
+docker run -d --name gk-frontend -p 8081:80 <namespace>/gatekeeper:frontend-1.0.2
 ```
 
 更省事的方式是直接用编排（见上一节）：`docker compose up -d`。
@@ -847,26 +847,26 @@ unzip -p target/gatekeeper.jar BOOT-INF/classes/application.yml | grep -E "url: 
 每个版本的 Release 都附带两个 `docker load` 可直接加载的镜像包（含基础镜像层，离线可用）：
 
 ```bash
-docker load -i gatekeeper-backend-image-1.0.1.tar
-docker load -i gatekeeper-frontend-image-1.0.1.tar
-# 加载后即为 <namespace>/gatekeeper:backend-1.0.1 / :frontend-1.0.1
+docker load -i gatekeeper-backend-image-1.0.2.tar
+docker load -i gatekeeper-frontend-image-1.0.2.tar
+# 加载后即为 <namespace>/gatekeeper:backend-1.0.2 / :frontend-1.0.2
 ```
 
 包内是标准 `docker save` 格式（`manifest.json` + gzip 层），平台为 `linux/amd64`。
 资产文件名中的版本号即当前 Release 版本，换版本时同步替换即可。
 
-Release 资产清单（与 `v1.0.1` 一一对应）：
+Release 资产清单（与 `v1.0.2` 一一对应）：
 
 | 资产 | 内容 |
 | --- | --- |
-| `gatekeeper-backend-1.0.1.jar` | 后端可执行 fat jar |
-| `gatekeeper-frontend-1.0.1.zip` | 前端生产构建产物（静态文件） |
-| `gatekeeper-sql-1.0.1.zip` | 数据库脚本（建表 / 迁移 / 权限播种） |
-| `gatekeeper-backend-image-1.0.1.tar` | 后端镜像（含基础层，离线可加载） |
-| `gatekeeper-frontend-image-1.0.1.tar` | 前端镜像（含基础层，离线可加载） |
-| `gatekeeper-docker-1.0.1.zip` | Dockerfile、`.dockerignore`、`nginx.conf`、构建脚本与镜像元数据 |
-| `gatekeeper-1.0.1-SHA256SUMS.txt` | 三类源码资产的校验和 |
-| `gatekeeper-docker-1.0.1-SHA256SUMS.txt` | 三项 Docker 资产的校验和 |
+| `gatekeeper-backend-1.0.2.jar` | 后端可执行 fat jar |
+| `gatekeeper-frontend-1.0.2.zip` | 前端生产构建产物（静态文件） |
+| `gatekeeper-sql-1.0.2.zip` | 数据库脚本（建表 / 迁移 / 权限播种） |
+| `gatekeeper-backend-image-1.0.2.tar` | 后端镜像（含基础层，离线可加载） |
+| `gatekeeper-frontend-image-1.0.2.tar` | 前端镜像（含基础层，离线可加载） |
+| `gatekeeper-docker-1.0.2.zip` | Dockerfile、`.dockerignore`、`nginx.conf`、构建脚本与镜像元数据 |
+| `gatekeeper-1.0.2-SHA256SUMS.txt` | 三类源码资产的校验和 |
+| `gatekeeper-docker-1.0.2-SHA256SUMS.txt` | 三项 Docker 资产的校验和 |
 
 离线包与 Release 一一对应，**同版本号的资产内容与源码提交一一对应**：
 镜像内 `org.opencontainers.image.revision` 标签即该版本对应的 git 提交，
@@ -1230,8 +1230,37 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 
 | 版本 | 日期 | 主题 |
 | --- | --- | --- |
+| `v1.0.2` | 2026-09-29 | 按修复后的源码重建全部发布资产：镜像包内 `init.sql` 与源码对齐，部署链缺陷随镜像一并交付 |
 | `v1.0.1` | 2026-09-29 | 补回数据大屏入口、空数据占位；版本号与镜像资产对齐；首次实机部署并修复 3 处部署链缺陷 |
 | `v1.0.0` | 2026-09-28 | 首个正式版本：容器化、登录页去预填、默认密钥公开声明 |
+
+### v1.0.2（2026-09-29）
+
+**这是一次「发布物重建」版本，不含功能变更。** 目的是让 **GitHub Release 上的资产与修复后的源码完全对齐**——
+`v1.0.1` 的镜像包是在部署链缺陷修复**之前**构建的，其内 `init.sql` 仍带缺陷 1（见下）。
+
+**修复**
+
+- **镜像 / jar 内嵌的 `init.sql` 已与源码逐字节一致**，部署链缺陷 1（第 1393 行多余逗号）不再存在于任何发布物中。
+- 远端镜像包内的 `docker-compose.yml` 与 E2E 剧本同步为修复后版本（补挂 5 个结构脚本 + backend healthcheck）。
+
+**工程**
+
+- 版本号 `1.0.1` → `1.0.2`：`src/backend/pom.xml`、`src/frontend/package.json`（含 `package-lock.json`）、
+  两个 `Dockerfile` 的 `ARG VERSION` 默认值。
+- 后端 jar 仍按 §4.1 的闸门打包（模板顶替 + 立即还原），复检确认 jar 内配置仅含 `${...:localhost}` 占位。
+- 前端产物与 `v1.0.1` **59/59 文件逐字节相同** —— 本版未改前端源码，仅版本号变化（`package.json.version` 不进 bundle）。
+- 镜像 OCI 溯源标签 `org.opencontainers.image.revision` 指向本版 tag 的提交，`docker inspect` 可直接溯源。
+
+**校验矩阵（本版）**
+
+| 校验 | 结果 |
+|---|---|
+| jar 内 `application.yml` vs 模板 `application.example.yml` | **逐字节一致** |
+| jar 内 `sql/init.sql` vs 源码 `init.sql` | **逐字节一致**（`7d14bb97…`） |
+| 前端 `dist` vs `v1.0.1` 产物 | **59 / 59 文件逐字节一致** |
+| Release 资产泄漏复检（内网主机 / 真实密钥） | `ALL_CLEAN = True` |
+| 后端单测 | **780 tests / 0 failures** |
 
 ### v1.0.1（2026-09-29）
 
@@ -1279,11 +1308,11 @@ v1.0.1 发布后，在 CentOS 7.9 实机上按「一键部署」章节首次真�
 README「一键部署」章节据此重写（原为"未实测"的应然步骤），并新增 §5 常见问题与 §6 实测记录。
 修复后 E2E **U0–U7 全绿**、部署态自检 **23/23**、表集合与开发库 **42/42 逐表一致**。
 
-> ⚠️ **本机已按修复后的源码重建 backend 镜像，但 GitHub Release 上 v1.0.1 的镜像包仍是修复前的构建**
-> （其内 `init.sql` 带缺陷 1）。该差异**不影响 docker-compose 部署** —— compose 挂载的是宿主机的
-> `src/backend/src/main/resources/sql/init.sql`，镜像内那份不参与初始化。
-> 但若你直接取镜像内的 `init.sql` 手动导入，会踩到缺陷 1。需要与源码完全对齐的镜像包，
-> 请用仓库的 `docker/build-and-push.sh` 自行重建，或等下一版发布。
+> ✅ **该遗留已在 `v1.0.2` 关闭**：v1.0.2 的镜像包内 `init.sql` 与源码**逐字节一致**，
+> 上述「镜像包与源码不一致」的情况不再存在。
+> 回顾 v1.0.1 的镜像包：其内 `init.sql` 带缺陷 1，但该差异**不影响 docker-compose 部署** ——
+> compose 挂载的是宿主机的 `src/backend/src/main/resources/sql/init.sql`，镜像内那份不参与初始化。
+> 只有「直接取镜像内 `init.sql` 手动导入」才会踩到缺陷 1；此类用法请改用 v1.0.2 及以后的镜像包。
 
 ### v1.0.0（2026-09-28）
 

@@ -14,7 +14,7 @@ RUN npm run build
 FROM nginx:1.25-alpine
 # 版本号由构建脚本注入（--build-arg VERSION=x.y.z），写进 OCI 标签，
 # 使 `docker inspect` 能直接查到镜像版本，而不只依赖 tag
-ARG VERSION=1.0.1
+ARG VERSION=1.0.2
 LABEL org.opencontainers.image.title="GateKeeper Frontend" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.source="https://github.com/Change-Only/GateKeeper" \
