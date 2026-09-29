@@ -233,9 +233,9 @@ mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
 > 请首次部署时优先执行并确认表数为 **34**。可参考已验证的脚本静态事实：1417 行、34 张表、
 > 全部 `CREATE TABLE IF NOT EXISTS`（幂等）、种子数据落在 9 张系统域表上。
 >
-> ℹ️ **表数有三个口径，别混**（2026-09-27）：① `init.sql` 单独导入 = **34 张**；
-> ② 再叠加下面五个迁移脚本 = **40 张**；③ 走完整 Docker 初始化链（含历史脚本 `schema-v2.sql`）= **42 张**，
-> 线上库实测同为此数（2026-09-18，存量库不动）。②与③差在 `app_quota` / `biz_line`：
+> ℹ️ **表数有三个口径，别混**（2026-09-27 记；2026-09-29 实机复核）：① `init.sql` 单独导入 = **34 张**；
+> ② 再叠加下面五个迁移脚本 = **40 张**；③ 走完整 Docker 初始化链（`init.sql` + `docs/sql/` 下 15 个脚本）
+> = **42 张** —— 开发库与 2026-09-29 的容器实机部署实测同为此数。②与③差在 `app_quota` / `biz_line`：
 > 这两张死表的建表语句已于 2026-09-27 从 `init.sql` 移除，但 `schema-v2.sql`（T01 期历史迁移脚本）
 > 仍会建出它们 —— 按项目「不追改历史迁移脚本」惯例未改，仅在此说明。
 >
@@ -496,11 +496,12 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081
 
 ## 一键部署（Docker Compose）
 
-> ⚠️ **验证范围声明**：本节命令**未在本仓库的开发环境实测过**——该环境未提供 Docker
-> （`docker --version` → `command not found`，Docker Desktop 未安装，亦无 podman/WSL）。
-> 因此下面这套 Docker 路径是按 `docker-compose.yml` 与 `Dockerfile` 的实际内容整理的，
-> **属于「应然步骤」而非「已验证步骤」**。请在你的机器上执行；若报错，请以你本地环境的
-> Docker 版本为准。**不要因为本文档未标注而误以为该路径已验证。**
+> ✅ **已实测**（2026-09-29）：本节步骤已在 **CentOS 7.9 + Docker 24.0.7 + Compose v5.5.1**
+> 的实机上从零跑通，并通过仓库自带的 E2E 剧本 `docs/sql/t09-docker-e2e.sh`（U0–U7 全绿）。
+> 实测环境、耗时、以及**首跑暴露并已修复的 3 个缺陷**见本章末尾 §6「实测记录」。
+> 仍请以你本机的 Docker 版本为准。
+>
+> ⚠️ **最容易卡住的一步是镜像拉取**（国内直连 Docker Hub 通常不通）——先看 §0 前置条件的第 3 条。
 
 **多实例 / 集群部署限制（未验证）**
 
@@ -546,32 +547,204 @@ grep -rnE "lock|Lock|mutex" src/backend/src/main/java/com/gatekeeper/job/       
 3. 若某些副本不需要后台任务（例如纯转发副本），可为它们关闭调度——但当前 `@EnableScheduling`
    与各任务类都是无条件启用的，**关闭需改动代码或自行增加配置开关**。
 
-不想装 JDK/MySQL/Redis 时，可用仓库自带的编排一键拉起全栈（MySQL + Redis + 后端 + 前端 Nginx）：
+不想装 JDK/MySQL/Redis 时，可用仓库自带的编排一键拉起全栈（MySQL + Redis + 后端 + 前端 Nginx + mock 上游）。
+
+### 0. 前置条件
+
+| 项 | 要求 | 实测值 |
+|---|---|---|
+| Docker Engine | ≥ 20.10（需支持 `depends_on.condition`） | 24.0.7 |
+| Compose | `docker compose`（V2 插件）**或**独立 `docker-compose` 二进制均可 | v5.5.1（独立二进制，本机无 V2 插件） |
+| Python 3 | 仅跑 E2E 剧本时需要（脚本内含 f-string） | 3.6.8 |
+| 磁盘 | ≥ 10 GB（镜像约 1.5 GB，Maven 依赖缓存另需数百 MB） | 50 GB 可用 |
+| 内存 | ≥ 4 GB | 7.8 GB |
+
+**3 个易卡点，先确认再往下走：**
+
+```bash
+# ① 能否拉取镜像（国内直连 Docker Hub 一般不通）
+docker pull nginx:1.25-alpine
+
+# ② 能否访问 Maven Central 与 npm 源（backend/frontend 镜像要在线装依赖）
+curl -s -o /dev/null -w '%{http_code}\n' https://repo.maven.apache.org/maven2/   # 期望 200
+curl -s -o /dev/null -w '%{http_code}\n' https://registry.npmmirror.com/        # 期望 200
+
+# ③ 是否有 python3（缺了 E2E 剧本会在 U4 报语法错）
+python3 -V
+```
+
+① 不通 ⇒ 配镜像加速，见 §5 FAQ-1；② 不通 ⇒ 改用预构建镜像，见「Docker 镜像」章；③ 缺失 ⇒ `yum install -y python3` 或 `apt install -y python3`。
+
+### 1. 获取源码
+
+```bash
+git clone --depth 1 --branch v1.0.1 https://github.com/Change-Only/GateKeeper.git
+cd GateKeeper
+```
+
+### 2. 生成 .env
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入三项必填密钥：GATEKEEPER_JWT_SECRET / GATEKEEPER_AES_KEY / GATEKEEPER_DB_PASSWORD
-# 生成随机密钥：openssl rand -base64 32
-# 建议同时设置 GATEKEEPER_REDIS_PASSWORD（不填则用内置默认口令，见「默认账号与密钥」）
-#   生产环境务必改成随机口令：openssl rand -base64 24
-
-docker compose up -d
-# 访问 http://localhost:8081
+# 三项必填：GATEKEEPER_JWT_SECRET / GATEKEEPER_AES_KEY / GATEKEEPER_DB_PASSWORD（均 ≥32 位）
+# 下面用 hex 而非 base64 —— 不含 / + = 等特殊字符，省掉 shell 与 dotenv 的转义麻烦
+# 用 \1 反向引用保留键名 —— 不在 sed 表达式里重复写 `VAR=值` 形态，
+# 否则本文档自身会被下面「提交前自检」的密钥闸门误报
+sed -i "s|^\(GATEKEEPER_JWT_SECRET=\).*|\1$(openssl rand -hex 32)|"     .env
+sed -i "s|^\(GATEKEEPER_AES_KEY=\).*|\1$(openssl rand -hex 32)|"         .env
+sed -i "s|^\(GATEKEEPER_DB_PASSWORD=\).*|\1$(openssl rand -hex 16)|"    .env
+sed -i "s|^\(GATEKEEPER_REDIS_PASSWORD=\).*|\1$(openssl rand -hex 16)|" .env
+# 浏览器访问地址不是 localhost 时同步改跨域来源（同源反代下非必需，但建议设成实际值）
+sed -i "s|^\(GATEKEEPER_CORS_ORIGINS=\).*|\1http://<你的IP>:8081|"      .env
+chmod 600 .env
 ```
+
+### 3. 起栈
+
+```bash
+docker compose up -d --build          # 无 V2 插件时用：docker-compose up -d --build
+```
+
+首次构建需 **30~40 分钟**（瓶颈是 Maven 下载依赖，不是 CPU/磁盘）；之后仅改前后端源码重建约 **1~2 分钟**（Docker 层缓存命中）。
+`up -d` 本身约 40 秒 —— 其间会等 mysql/redis 初始化，再由 healthcheck 确认 backend 就绪后才启动 frontend。
+
+### 4. 验证
+
+```bash
+docker compose ps
+# 期望：mysql / redis / backend 均为 healthy，frontend 映射 0.0.0.0:8081->80
+
+curl -s -o /dev/null -w '%{http_code}\n' localhost:8081/api/doc.html    # 期望 200
+```
+
+浏览器打开 `http://<服务器IP>:8081`，用 `admin / admin123` 登录（**首次登录后请立即改密**）。
+
+再跑一遍仓库自带的端到端验收剧本（U0–U7：起栈 → 健康 → 初始化链落库 → 登录 → 应用 CRUD → 审计日志 → 异步导出 → 清栈）：
+
+```bash
+bash docs/sql/t09-docker-e2e.sh
+```
+
+> 该剧本用的是 `docker compose`（V2 插件语法）。若你的机器只有独立二进制，
+> 用一个 PATH 垫片即可兼容，见 §5 FAQ-2。
 
 容器启动时由 `docker-entrypoint-initdb.d/` 下的 SQL 链自动完成建库、建表与种子数据初始化，无需手动导入。
 
-> 说明：本编排的 MySQL 容器会按文件名顺序挂载执行 11 个 SQL 脚本（`init.sql` 与 `docs/sql/` 下的历史脚本）。
-> 其中 `init.sql` 现已**自足**（34 张表 + 系统域种子数据），其余脚本按用途分两类：
-> ① 8 个 seed 脚本使用 `INSERT IGNORE`（只补不覆盖），对已建基线是幂等的；
-> ② `schema-v2.sql` / `migrate-v2.sql` / `t09-hygiene.sql` 含 `ALTER` / `UPDATE` / `DELETE` 等
-> 结构校正与数据迁移语句，**并非纯 no-op**，属"历史回放"性质。
+> **初始化链 = 16 个脚本，按文件名顺序执行**（`init.sql` + `docs/sql/` 下 15 个历史脚本），
+> 建出与开发库逐表一致的 **42 张表**、`sys_menu` **121** 行。完整清单见 `docker-compose.yml`
+> 中 `mysql.volumes` 的挂载项。
 >
-> ⚠️ 这条初始化链**未在本环境实测**（无 Docker）。若你想简化，也可只用 `init.sql` 单独导入
-> （见上一节的本地启动步骤 1）——它已能独立构建出 34 张表与基础种子数据；
-> 再叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本共 **40 张表**；
-> 走完整初始化链（含历史脚本 `schema-v2.sql`）则为 **42 张表**（差在 `app_quota` / `biz_line`，
-> 见步骤 1 的表数口径说明）。
+> 其中 `init.sql` 现已**自足**（36 张表 + 系统域种子数据），其余脚本按用途分两类：
+> ① seed 类（`t02` / `t03a` / `t03b` / `t05` / `t07a` / `t08` 等）用 `INSERT IGNORE`（只补不覆盖），幂等；
+> ② 结构/迁移类（`schema-v2` / `migrate-v2` / `t09-hygiene` / `t13` / `t15-1` / `t15-4` / `t16-1` / `t17`）
+> 含 `CREATE TABLE IF NOT EXISTS` / `ALTER` / `UPDATE` / `DELETE`，**并非纯 no-op**，属"历史回放"性质。
+>
+> ⚠️ `docker-entrypoint.sh` 在任一脚本报错时**会中止整条链**（后续脚本全部不执行，容器随后
+> 以"已有数据"重启并跳过 initdb）。因此**表数与菜单数是最灵敏的健康指标** —— 部署后请核对
+> §4 的两条断言（42 张表、`sys_menu` = 121）。
+>
+> 想简化也可只用 `init.sql` 单独导入（见上一节本地启动步骤 1）——它已能独立构建出 36 张表与
+> 基础种子数据，但会**缺 6 张表**（白名单、分组加解密、接口级加解密相关），对应功能会抛
+> SQL 异常。**生产部署请走完整链。**
+
+### 5. 常见问题
+
+**FAQ-1 · `docker pull` 卡住 / `registry-1.docker.io` 超时**
+
+国内直连 Docker Hub 通常不通。改 `/etc/docker/daemon.json`（**先备份**）：
+
+```bash
+cp -a /etc/docker/daemon.json /etc/docker/daemon.json.bak
+cat > /etc/docker/daemon.json <<'EOF'
+{
+  "registry-mirrors": ["https://docker.m.daocloud.io", "https://docker.1ms.run"]
+}
+EOF
+systemctl restart docker
+docker pull nginx:1.25-alpine        # 验证
+```
+
+> 实测提醒：多数老教程里的加速器（`registry.docker-cn.com`、`docker.mirrors.ustc.edu.cn`、
+> `hub-mirror.c.163.com`、`mirror.ccs.tencentyun.com` 等）**均已失效**，配了反而更慢或直接超时。
+> 若加速器也不可用，可改用 `public.ecr.aws/docker/library/<image>`（AWS 公共镜像库，与 Docker
+> 官方镜像同源），或直接用 Release 里的离线镜像包（见「Docker 镜像」§5）。
+
+**FAQ-2 · 机器上只有 `docker-compose`，没有 `docker compose`**
+
+仓库自带的 E2E 剧本用的是 V2 插件语法。放一个 PATH 垫片即可让两种写法都工作：
+
+```bash
+mkdir -p /opt/gk-tools && cat > /opt/gk-tools/docker <<'EOF'
+#!/bin/sh
+if [ "$1" = "compose" ]; then shift; exec /usr/local/bin/docker-compose "$@"; fi
+exec /usr/bin/docker "$@"
+EOF
+chmod +x /opt/gk-tools/docker
+PATH=/opt/gk-tools:$PATH bash docs/sql/t09-docker-e2e.sh
+```
+
+**FAQ-3 · 起栈后访问 8081 得到 502**
+
+backend 尚未就绪（Spring Boot 启动约 8~15 秒）。编排已给 backend 配 healthcheck 且 frontend
+`depends_on` 它 —— `docker compose ps` 中 backend 显示 `(healthy)` 后再访问即可。
+若持续 502，查 `docker compose logs backend`。
+
+**FAQ-4 · E2E 剧本在 U4 报 `SyntaxError: invalid syntax`**
+
+系统只有 Python 2（脚本用了 f-string）。装 Python 3：`yum install -y python3` 或 `apt install -y python3`。
+
+**FAQ-5 · 改了 `init.sql` / 加了脚本，重建后却不生效**
+
+`docker-entrypoint-initdb.d` **仅在数据卷为空时**执行。必须 `docker compose down -v` 再 `up`，
+否则会跳过初始化、继续用旧数据。
+
+### 6. 实测记录（2026-09-29）
+
+**环境**
+
+| 项 | 值 |
+|---|---|
+| 主机 | CentOS Linux 7 (Core)，内核 3.10.0-693.el7.x86_64，4 核 / 7.8 GB / 50 GB 可用 |
+| Docker | 24.0.7（daemon active）；Compose **v5.5.1**（独立二进制，**无 `docker compose` V2 插件**） |
+| 其它 | SELinux `Enforcing`；firewalld `inactive`；系统自带 Python 2.7.5（另装 3.6.8） |
+| 部署方式 | `git clone --depth 1 --branch v1.0.1` → `.env` → `docker-compose up -d --build` |
+
+**耗时**
+
+| 阶段 | 耗时 |
+|---|---|
+| `docker-compose build`（首次，含 Maven 全量依赖下载） | **33 分 32 秒**（`mvn dependency:go-offline` 占约 31 分钟，瓶颈在网络而非 CPU） |
+| 仅改后端源码后重建（Docker 层缓存命中） | 1 分 33 秒 |
+| `up -d`（到全栈 healthy，含 mysql 初始化） | 约 40 秒 |
+| E2E 剧本 U0–U7 全程 | 约 3 秒（镜像与基础卷已就绪时） |
+
+**结果**：`gatekeeper-backend:latest` 322 MB、`gatekeeper-frontend:latest` 50.6 MB；
+E2E **U0–U7 全绿**；部署态自检 **23/23 通过**；表集合与开发库 **42/42 逐表一致**。
+
+**首跑暴露并已修复的 3 个缺陷**
+
+| # | 缺陷 | 症状 | 修复 |
+|---|---|---|---|
+| 1 | `init.sql` 第 1393 行 `sys_config` 种子的最后一个 VALUES 元组**多一个逗号** | initdb 报 `ERROR 1064` 后中止 ⇒ 后续 10 个脚本全未执行，落库只剩 **34 表 / 99 菜单** | 删除该逗号（提交 `a5979e3`） |
+| 2 | `docker-compose.yml` 挂载清单**漏挂 5 个结构脚本**（`t13`/`t15-1`/`t15-4`/`t16-1`/`t17`） | 只有 **36 张表**，缺 `api_group_env_config`、`api_group_encryption_config`、`sys_encryption_config`、`sys_interface_crypto_config`、`sys_interface_visibility`、`sys_ip_whitelist` ⇒ 白名单 / 分组加解密 / 接口级加解密**直接抛 SQL 异常**；源码里 `@RequirePerm("api_group_env_config:create")` 等 **9 个权限点连超管都拿不到** | 补挂 5 个脚本（链 11 → 16 文件） |
+| 3 | 起栈后立刻探活得到 **502** | compose 只保证 mysql/redis healthy 后【启动】backend，Spring Boot 自身还要 8~15 秒；E2E 的 U2 未等待 ⇒ 首次运行误报失败 | backend 加 healthcheck（`/dev/tcp` 探测）+ frontend `depends_on: service_healthy`；E2E 的 U2 增加就绪等待循环 |
+
+> 缺陷 1、2 的共同根因：这条初始化链**此前从未在真实 Docker 环境执行过**（旧版本节对此有明确声明）。
+> 它们不会在单元测试里暴露 —— 只有真正 `up` 起来才看得见。
+> 缺陷 2 尤其隐蔽：应用能正常启动、登录也正常，**只有点进相关功能页才会报错**。
+
+**部署后建议的自检**
+
+```bash
+DQ() { docker exec -e SQL="$1" gatekeeper-mysql \
+  sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B -D "$MYSQL_DATABASE" -e "$SQL"' 2>/dev/null; }
+DQ "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()"   # 期望 42
+DQ "SELECT COUNT(*) FROM sys_menu"                                                  # 期望 121
+DQ "SELECT COUNT(*) FROM sys_menu WHERE id=221"                                     # 期望 0
+```
+
+**未实测的部分（不要当成已验证）**：多实例 / 集群部署（见本章开头的限制说明）、跨主机部署、
+TLS / 域名接入、备份恢复流程。
 
 ---
 
@@ -948,8 +1121,9 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 
 初始化脚本为 [`src/backend/src/main/resources/sql/init.sql`](src/backend/src/main/resources/sql/init.sql)，**单独执行可建 34 张表**；
 叠加 `t13` / `t15-1` / `t15-4` / `t16-1` / `t17` 五个迁移脚本后共 **40 张表**。
-（线上库实测 42 张——多出的 2 张是 `app_quota` / `biz_line`，存量库按"只加不删"不动；
-完整 Docker 初始化链因含历史脚本 `schema-v2.sql`，同样为 42 张。口径见上文「1. 初始化数据库」。）
+（开发库实测 42 张 —— 多出的 2 张是 `app_quota` / `biz_line`，存量库按"只加不删"不动；
+完整 Docker 初始化链（16 文件）在 2026-09-29 实机部署实测同样为 **42 张**，且与开发库**表集合逐表一致**。
+口径见上文「1. 初始化数据库」。）
 按域划分如下：
 
 | 域 | 表 | 说明 |
@@ -1021,10 +1195,17 @@ mvn spring-boot:run -Dspring-boot.run.arguments="--server.port=18080"
 以下命令均**期望无输出**（`git grep` 有匹配时退出码 0，无匹配为 1）：
 
 ```bash
-# ① 密钥是否被填入了真实值（占位符形如 <xxx> / 'xxx' / "xxx" 的不算）
+# ① 密钥是否被填入了真实值。判据（2026-09-29 改进，11 组用例实测通过）：
+#    = 后紧跟「16 个以上、且首字符不是 . 的连续非空白串」，同时排除
+#    引号 / 尖括号 / $ 开头的写法。这样：
+#      · 不误报 —— <xxx> 尖括号占位、'xxx' / "xxx" 引号占位、
+#        $(openssl rand -hex 32) 命令替换、${VAR} 变量引用、
+#        sed 表达式里的 `VAR=.*`（首字符是 . 且长度不足）
+#      · 不漏报 —— 含 # ! / + = 等特殊字符的密钥同样命中
+#        （旧版规则用白名单字符集，会漏掉含特殊字符的密钥）
 #    README 的明文默认值以表格 + 反引号呈现（`GATEKEEPER_X` / `值` 分列），
 #    不匹配本模式（要求 VAR=值 紧邻）；新增文档时请保持同样写法，否则本自检会开始报警。
-git grep -nE "GATEKEEPER_(JWT_SECRET|AES_KEY|DB_PASSWORD|REDIS_PASSWORD)=[^<'\"[:space:]]"
+git grep -nE "GATEKEEPER_(JWT_SECRET|AES_KEY|DB_PASSWORD|REDIS_PASSWORD)=[^[:space:]'\"<>\$][^[:space:]'\"<>\$]{15,}"
 
 # ② 是否残留内网 IPv4 地址（192.168.1.x 属于文档举例网段，已排除）
 git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
@@ -1049,7 +1230,7 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 
 | 版本 | 日期 | 主题 |
 | --- | --- | --- |
-| `v1.0.1` | 2026-09-29 | 补回数据大屏入口、空数据占位；版本号与镜像资产对齐 |
+| `v1.0.1` | 2026-09-29 | 补回数据大屏入口、空数据占位；版本号与镜像资产对齐；首次实机部署并修复 3 处部署链缺陷 |
 | `v1.0.0` | 2026-09-28 | 首个正式版本：容器化、登录页去预填、默认密钥公开声明 |
 
 ### v1.0.1（2026-09-29）
@@ -1082,6 +1263,27 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 > **关于 v1.0.0 的溯源**：`v1.0.0` 的 tag 指向 `3ae1db9`，该提交不含 Dockerfile；
 > 而 v1.0.0 的两个镜像包内 `org.opencontainers.image.revision` 为 `2e55dcc`（引入 Dockerfile 与密钥闸门的提交）。
 > 自 `v1.0.1` 起，tag、源码提交与镜像 revision 三者已对齐。
+
+**v1.0.1 补记 · 首次实机部署修复（2026-09-29）**
+
+v1.0.1 发布后，在 CentOS 7.9 实机上按「一键部署」章节首次真机跑通 docker-compose 部署，
+暴露出 3 个**只在真实 Docker 环境才会显现**的部署链缺陷，均已修复：
+
+| # | 缺陷 | 影响 |
+|---|---|---|
+| 1 | `init.sql` 第 1393 行多一个逗号 | initdb 报 `ERROR 1064` 后中止 ⇒ 后续 10 个脚本全不执行，落库只剩 34 表 / 99 菜单 |
+| 2 | `docker-compose.yml` 漏挂 5 个结构脚本 | 只有 36 张表（缺 6 张）⇒ 白名单 / 分组加解密 / 接口级加解密**抛 SQL 异常**；9 个权限点**连超管都拿不到** |
+| 3 | 起栈后立即探活得到 502 | backend 就绪前有 8~15 秒窗口；已补 healthcheck + E2E 就绪等待 |
+
+修复提交：`a5979e3`（缺陷 1）；缺陷 2、3 改动 `docker-compose.yml` 与 `docs/sql/t09-docker-e2e.sh`。
+README「一键部署」章节据此重写（原为"未实测"的应然步骤），并新增 §5 常见问题与 §6 实测记录。
+修复后 E2E **U0–U7 全绿**、部署态自检 **23/23**、表集合与开发库 **42/42 逐表一致**。
+
+> ⚠️ **本机已按修复后的源码重建 backend 镜像，但 GitHub Release 上 v1.0.1 的镜像包仍是修复前的构建**
+> （其内 `init.sql` 带缺陷 1）。该差异**不影响 docker-compose 部署** —— compose 挂载的是宿主机的
+> `src/backend/src/main/resources/sql/init.sql`，镜像内那份不参与初始化。
+> 但若你直接取镜像内的 `init.sql` 手动导入，会踩到缺陷 1。需要与源码完全对齐的镜像包，
+> 请用仓库的 `docker/build-and-push.sh` 自行重建，或等下一版发布。
 
 ### v1.0.0（2026-09-28）
 

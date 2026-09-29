@@ -16,7 +16,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${GATEKEEPER_DB_PASSWORD:?请在 .env 中配置 GATEKEEPER_DB_PASSWORD}
       MYSQL_DATABASE: ${GATEKEEPER_DB_NAME:-gatekeeper}
       TZ: Asia/Shanghai
-    # 首次启动自动执行建表脚本（11 文件有序链，按字典序挂载；源文件名不动）
+    # 首次启动自动执行建表脚本（16 文件有序链，按字典序挂载；源文件名不动）
     #   ⚠ 关于 #11（t09-hygiene.sql）：方案 §3.2 原文 YAML 已含本条目但标注
     #   「可选，待 lead 确认终稿」——T10-D 施工将其定位【升级为必需】。
     #   原因：`docs/sql/t03a-seed-permissions.sql:33` 会播种重复菜单行
@@ -45,6 +45,18 @@ services:
       - ./docs/sql/t07a-seed-rules.sql:/docker-entrypoint-initdb.d/08-t07a-seed.sql:ro
       - ./docs/sql/t08-seed-perms.sql:/docker-entrypoint-initdb.d/09-t08-seed.sql:ro
       - ./docs/sql/t09-hygiene.sql:/docker-entrypoint-initdb.d/10-t09-hygiene.sql:ro
+      # ---- 以下 5 个为 2026-09-29 实机部署时补挂（见 README「一键部署」§5）----
+      # 背景：11 文件链跑完后只有 36 张表，而开发库/完整链为 42 张。
+      # 缺的 6 张（api_group_env_config / api_group_encryption_config /
+      # sys_encryption_config / sys_interface_crypto_config / sys_interface_visibility /
+      # sys_ip_whitelist）正是下列脚本所建 ⇒ 缺表会让白名单、分组加解密、
+      # 接口级加解密等功能直接抛 SQL 异常。脚本自身均为 CREATE TABLE IF NOT EXISTS
+      # + INSERT IGNORE，幂等可重入。
+      - ./docs/sql/t13-group-env-config.sql:/docker-entrypoint-initdb.d/11-t13-group-env.sql:ro
+      - ./docs/sql/t15-1-group-encryption.sql:/docker-entrypoint-initdb.d/12-t15-1-group-enc.sql:ro
+      - ./docs/sql/t15-4-whitelist.sql:/docker-entrypoint-initdb.d/13-t15-4-whitelist.sql:ro
+      - ./docs/sql/t16-1-encryption-master-switch.sql:/docker-entrypoint-initdb.d/14-t16-1-enc-master.sql:ro
+      - ./docs/sql/t17-interface-crypto.sql:/docker-entrypoint-initdb.d/15-t17-iface-crypto.sql:ro
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
       # 用容器内运行时环境变量取密码（$$ 转义），避免密码被内联进容器配置、docker inspect 可见
@@ -103,6 +115,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # 就绪探针（2026-09-29 实机部署补）：Spring Boot 启动约 8~15s，首次更久。
+    # 没有它，frontend 会在上游未就绪时就位，容器起来后头几秒访问拿到 502。
+    # 用 bash 的 /dev/tcp 探测而非 curl/wget —— eclipse-temurin:8-jre 镜像内没有它们。
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
   # ---------- 前端 Nginx ----------
   frontend:
@@ -111,8 +132,10 @@ services:
     restart: unless-stopped
     ports:
       - "8081:80"
+    # 等 backend 真正就绪再起 nginx，避免「容器已起但头几秒访问 502」的窗口
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   # ---------- mock 上游（E2E U5 网关转发用例，方案 §3.3；复用 frontend 已用的 nginx 镜像，零新增下载） ----------
   mock-upstream:

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================
-# T09-D / T10-D · Docker E2E 脚本（草稿，待环境后跑一次）
+# T09-D / T10-D · Docker E2E 脚本（2026-09-29 已实机跑通）
 # ------------------------------------------------------------
-# ⚠️ 重要声明（T10-D 派工，2026-09-12）
-#   此脚本【未在本机执行】—— 本机（Windows）无 docker 命令、无 Docker Desktop。
-#   本轮产出为静态草稿；运行时验证待具备 Docker 环境后按 U0–U7 原文跑一次。
+# ✅ 实测记录（2026-09-29，CentOS 7.9 + Docker 24.0.7 + Compose v5.5.1，独立测试机）
+#   结果：U0–U7 全绿。首跑暴露并修复了两处「初始化链」缺陷：
+#     ① init.sql 第1393行多余逗号 ⇒ initdb 报 ERROR 1064 后中止，
+#        后续 10 个脚本全部未执行（落库只剩 34 表 / 99 菜单）
+#     ② docker-compose.yml 挂载清单漏挂 5 个结构脚本 ⇒ 只有 36 张表（完整为 42 张）
+#   修复后：16 脚本全执行 / 0 ERROR / 42 张表（与开发库逐表一致）/ sys_menu=121
 #   验证纪律（承 T07/T08 铁律）：每步带【数据正面断言】，不允许只 curl 200 就算过。
 #
 # 配套阅读：
@@ -96,25 +99,50 @@ log "  mock-upstream /healthz = 200（容器内自检）"
 # U2 · 后端探活（不依赖业务表）
 # ============================================================================
 step "U2 · 后端探活（knife4j swagger UI）"
-code=$(curl -s -o /dev/null -w '%{http_code}' "${HOST_BASE}/api/doc.html")
-[ "$code" = "200" ] || fail "U2 期望 200，实际 $code（backend 未起或 knife4j 不可达）"
-log "U2 OK：api/doc.html = 200"
+# 先等 backend 就绪，再断言。
+# 背景（2026-09-29 实测发现的时序缺口）：compose 只保证 mysql/redis healthy 后
+# 【启动】backend，而 Spring Boot 自身还要 8~15s（首次含类加载更久）。
+# 不等待直接探活会拿到 502 —— nginx 已起、上游未就绪，这不是部署失败。
+code=""
+for i in $(seq 1 60); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "${HOST_BASE}/api/doc.html")
+  [ "$code" = "200" ] && break
+  sleep 2
+done
+[ "$code" = "200" ] || fail "U2 期望 200，实际 $code（backend 120s 内未就绪；查 docker compose logs backend）"
+log "U2 OK：api/doc.html = 200（等待 $((i*2))s）"
 
 # ============================================================================
 # U2b · 初始化链落库断言（把「静态推出的顺序/幂等」升级成能失败的运行时用例）
 #   t09-hygiene.sql 是【真实变更】而非 no-op：它删掉了 04-t03a-seed-permissions.sql:33
 #   播下的野行 sys_menu.id=221。空卷首跑完成整条链后应满足：
-#     · sys_menu 总数 = 112（t09-hygiene.sql 自注「113-1」）
+#     · sys_menu 总数 = 121
+#       【2026-09-29 实机部署修订】原值 112 是「11 文件链」口径 —— 那条链
+#       漏挂了 t13/t15-1/t15-4/t16-1/t17 五个结构脚本，只建出 36 张表（少 6 张），
+#       并使这些脚本播种的权限点全部缺失（连超管都拿不到）。补挂后：
+#         t13 播 5 个（id 351~355）、t15-1 播 3 个（356~358）、t15-4 播 1 个（359）
+#         ⇒ 112 + 9 = 121
 #     · sys_menu WHERE id=221 计数 = 0（野行已被 hygiene 清除）
+#     · 表总数 = 42（与开发库/完整链一致；缺则说明结构脚本未挂全）
 #   任一条不成立 ⇒ 初始化链未按序完整执行（bind-mount 源缺失 / 顺序错 / hygiene 未生效）。
 #   取数走容器内 mysql 客户端（凭据用容器运行时 env，host 侧不落明文）。
 # ============================================================================
-step "U2b · 初始化链落库断言（sys_menu 总数=112 且野行 221 已被 hygiene 清除）"
+step "U2b · 初始化链落库断言（表总数=42 且 sys_menu=121 且野行 221 已清除）"
+# 表数断言：完整 16 文件链应为 42 张（与开发库逐表比对一致）。
+# 11 文件链只有 36 张 —— 缺的 6 张（api_group_env_config / api_group_encryption_config /
+# sys_encryption_config / sys_interface_crypto_config / sys_interface_visibility /
+# sys_ip_whitelist）会让白名单、分组加解密、接口级加解密等功能直接抛 SQL 异常。
+tbl_total=$(${COMPOSE} exec -T mysql sh -c \
+  'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B -D "$MYSQL_DATABASE" -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE();"' \
+  2>/dev/null | tr -d '\r' | head -n1 || true)
+[ "$tbl_total" = "42" ] \
+  || fail "U2b 表总数期望 42，实际 '$tbl_total'（结构脚本未挂全 —— 检查 docker-compose.yml 里 docker-entrypoint-initdb.d 的 16 个挂载项）"
+
 menu_total=$(${COMPOSE} exec -T mysql sh -c \
   'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B -D "$MYSQL_DATABASE" -e "SELECT COUNT(*) FROM sys_menu;"' \
   2>/dev/null | tr -d '\r' | head -n1 || true)
-[ "$menu_total" = "112" ] \
-  || fail "U2b sys_menu 总数期望 112，实际 '$menu_total'（初始化链未完整执行 / 顺序错 / hygiene 未生效）"
+[ "$menu_total" = "121" ] \
+  || fail "U2b sys_menu 总数期望 121，实际 '$menu_total'（初始化链未完整执行 / 顺序错 / hygiene 未生效）"
 
 menu_221=$(${COMPOSE} exec -T mysql sh -c \
   'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B -D "$MYSQL_DATABASE" -e "SELECT COUNT(*) FROM sys_menu WHERE id=221;"' \
@@ -122,7 +150,7 @@ menu_221=$(${COMPOSE} exec -T mysql sh -c \
 [ "$menu_221" = "0" ] \
   || fail "U2b 野行 sys_menu.id=221 期望 0，实际 '$menu_221'（t03a 已播 221 但 10-t09-hygiene 未删除它）"
 
-log "U2b OK：sys_menu total=112，野行 id=221 计数=0（hygiene 已生效，链顺序正确）"
+log "U2b OK：表总数=42，sys_menu total=121，野行 id=221 计数=0（hygiene 已生效，链顺序正确）"
 
 # ============================================================================
 # U3 · 登录

@@ -45,6 +45,13 @@ WHERE dict_code = 'alarm_level';
 -- 验证（执行后应看到）：
 --   SELECT COUNT(*) FROM sys_menu WHERE id=221;                        -- 0
 --   SELECT COUNT(*) FROM sys_menu;                                     -- 112（113-1）
+--     ⚠ 2026-09-29 实机部署修订：上述 112 是当时「11 文件初始化链」的口径。
+--     该链漏挂 t13-group-env-config / t15-1-group-encryption / t15-4-whitelist /
+--     t16-1-encryption-master-switch / t17-interface-crypto 五个结构脚本，
+--     只建出 36 张表（完整链为 42 张），且这些脚本播种的权限点全部缺失。
+--     补挂后完整 16 文件链：sys_menu 总数 = 121
+--     （t13 播 id 351~355、t15-1 播 356~358、t15-4 播 359）。
+--     本脚本自身的动作（按下述 7 条件删 id=221）不受影响，仍幂等。
 --   SELECT remark FROM sys_dict WHERE dict_code='alarm_level';         -- 作用域澄清文案
 --   SHOW FULL COLUMNS FROM alert LIKE 'alarm_level';                   -- 废弃注释
 --   SHOW FULL COLUMNS FROM app LIKE 'audit_status';                    -- 预留列注释
