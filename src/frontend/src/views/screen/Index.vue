@@ -25,9 +25,13 @@
         <el-col :span="12"><div class="chart-card"><div class="chart-title">调用成功率</div><div ref="rateChart" class="chart-area"></div></div></el-col>
       </el-row>
       <!-- 第三行：应用访问量 Top10 + 接口热度 Top10 -->
+      <!-- 空数据占位（必要）：实测 ECharts 在**数据为空**时连 canvas 都不创建
+           （category 轴 data=[] ⇒ 容器里只剩一个空的 zrender 根 div），页面就是一大块无声空白。
+           全新部署、库里还没有调用日志时，这两块恒为空 ⇒ 必须显式给「暂无数据」，
+           否则用户看到的是两个没有任何解释的空框。 -->
       <el-row :gutter="16" style="margin-top:16px">
-        <el-col :span="12"><div class="chart-card"><div class="chart-title">应用访问量 Top10</div><div ref="appRankChart" class="chart-area"></div></div></el-col>
-        <el-col :span="12"><div class="chart-card"><div class="chart-title">接口热度 Top10</div><div ref="ifaceRankChart" class="chart-area"></div></div></el-col>
+        <el-col :span="12"><div class="chart-card"><div class="chart-title">应用访问量 Top10</div><div ref="appRankChart" class="chart-area"><div v-if="!appRank.length" class="chart-empty">暂无数据</div></div></div></el-col>
+        <el-col :span="12"><div class="chart-card"><div class="chart-title">接口热度 Top10</div><div ref="ifaceRankChart" class="chart-area"><div v-if="!ifaceRank.length" class="chart-empty">暂无数据</div></div></div></el-col>
       </el-row>
       <!-- 第四行：安全态势面板 + 最近异常事件列表 -->
       <el-row :gutter="16" style="margin-top:16px">
@@ -70,6 +74,10 @@ export default {
       overview: {},
       // 最近异常事件列表
       events: [],
+      // Top10 排行数据：为空时模板显示「暂无数据」占位
+      // （ECharts 空数据不产 canvas，不能指望图表自己给提示）
+      appRank: [],
+      ifaceRank: [],
       // 当前时间字符串（大屏时钟显示）
       currentTime: '',
       // 时钟更新定时器
@@ -97,11 +105,17 @@ export default {
     // 渲染调用成功率仪表盘（V2 青色主题）；loadAll 每 10s 重跑，故复用已有实例避免重复 init
     renderRate(d) { const dom = this.$refs.rateChart; if (!dom) return; const chart = echarts.getInstanceByDom(dom) || echarts.init(dom); chart.setOption({ series: [{ type: 'gauge', startAngle: 210, endAngle: -30, min: 0, max: 100, radius: '82%', center: ['50%', '58%'], progress: { show: true, width: 14, roundCap: true, itemStyle: { color: '#35c8f0' } }, axisLine: { lineStyle: { width: 14, color: [[1, 'rgba(86,150,255,.18)']] } }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, pointer: { show: false }, anchor: { show: false }, detail: { valueAnimation: true, offsetCenter: [0, '2%'], fontSize: 40, fontWeight: 'bold', color: '#2fd49b', formatter: '{value}%' }, data: [{ value: d && d.successRate != null ? d.successRate : 0 }] }] }) },
     // 渲染 24 小时调用量趋势折线图（V2 青色主题）
-    async loadTrend() { const res = await getScreenTrend(); const chart = echarts.init(this.$refs.trendChart); chart.setOption({ tooltip: { trigger: 'axis' }, grid: { left: '5%', right: '5%', bottom: '10%', top: '15%' }, xAxis: { type: 'category', data: res.data.map(d => d.hour), axisLine: { lineStyle: { color: 'rgba(86,150,255,.3)' } }, axisLabel: { color: '#7fa0d8' } }, yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(86,150,255,.1)' } }, axisLabel: { color: '#7fa0d8' } }, series: [{ name: '调用量', type: 'line', smooth: true, symbolSize: 5, lineStyle: { width: 2.5, color: '#35c8f0' }, areaStyle: { opacity: .22, color: '#35c8f0' }, itemStyle: { color: '#35c8f0' }, data: res.data.map(d => d.count) }] }) },
+    async loadTrend() { const res = await getScreenTrend(); const dom = this.$refs.trendChart; if (!dom) return; const chart = echarts.getInstanceByDom(dom) || echarts.init(dom); chart.setOption({ tooltip: { trigger: 'axis' }, grid: { left: '5%', right: '5%', bottom: '10%', top: '15%' }, xAxis: { type: 'category', data: res.data.map(d => d.hour), axisLine: { lineStyle: { color: 'rgba(86,150,255,.3)' } }, axisLabel: { color: '#7fa0d8' } }, yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(86,150,255,.1)' } }, axisLabel: { color: '#7fa0d8' } }, series: [{ name: '调用量', type: 'line', smooth: true, symbolSize: 5, lineStyle: { width: 2.5, color: '#35c8f0' }, areaStyle: { opacity: .22, color: '#35c8f0' }, itemStyle: { color: '#35c8f0' }, data: res.data.map(d => d.count) }] }) },
+    // 加载应用访问量 Top10：数据存进 data（模板据此决定是否显示占位），再交给渲染
+    async loadAppRank() { const res = await getAppRank(); this.appRank = res.data || []; this.renderAppRank() },
     // 渲染应用访问量 Top10 横向条形图（V2 品牌蓝）
-    async loadAppRank() { const res = await getAppRank(); const chart = echarts.init(this.$refs.appRankChart); chart.setOption({ grid: { left: '25%', right: '5%', bottom: '5%', top: '5%' }, xAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(86,150,255,.1)' } }, axisLabel: { color: '#7fa0d8' } }, yAxis: { type: 'category', data: res.data.map(d => d.appName), inverse: true, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#9db8e8' } }, series: [{ type: 'bar', barWidth: 12, itemStyle: { color: '#4d7cfe', borderRadius: [0, 6, 6, 0] }, data: res.data.map(d => d.callCount) }] }) },
+    // 空数据时**不 init**：反正 ECharts 不产 canvas，init 只会留下一个空的 zrender 根 div；
+    // loadAll 每 10s 重跑 ⇒ 复用已有实例，别重复 init
+    renderAppRank() { const dom = this.$refs.appRankChart; if (!dom || !this.appRank.length) return; const chart = echarts.getInstanceByDom(dom) || echarts.init(dom); chart.setOption({ grid: { left: '25%', right: '5%', bottom: '5%', top: '5%' }, xAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(86,150,255,.1)' } }, axisLabel: { color: '#7fa0d8' } }, yAxis: { type: 'category', data: this.appRank.map(d => d.appName), inverse: true, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#9db8e8' } }, series: [{ type: 'bar', barWidth: 12, itemStyle: { color: '#4d7cfe', borderRadius: [0, 6, 6, 0] }, data: this.appRank.map(d => d.callCount) }] }) },
+    // 加载接口热度 Top10：同上
+    async loadIfaceRank() { const res = await getInterfaceRank(); this.ifaceRank = res.data || []; this.renderIfaceRank() },
     // 渲染接口热度 Top10 横向条形图（V2 青色主题）
-    async loadIfaceRank() { const res = await getInterfaceRank(); const chart = echarts.init(this.$refs.ifaceRankChart); chart.setOption({ grid: { left: '35%', right: '5%', bottom: '5%', top: '5%' }, xAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(86,150,255,.1)' } }, axisLabel: { color: '#7fa0d8' } }, yAxis: { type: 'category', data: res.data.map(d => d.interfacePath), inverse: true, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#9db8e8' } }, series: [{ type: 'bar', barWidth: 12, itemStyle: { color: '#35c8f0', borderRadius: [0, 6, 6, 0] }, data: res.data.map(d => d.callCount) }] }) },
+    renderIfaceRank() { const dom = this.$refs.ifaceRankChart; if (!dom || !this.ifaceRank.length) return; const chart = echarts.getInstanceByDom(dom) || echarts.init(dom); chart.setOption({ grid: { left: '35%', right: '5%', bottom: '5%', top: '5%' }, xAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(86,150,255,.1)' } }, axisLabel: { color: '#7fa0d8' } }, yAxis: { type: 'category', data: this.ifaceRank.map(d => d.interfacePath), inverse: true, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#9db8e8' } }, series: [{ type: 'bar', barWidth: 12, itemStyle: { color: '#35c8f0', borderRadius: [0, 6, 6, 0] }, data: this.ifaceRank.map(d => d.callCount) }] }) },
     // 加载最近异常事件
     async loadEvents() { const res = await getRecentEvents(); this.events = res.data || [] },
     // 根据事件类型返回对应的标签颜色类型
@@ -165,7 +179,14 @@ export default {
 }
 .chart-title { font-size: 14px; color: #eaf2ff; font-weight: 600; margin-bottom: 8px; padding-left: 10px; position: relative; }
 .chart-title::before { content: ""; position: absolute; left: 0; top: 3px; bottom: 3px; width: 4px; background: linear-gradient(180deg, #35c8f0, #2563eb); border-radius: 2px; }
-.chart-area { height: 220px; }
+.chart-area { height: 220px; position: relative; }
+/* 空数据占位：ECharts 在 data 为空时不创建 canvas（见模板注释）⇒ 必须自己给提示文字，
+   否则整块面板是无声空白 —— 新部署、尚无调用日志时就是默认状态。 */
+.chart-empty {
+  position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: #5a7099; font-size: 13px; letter-spacing: .12em;
+}
 .security-panel { display: flex; justify-content: space-around; padding: 16px 0; border-bottom: 1px dashed rgba(86, 150, 255, .14); }
 .security-stat { text-align: center; } .stat-num { display: block; font-size: 28px; font-weight: 700; } .stat-num.danger { color: #ff5f6e; } .stat-num.warning { color: #f5a524; }
 .stat-name { font-size: 12px; color: #7fa0d8; margin-top: 4px; display: block; }
