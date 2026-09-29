@@ -644,6 +644,31 @@ RUN cp src/main/resources/application.example.yml src/main/resources/application
 > 构建脚本已内置前置校验：若 `.dockerignore` 漏排 `application.yml`、或 Dockerfile 少了模板顶替那一步，
 > 脚本会**直接中止构建**，避免密钥被烤进镜像推到公开仓库。
 
+#### 4.1 同一条闸门也适用于 Release 的 jar 资产（易漏）
+
+`gatekeeper-backend-<version>.jar` **不在 Dockerfile 流程内**，必须手工按同一口径打包，
+否则会把本地真实 `application.yml`（**内网库地址 + 真实密钥**）直接烤进发布物：
+
+```bash
+cd src/backend
+cp src/main/resources/application.yml /path/to/application.yml.real   # 先备份本地真实配置
+cp src/main/resources/application.example.yml src/main/resources/application.yml
+mvn package -DskipTests
+cp /path/to/application.yml.real src/main/resources/application.yml   # 打完立刻还原
+```
+
+**判据**：解包 jar 后 `BOOT-INF/classes/application.yml` 中**不得**出现真实内网库主机，
+库地址应回落到 `localhost`：
+
+```bash
+unzip -p target/gatekeeper.jar BOOT-INF/classes/application.yml | grep -E "url: jdbc|192\.168\."
+# 期望：只看到 ${GATEKEEPER_DB_HOST:localhost}，看不到任何内网 IP
+```
+
+> 这条曾经真的踩过：直接用仓库工作区跑 `mvn package` 得到的 jar 里，
+> 库地址是内网实机、密钥是真实值 —— 而镜像包因为走 Dockerfile 反而是干净的，
+> **同一个版本出现「镜像干净、jar 泄漏」的不一致**。发布前请对 jar 单独复检。
+
 ### 5. 从 Release 资产加载离线镜像
 
 每个版本的 Release 都附带两个 `docker load` 可直接加载的镜像包（含基础镜像层，离线可用）：
@@ -1047,6 +1072,12 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 - 修正 README「Docker 镜像」章节中的离线镜像资产文件名：实际为
   `gatekeeper-backend-image-<version>.tar` 与 `gatekeeper-frontend-image-<version>.tar`，
   此前误写为 `gatekeeper-backend-<version>.tar`。
+- 新增 README §4.1「同一条闸门也适用于 Release 的 jar 资产」：明确发布用 jar 必须按
+  Dockerfile 同口径打包（备份本地真实配置 → 模板顶替 → 打包 → 立即还原），
+  并给出「jar 内不得出现内网库主机」的复检命令。
+  **本版打包过程中正是这条复检拦下了一次真实泄漏**——直接用仓库工作区 `mvn package`
+  得到的 jar，库地址指向内网实机、密钥为真实值，而镜像包因走 Dockerfile 反而是干净的，
+  会出现「同一版本镜像干净、jar 泄漏」的不一致。
 
 > **关于 v1.0.0 的溯源**：`v1.0.0` 的 tag 指向 `3ae1db9`，该提交不含 Dockerfile；
 > 而 v1.0.0 的两个镜像包内 `org.opencontainers.image.revision` 为 `2e55dcc`（引入 Dockerfile 与密钥闸门的提交）。
