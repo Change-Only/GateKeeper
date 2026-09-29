@@ -607,7 +607,7 @@ powershell -ExecutionPolicy Bypass -File docker\build-and-push.ps1 -Push
 版本号同时写进镜像的 OCI 标签 `org.opencontainers.image.version`，可独立于 tag 读取：
 
 ```bash
-docker inspect <namespace>/gatekeeper:backend-1.0.0 \
+docker inspect <namespace>/gatekeeper:backend-1.0.1 \
   --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
 ```
 
@@ -618,9 +618,9 @@ docker run -d --name gk-backend -p 8080:8080 \
   -e GATEKEEPER_DB_HOST=<数据库主机> -e GATEKEEPER_DB_PASSWORD=<数据库口令> \
   -e GATEKEEPER_REDIS_HOST=<Redis主机> -e GATEKEEPER_REDIS_PASSWORD=<Redis口令> \
   -e GATEKEEPER_JWT_SECRET=<32位以上随机串> -e GATEKEEPER_AES_KEY=<32位以上随机串> \
-  <namespace>/gatekeeper:backend-1.0.0
+  <namespace>/gatekeeper:backend-1.0.1
 
-docker run -d --name gk-frontend -p 8081:80 <namespace>/gatekeeper:frontend-1.0.0
+docker run -d --name gk-frontend -p 8081:80 <namespace>/gatekeeper:frontend-1.0.1
 ```
 
 更省事的方式是直接用编排（见上一节）：`docker compose up -d`。
@@ -649,12 +649,30 @@ RUN cp src/main/resources/application.example.yml src/main/resources/application
 每个版本的 Release 都附带两个 `docker load` 可直接加载的镜像包（含基础镜像层，离线可用）：
 
 ```bash
-docker load -i gatekeeper-backend-1.0.0.tar
-docker load -i gatekeeper-frontend-1.0.0.tar
-# 加载后即为 <namespace>/gatekeeper:backend-1.0.0 / :frontend-1.0.0
+docker load -i gatekeeper-backend-image-1.0.1.tar
+docker load -i gatekeeper-frontend-image-1.0.1.tar
+# 加载后即为 <namespace>/gatekeeper:backend-1.0.1 / :frontend-1.0.1
 ```
 
 包内是标准 `docker save` 格式（`manifest.json` + gzip 层），平台为 `linux/amd64`。
+资产文件名中的版本号即当前 Release 版本，换版本时同步替换即可。
+
+Release 资产清单（与 `v1.0.1` 一一对应）：
+
+| 资产 | 内容 |
+| --- | --- |
+| `gatekeeper-backend-1.0.1.jar` | 后端可执行 fat jar |
+| `gatekeeper-frontend-1.0.1.zip` | 前端生产构建产物（静态文件） |
+| `gatekeeper-sql-1.0.1.zip` | 数据库脚本（建表 / 迁移 / 权限播种） |
+| `gatekeeper-backend-image-1.0.1.tar` | 后端镜像（含基础层，离线可加载） |
+| `gatekeeper-frontend-image-1.0.1.tar` | 前端镜像（含基础层，离线可加载） |
+| `gatekeeper-docker-1.0.1.zip` | Dockerfile、`.dockerignore`、`nginx.conf`、构建脚本与镜像元数据 |
+| `gatekeeper-1.0.1-SHA256SUMS.txt` | 三类源码资产的校验和 |
+| `gatekeeper-docker-1.0.1-SHA256SUMS.txt` | 三项 Docker 资产的校验和 |
+
+离线包与 Release 一一对应，**同版本号的资产内容与源码提交一一对应**：
+镜像内 `org.opencontainers.image.revision` 标签即该版本对应的 git 提交，
+`docker inspect` 可直接读出（见上一节），无需依赖 tag 是否被移动。
 
 ---
 
@@ -999,6 +1017,45 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 >    所以命令①②的"无输出"不代表磁盘上不存在密钥文件，只代表**它们不会进入版本库**。
 
 - 暴露到公网前必须完成：修改 `admin` 默认密码、替换**全部四项密钥**（`GATEKEEPER_DB_PASSWORD` / `GATEKEEPER_REDIS_PASSWORD` / `GATEKEEPER_AES_KEY` / `GATEKEEPER_JWT_SECRET`）、`knife4j.enable: false`、按实际域名收敛 `gatekeeper.cors.allowed-origins`。
+
+---
+
+## 版本历史
+
+| 版本 | 日期 | 主题 |
+| --- | --- | --- |
+| `v1.0.1` | 2026-09-29 | 补回数据大屏入口、空数据占位；版本号与镜像资产对齐 |
+| `v1.0.0` | 2026-09-28 | 首个正式版本：容器化、登录页去预填、默认密钥公开声明 |
+
+### v1.0.1（2026-09-29）
+
+**修复**
+
+- 补回「数据大屏」侧边栏入口（归入「监控与审计」组，免权限点），并在大屏页内新增「返回控制台」按钮 ——
+  该页此前只能靠手输 `#/screen` 访问，侧边栏无任何入口。
+- 大屏应用排行 / 接口热度两个 Top10 图表在接口返回空数组时不再留下整块无声空白，
+  改为渲染「暂无数据」占位；同时对已初始化过的容器复用 ECharts 实例，避免重复 `init` 告警。
+
+> 该现象是**数据缺口**而非功能缺陷：接口本身返回 200 且数据结构正确，只是库中暂无调用明细。
+> 本轮只增加前端提示，未改动后端统计口径。
+
+**工程**
+
+- 版本号 `1.0.0` → `1.0.1`：`src/backend/pom.xml`、`src/frontend/package.json`（含 `package-lock.json`）、
+  两个 `Dockerfile` 的 `ARG VERSION` 默认值。
+- 重新构建并发布 `v1.0.1` 的完整资产（jar / 前端 zip / SQL zip / 两个镜像包 / Docker 构建包 / 两份校验和）。
+- 修正 README「Docker 镜像」章节中的离线镜像资产文件名：实际为
+  `gatekeeper-backend-image-<version>.tar` 与 `gatekeeper-frontend-image-<version>.tar`，
+  此前误写为 `gatekeeper-backend-<version>.tar`。
+
+> **关于 v1.0.0 的溯源**：`v1.0.0` 的 tag 指向 `3ae1db9`，该提交不含 Dockerfile；
+> 而 v1.0.0 的两个镜像包内 `org.opencontainers.image.revision` 为 `2e55dcc`（引入 Dockerfile 与密钥闸门的提交）。
+> 自 `v1.0.1` 起，tag、源码提交与镜像 revision 三者已对齐。
+
+### v1.0.0（2026-09-28）
+
+首个正式版本。前后端容器化（多阶段构建、`.dockerignore` 密钥闸门、构建脚本前置校验），
+登录页移除预填账号密码，Redis 增加可配置口令，并在 README 中明文公开全部默认账号与默认密钥。
 
 ---
 

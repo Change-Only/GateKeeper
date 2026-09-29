@@ -25,7 +25,7 @@ RUN cp src/main/resources/application.example.yml src/main/resources/application
 FROM eclipse-temurin:8-jre
 # 版本号由构建脚本注入（--build-arg VERSION=x.y.z），写进 OCI 标签，
 # 使 `docker inspect` 能直接查到镜像版本，而不只依赖 tag
-ARG VERSION=1.0.0
+ARG VERSION=1.0.1
 LABEL org.opencontainers.image.title="GateKeeper Backend" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.source="https://github.com/Change-Only/GateKeeper" \
