@@ -163,7 +163,10 @@ GateKeeper/
 │       ├── Dockerfile
 │       └── src/                     # views（页面）/ components / api / router / store / utils
 ├── docs/                            # 产品与架构文档（PRD、架构设计、契约记录、SQL 等）
-├── docker/                          # 辅助部署配置（mock-upstream.conf，E2E 用）
+├── docker/                          # 辅助部署配置与脚本
+│   ├── mock-upstream.conf           #   E2E 网关转发用例的上游 mock
+│   ├── build-and-push.sh/.ps1       #   构建 / 推送 / 导出镜像
+│   └── deploy-from-release.sh       #   纯 Release 离线部署（目标机无需源码）
 ├── design/                          # UI 设计稿与规范
 ├── security/                        # 安全测评报告
 ├── docker-compose.yml               # 一键部署编排
@@ -182,15 +185,14 @@ GateKeeper/
 | 内容 | 状态 | 验证方式与范围 |
 |------|------|---------------|
 | 后端启动 + 登录（步骤 4 / 6 / 7） | ✅ **已实测** | 本机后端起于 `8080`（context-path `/api`）；`POST /api/auth/login` 返回 `code=200`、`message=success`、`permCount=86`、`token` 长 141 |
-| 前端 dev server（步骤 5 / 7） | ✅ **已实测** | `:8081` 返回 HTTP 200；`npm run build -- --no-clean` 输出 `DONE Build complete`（Time 8245ms、Hash ec872ce6a202be04） |
+| 前端 dev server（步骤 5 / 7） | ✅ **已实测** | `:8081` 返回 HTTP 200；`npm run build -- --no-clean` 输出 `DONE Build complete`（Time 8245ms、Hash ec872ce6a202be04）。注：`--no-clean` 只适合本地反复构建提速；**发布构建请勿使用**——上一版已删代码的 chunk 会残留在产物里 |
 | Redis 连通（步骤 2） | ✅ **已实测** | 原生 TCP 发送 `PING`，收到 `+PONG` |
 | `mvn` 标准命令与 classworlds 兜底（步骤 4） | ✅ **已实测** | 本机 `mvn -v` 复现 `找不到或无法加载主类 ...Launcher`；兜底写法返回 `Apache Maven 3.8.8` / `Java 1.8.0_391`，并成功执行 `compile`（退出码 0） |
-| `mysql` 导入命令（步骤 1） | ⚠️ **未实测** | 本机未安装 `mysql` 客户端，无法执行。命令形式按 MySQL 官方语法与 `init.sql` 头部建库/建表语句核对得出 |
-| Docker Compose 一键部署 | ⚠️ **未实测** | 本环境未提供 Docker（`docker --version` → `command not found`）。见该章节的声明 |
+| `mysql` 导入命令（步骤 1） | ⚠️ **未实测** | 本机未安装 `mysql` 客户端，无法执行。命令形式按 MySQL 官方语法与 `init.sql` 头部建库/建表语句核对得出。**注**：同一套 SQL 链已由容器 initdb 路径实测覆盖（2026-09-29，表数与 `sys_menu` 行数均达预期），但“裸机手工导入”这一步仍未逐条执行 |
+| Docker Compose 一键部署 | ✅ **已实测** | 2026-09-29 在 CentOS 7.9 + Docker 24.0.7 实机从零跑通；并额外验证了**无源码、仅用 Release 发布物**的部署路径。详见「一键部署」章 §6 实测记录 |
 | 其余各平台 Redis/MySQL 启动命令 | ⚠️ **未实测** | 属于各平台通用标准命令，非在单一机器上逐条执行 |
 
-> 上表中「已实测」的前提是：后端与前端在本机已按步骤 3 配置并启动过。**步骤 1 的数据库导入是本流程中
-> 唯一未实测的关键环节**——请在首次部署时优先验证它（导入后可用 `SHOW TABLES` 核对表数；表数有三个口径，见 [1. 初始化数据库](#1-初始化数据库) 的说明）。
+> 上表中「已实测」的前提是：后端与前端在本机已按步骤 3 配置并启动过。**步骤 1 的裸机手工 `mysql` 导入仍未逐条实测**——请在首次部署时优先验证它（导入后可用 `SHOW TABLES` 核对表数；表数有三个口径，见 [1. 初始化数据库](#1-初始化数据库) 的说明）。
 
 ### 0. 前置依赖
 
@@ -507,7 +509,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081
 
 > 本项目**仅在单实例下验证**。仓库自带的 Docker E2E 剧本 `docs/sql/t09-docker-e2e.sh`（U0–U2b–U7）
 > 同样是**单实例**编排——U0 起栈为「4 业务容器 + 1 mock-upstream」，不含任何副本或横向扩容；
-> 且该剧本目前**仍是静态草稿，尚未在真实 Docker 环境执行过**。
+> 该剧本已于 2026-09-29 在实机跑通（U0–U7 全绿），但**仍然是单实例**，且 U0 的 `down -v` 会清掉数据卷。
 > **本文档未做过多实例 / 集群部署测试，也不构成对集群部署的支持声明。**
 
 后端存在 **6 个 `@Scheduled` 定时任务，且没有任何分布式互斥机制**：
@@ -748,6 +750,113 @@ TLS / 域名接入、备份恢复流程。
 
 ---
 
+## 离线部署（只用 Release 发布物，目标机不留源码）
+
+**适用场景**：目标机**拿不到源码**，或你不希望在上面留源码。
+整条链路（`clean → 下载 → 校验 → 解包 → docker load → up → 自动执行初始化链 → 断言`）
+已于 2026-09-29 在实机跑通。
+
+### 1. 三步走
+
+```bash
+# ① 取部署脚本（为什么不走 raw.githubusercontent.com，见下方第 3 节）
+TAG=v1.0.2
+ID=$(curl -s "https://api.github.com/repos/Change-Only/GateKeeper/releases/tags/$TAG" \
+     | python3 -c 'import sys,json;print([a["id"] for a in json.load(sys.stdin)["assets"] \
+         if a["name"]=="deploy-from-release.sh"][0])')
+curl -fsSL -o deploy-from-release.sh -H 'Accept: application/octet-stream' \
+     "https://api.github.com/repos/Change-Only/GateKeeper/releases/assets/$ID"
+
+# ② 彻底清理目标机（容器 + 卷 + 镜像 + 旧部署目录）
+bash deploy-from-release.sh clean
+
+# ③ 全流程：下载 → 校验 → 解包 → load → 起栈 → 初始化链 → 断言
+bash deploy-from-release.sh all
+```
+
+子命令：`clean` / `fetch` / `up` / `verify` / `logs` / `all`。
+
+可覆盖的环境变量：`GK_REPO`、`GK_TAG`、`GK_VER`、`GK_DIR`（默认 `/opt/gatekeeper-release`）、
+`GK_PARALLEL`（分段并发数，默认 4）。
+
+### 2. 它替你填平的 4 个「Release 里没有」
+
+| # | 缺什么 | 不处理的后果 | 脚本怎么做 |
+|---|---|---|---|
+| 1 | `init.sql` 不在 SQL 包里 | 建不出表结构 | 它只随 jar 分发（`BOOT-INF/classes/sql/init.sql`），从下载到的 jar 里用 `zipfile` 抽出，补成 `00-t01-base.sql` |
+| 2 | compose 用 `build: ./src/backend` | 无源码环境 `build` 必然失败 | 生成 `docker-compose.release.yml` override 换成 `image:`，用 `--no-build` 起栈 |
+| 3 | `docker/mock-upstream.conf` 未收录 | Docker 会把缺失的 bind-mount 源**当成目录创建**，nginx 随即启动失败 | 脚本内置等价配置，缺失时自动落盘 |
+| 4 | `.env.example` 未收录 | 不知道要配哪些变量；compose 对 4 个密钥用了 `:?`，缺失直接拒绝起栈 | 用 `openssl rand -hex` 现场生成 4 个强随机密钥，CORS 自动带上本机 IP；**`.env` 已存在则沿用**（避免与既有数据卷的加密数据失配） |
+
+### 3. 网络受限时的下载通道（重要）
+
+不同网络对 GitHub 各域名的放通策略不同，**且会变**。同一台目标机上实测到过两种相反状态：
+
+| 域名 | 第一轮 | 复核轮 |
+|---|---|---|
+| `github.com:443` | ❌ 超时 | ✅ 200 |
+| `codeload.github.com:443` | 未测 | ✅ 200 |
+| `api.github.com:443` | ✅ 200 | ✅ 200 |
+| `raw.githubusercontent.com:443` | 未测 | ❌ 不通 |
+| `objects.githubusercontent.com:443` | ✅ | ✅ |
+| `release-assets.githubusercontent.com:443` | ✅ | ✅ |
+
+> **所以不要把「某个域名不可达」当成前提。** 脚本的做法是：下载前先用**最小的资产**探一次，
+> 直链能取到完整尺寸就走直链，否则自动改走 **assets API**
+> （`GET /repos/<owner>/<repo>/releases/assets/<id>` + `Accept: application/octet-stream`，
+> 由 302 跳到 `release-assets.githubusercontent.com` —— 资产的真实存储域）。
+> 两条通道的下载内容已实测**逐字节一致**。
+
+大文件按 `Range` 分 `${GK_PARALLEL:-4}` 段并发后按序拼接。
+实测：单流约 341 KB/s，4 段并发约 **180 MB/min**（228 MB 全量约 **11 分钟**）。
+
+### 4. 起栈后断言什么
+
+| 断言 | v1.0.2 期望 |
+|---|---|
+| `docker-entrypoint-initdb.d` 执行次数 | **16** |
+| 库内表数（`information_schema.tables`） | **42** |
+| `sys_menu` | **121** |
+| `sys_config` | **6** |
+| 垃圾菜单 `sys_menu.id = 221` | **0** |
+| 探活 | `frontend :8081 -> 200`；`backend` 容器内 `8080` 已监听；经前端反代 `/api/doc.html -> 200` |
+
+> **关于 backend 端口**：官方 compose 里 `backend` **没有 `ports:` 映射**，它只在 compose 网络内
+> 以 `backend:8080` 暴露，对外统一经 frontend 的 nginx 反代 `/api/*` 访问。
+> 因此**从宿主机 `curl 127.0.0.1:8080` 必然连不上 —— 这是设计，不是故障**；
+> 宿主唯一对外端口是 **8081**。
+> （本仓部署脚本的早期版本曾在此处误报 `backend -> 000`，已修正断言口径。）
+
+### 5. 实测记录（2026-09-29，v1.0.2）
+
+```text
+clean → 容器 / 卷 / 镜像 / 源码全清（镜像数归 0）
+fetch → 9 项资产；SHA256 6/6 全过；从 jar 抽出 init.sql 88,198 B，指纹逐字节一致；
+        16 个 compose 挂载源全部就位
+load  → Loaded image: changeonly/gatekeeper:backend-1.0.2 / :frontend-1.0.2
+up    → 5 容器全起，mysql / redis / backend 均 healthy
+断言  → 初始化链执行 16 次；tables=42 / sys_menu=121 / sys_config=6 / junk221=0   全 ✅
+E2E   → 登录（错误口令被拒 + 默认账号通过）· 鉴权（无 token / 伪造 token → 401）·
+        应用 CRUD 全链路 · 审计按 id 增量留痕（1×CREATE / 2×UPDATE / 1×DELETE，操作人 admin）·
+        同步 CSV（Content-Type + UTF-8 BOM + 表头逐字节）·
+        异步导出三步（taskId → SUCCESS → 下载 200 → 匿名下载 401）   全 ✅
+可复现 → down -v 重建卷后，initdb 第 2 次独立运行仍得 42 / 121 / 6
+```
+
+### 6. 已知的发布物缺口（v1.0.2）
+
+| 缺口 | 影响 | 现状 |
+|---|---|---|
+| `init.sql` 只在 jar 内 | 想单独用 SQL 建库的人找不到它 | 脚本自动抽取 |
+| `docker/mock-upstream.conf` 未收录 | 直接用官方 compose 起栈会失败 | 脚本内置 |
+| `.env.example` 未收录 | 不知道要配哪些环境变量 | 脚本现场生成 |
+| compose 用 `build:` 而非 `image:` | 无源码环境无法直接起栈 | 脚本用 override 兜底 |
+
+> 这 4 项都在候选修复清单里，计划随下一个版本一并消除；
+> 届时本脚本即可退化为「下载 → `docker compose up -d`」。
+
+---
+
 ## Docker 镜像
 
 前后端均已容器化，两个 Dockerfile 都是多阶段构建：`src/backend/Dockerfile`（Maven 编译 → JRE 运行）、
@@ -852,8 +961,21 @@ docker load -i gatekeeper-frontend-image-1.0.2.tar
 # 加载后即为 <namespace>/gatekeeper:backend-1.0.2 / :frontend-1.0.2
 ```
 
-包内是标准 `docker save` 格式（`manifest.json` + gzip 层），平台为 `linux/amd64`。
+包内是标准 `docker save` 格式（`manifest.json` + 层目录 + config），平台为 `linux/amd64`。
 资产文件名中的版本号即当前 Release 版本，换版本时同步替换即可。
+
+> 🔴 **历史缺陷已修（2026-09-29）**：**v1.0.2 之前（含 v1.0.0 / v1.0.1）** 的这些镜像包
+> **无法加载**，`docker load` 会报：
+>
+> ```
+> invalid diffID for layer 0: expected "<hex>", got "sha256:<hex>"
+> ```
+>
+> 根因是打包时 `config.rootfs.diff_ids` 被写成了**裸 hex**，而 Docker 要求 `sha256:<hex>` 前缀。
+> 之所以长期没被发现，是因为打包机的自建校验脚本在比对前先把 `sha256:` 剥掉了 ——
+> **纯 Python 复算给出的绿灯是假绿灯，只有真实 `docker load` 才能发现。**
+> v1.0.2 的资产已就地替换修正（源码提交未变），并新增了 3 条格式硬断言防回归。
+> 若你手上是更早的镜像包，请**重新下载**，或按 §1 从源码自行构建。
 
 Release 资产清单（与 `v1.0.2` 一一对应）：
 
@@ -1271,6 +1393,37 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 | 镜像加载契约复算（manifest / 层数 / 逐层 diff_id / config.os / OCI 标签） | **61 / 61 通过** |
 | 镜像层内容扫描（无内网地址、无真实密钥） | 0 命中 |
 | Release 资产泄漏复检 | `ALL_CLEAN = True` |
+
+**发布后修正（资产就地替换，同日）**
+
+本版资产上传后，在实机 `docker load` 时暴露出一个**自 `v1.0.0` 起就存在**的镜像包格式缺陷：
+
+```text
+invalid diffID for layer 0: expected "485d137f…", got "sha256:485d137f…"
+```
+
+`manifest/config.json` 的 `rootfs.diff_ids` 被写成**裸 hex**，缺 `sha256:` 前缀，Docker 直接拒绝加载。
+根因在镜像合成脚本：`diff_id` 在收集阶段被剥过前缀，写入 config 时没补回来。
+**`v1.0.0` / `v1.0.1` 的全部镜像包同样不可加载**，而 README 当时宣称「可直接加载」。
+
+> 一直没被发现的原因：本地/CI 的**纯 Python 契约复算**在比对前也做了同样的剥离，
+> 于是裸 hex 也判「一致」，形成**假绿灯**；只有真实 `docker load` 才暴露。
+
+| 动作 | 说明 |
+|---|---|
+| 就地替换 3 个资产 | `gatekeeper-backend-image-1.0.2.tar`、`gatekeeper-frontend-image-1.0.2.tar`、`gatekeeper-docker-1.0.2-SHA256SUMS.txt`。属**发布物修正，源码提交未变**，故不递增版本号 |
+| 补防回归断言 | 镜像校验脚本新增 3 条硬断言：`diff_ids` 每项必须带 `sha256:` 前缀、`Layers[]` 形如 `<64位hex>/layer.tar`、`Config` 形如 `<64位hex>.json`。断言数 61 → **67**，全过 |
+| 实机验证 | 修正后目标机 `docker load -i` 两个 tar 均返回 `Loaded image: changeonly/gatekeeper:backend-1.0.2` |
+
+> 更早版本的镜像包（`v1.0.0` / `v1.0.1`）**未做就地替换**；如需使用请按同一修复重打包，或直接改用 `v1.0.2`。
+
+**追加资产：`deploy-from-release.sh`**
+
+同日追加第 9 个资产 `deploy-from-release.sh`（纯 Release 离线部署脚本，用法见
+[「离线部署」](#离线部署只用-release-发布物目标机不留源码)）。
+追加原因：实测目标机 `raw.githubusercontent.com` **不可达**，从仓库取脚本这条路走不通；
+而 Release 资产通道（`api.github.com` → `release-assets.githubusercontent.com`）可用。
+**它是新增资产，不影响已有 8 项的任何校验和。**
 
 ### v1.0.1（2026-09-29）
 
