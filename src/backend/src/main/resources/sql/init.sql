@@ -1390,7 +1390,7 @@ INSERT INTO `sys_config` (`id`,`config_key`,`config_value`,`config_group`,`confi
 (3,'sign.nonce.ttl','600','SECURITY','Nonce 有效期（秒）',0,1,'Nonce 有效期(秒)，应 ≥ 2 倍时间戳容差 · 读取点 AppAuthHandler（T19 已接线）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
 (12,'gateway.auth.enabled','true','GATEWAY','是否开启签名校验',1,1,'是否开启签名校验；关闭后跳过防伪造/防重放（AppKey/应用状态/到期仍强制校验）· 读取点 AppAuthHandler（T19 已接线）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
 (13,'gateway.ratelimit.enabled','true','GATEWAY','是否开启限流',0,1,'是否开启限流；关闭后 QPS/并发/日配额全部失效 · 读取点 RateLimitHandler（T19 已接线）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
-(14,'gateway.default.read.timeout','5000','GATEWAY','默认读取超时（毫秒）',0,1,'网关默认超时(ms)：接口与环境配置都未指定时生效 · 读取点 ForwardHandler（T19 已接线；历史值 3000 与实现默认 5000 不符，已按实现对齐）','2026-09-10 14:08:21','2026-09-10 14:08:21'),
+(14,'gateway.default.read.timeout','5000','GATEWAY','默认读取超时（毫秒）',0,1,'网关默认超时(ms)：接口与环境配置都未指定时生效 · 读取点 ForwardHandler（T19 已接线；历史值 3000 与实现默认 5000 不符，已按实现对齐）','2026-09-10 14:08:21','2026-09-10 14:08:21')
 ON DUPLICATE KEY UPDATE `id`=VALUES(`id`),`config_key`=VALUES(`config_key`),`config_value`=VALUES(`config_value`),`config_group`=VALUES(`config_group`),`config_name`=VALUES(`config_name`),`sensitive`=VALUES(`sensitive`),`built_in`=VALUES(`built_in`),`remark`=VALUES(`remark`),`created_at`=VALUES(`created_at`),`updated_at`=VALUES(`updated_at`);
 
 -- ---- alarm_rule（7 行，PRD「7 条初始化规则」；幂等用 INSERT IGNORE —— 不覆盖运营在页面上的修改）----
