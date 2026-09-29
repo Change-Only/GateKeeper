@@ -155,16 +155,20 @@ GateKeeper/
 │   │       │   ├── application.yml          # 🔴 本地真实配置（.gitignore 忽略，不入库）
 │   │       │   ├── mapper/                  # 预留目录（当前无 XML）
 │   │       │   └── sql/init.sql             # 数据库初始化脚本（建表 + 基础种子数据）
-│   │       └── test/java/                   # 86 个单元测试文件（773 个用例）
+│   │       └── test/java/                   # 89 个单元测试文件（780 个用例）
 │   └── frontend/                    # Vue 2 前端
 │       ├── package.json             # scripts: serve / build / lint
 │       ├── vue.config.js            # devServer 端口 8081，/api → http://localhost:8080
 │       ├── nginx.conf               # 生产静态资源 + /api 反代
 │       ├── Dockerfile
 │       └── src/                     # views（页面）/ components / api / router / store / utils
-├── docs/                            # 产品与架构文档（PRD、架构设计、契约记录、SQL 等）
+├── docs/
+│   ├── sql/                         # SQL 脚本：增量迁移 / 权限播种 / 清理类 / fix-mojibake.sql
+│   └── ...                          # 产品与架构文档（PRD、架构设计、契约记录等）
 ├── docker/                          # 辅助部署配置与脚本
 │   ├── mock-upstream.conf           #   E2E 网关转发用例的上游 mock
+│   ├── mysql-conf.d/
+│   │   └── 99-client-charset.cnf    #   🔴 强制 mysql 客户端 utf8mb4（缺它 initdb 中文会乱码）
 │   ├── build-and-push.sh/.ps1       #   构建 / 推送 / 导出镜像
 │   └── deploy-from-release.sh       #   纯 Release 离线部署（目标机无需源码）
 ├── design/                          # UI 设计稿与规范
@@ -214,21 +218,46 @@ GateKeeper/
 `init.sql` 自带建库语句（`CREATE DATABASE IF NOT EXISTS \`gatekeeper\`` + `USE \`gatekeeper\``），**无需先手动建库**，直接导入即可：
 
 ```bash
-mysql -h <MySQL主机> -P <MySQL端口> -u <用户名> -p \
+mysql --default-character-set=utf8mb4 -h <MySQL主机> -P <MySQL端口> -u <用户名> -p \
   < src/backend/src/main/resources/sql/init.sql
 ```
 
 示例（本地默认端口）：
 
 ```bash
-mysql -h 127.0.0.1 -P 3306 -u root -p < src/backend/src/main/resources/sql/init.sql
+mysql --default-character-set=utf8mb4 -h 127.0.0.1 -P 3306 -u root -p \
+  < src/backend/src/main/resources/sql/init.sql
 ```
+
+> 🔴 **`--default-character-set=utf8mb4` 不是可选项**。`mysql` 客户端在 `LANG`/`LC_ALL` 为空的环境
+> （典型：容器、`cron`、CI）会**静默回退到 `latin1`**，于是脚本里的 UTF-8 中文字节被当作 cp1252
+> 再编码一次入库，变成 `æ–°å¢žåˆ†ç»„...` 这类乱码。
+> **2026-09-29 实测**：这正是「角色管理 → 配置权限」弹窗里权限点名称乱码的根因——`docker-entrypoint.sh`
+> 调 `mysql` 客户端导入 `/docker-entrypoint-initdb.d/*.sql` 时不传字符集，受害面为 `sys_menu.name` **17 行** +
+> `sys_dict.remark` **1 行**（全库 216 个文本列精确扫描所得）。
+> 仓库内**所有** `.sql` 现已自带 `SET NAMES utf8mb4;` 作第一道保险；命令行显式指定是第二道。
 
 执行后会提示输入密码。验证导入结果（**仅 `init.sql` 时期望 34 张表**）：
 
 ```bash
-mysql -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
+mysql --default-character-set=utf8mb4 -h 127.0.0.1 -P 3306 -u root -p -e "USE gatekeeper; SHOW TABLES;"
 ```
+
+顺手做一次乱码自检（**两个数都必须为 0**）。注意判据要用 `HEX() REGEXP '^(..)*C3'` 而非 `LIKE '%C3%'`——
+后者会在**半字节边界**误报（如字节 `4C 33` 的 hex 串 `"4C33"` 恰好含子串 `C3`）：
+
+```bash
+mysql --default-character-set=utf8mb4 -h 127.0.0.1 -P 3306 -u root -p -e "
+  SELECT CONCAT('moji_menu=', (SELECT COUNT(*) FROM gatekeeper.sys_menu
+                               WHERE HEX(name) REGEXP '^(..)*C3')) AS chk
+  UNION ALL
+  SELECT CONCAT('moji_dict=', (SELECT COUNT(*) FROM gatekeeper.sys_dict
+                               WHERE remark IS NOT NULL AND HEX(remark) REGEXP '^(..)*C3'));"
+```
+
+若结果非 0（早期脚本初始化过的旧库），就地执行 `docs/sql/fix-mojibake.sql` 修复。该脚本用
+`CONVERT(BINARY(CONVERT(col USING latin1)) USING utf8mb4)` 还原，并带 `HEX()` 与 `LOCATE('?', ...) = 0`
+两道护栏防误伤；2026-09-29 已在实机以 `START TRANSACTION` + `ROLLBACK` 非破坏性演练，17+1 行全部还原为正确中文。
 
 > ⚠️ **本步骤未在本仓库开发环境中实测**（该环境未安装 `mysql` 客户端）。上面两条命令是按 MySQL 官方
 > 语法与 `init.sql` 实际头部语句（`SET NAMES utf8mb4;` / `CREATE DATABASE IF NOT EXISTS` / `USE`）核对得出。
@@ -580,7 +609,7 @@ python3 -V
 ### 1. 获取源码
 
 ```bash
-git clone --depth 1 --branch v1.0.2 https://github.com/Change-Only/GateKeeper.git
+git clone --depth 1 --branch v1.0.3 https://github.com/Change-Only/GateKeeper.git
 cd GateKeeper
 ```
 
@@ -631,6 +660,15 @@ bash docs/sql/t09-docker-e2e.sh
 > 用一个 PATH 垫片即可兼容，见 §5 FAQ-2。
 
 容器启动时由 `docker-entrypoint-initdb.d/` 下的 SQL 链自动完成建库、建表与种子数据初始化，无需手动导入。
+
+> 🔴 **`docker/mysql-conf.d/99-client-charset.cnf` 必须随 compose 一起分发**（v1.0.3 起仓库已内置）。
+> `docker-entrypoint.sh` 调 `mysql` 客户端导入 `/docker-entrypoint-initdb.d/*.sql` 时**不指定字符集**，
+> 而 mysql 官方镜像里 `LANG`/`LC_ALL` 为空 ⇒ 客户端回退到 `latin1` ⇒ 脚本中的 UTF-8 中文字节被
+> **双重编码**成乱码。2026-09-29 实测受害面：`sys_menu.name` **17 行** + `sys_dict.remark` **1 行**，
+> 症状即「角色管理 → 配置权限」弹窗里权限点名称显示为 `æ–°å¢žåˆ†ç»„...`。
+> 该 cnf 以只读方式挂进容器的 `/etc/mysql/conf.d/`，强制客户端按 `utf8mb4` 解析；
+> 仓库内**所有** `.sql` 同时自带 `SET NAMES utf8mb4;`，构成双保险。
+> 手工导入旧库时若已乱码，执行 `docs/sql/fix-mojibake.sql` 就地修复。
 
 > **初始化链 = 16 个脚本，按文件名顺序执行**（`init.sql` + `docs/sql/` 下 15 个历史脚本），
 > 建出与开发库逐表一致的 **42 张表**、`sys_menu` **121** 行。完整清单见 `docker-compose.yml`
@@ -760,7 +798,7 @@ TLS / 域名接入、备份恢复流程。
 
 ```bash
 # ① 取部署脚本（为什么不走 raw.githubusercontent.com，见下方第 3 节）
-TAG=v1.0.2
+TAG=v1.0.3
 ID=$(curl -s "https://api.github.com/repos/Change-Only/GateKeeper/releases/tags/$TAG" \
      | python3 -c 'import sys,json;print([a["id"] for a in json.load(sys.stdin)["assets"] \
          if a["name"]=="deploy-from-release.sh"][0])')
@@ -779,14 +817,15 @@ bash deploy-from-release.sh all
 可覆盖的环境变量：`GK_REPO`、`GK_TAG`、`GK_VER`、`GK_DIR`（默认 `/opt/gatekeeper-release`）、
 `GK_PARALLEL`（分段并发数，默认 4）。
 
-### 2. 它替你填平的 4 个「Release 里没有」
+### 2. 它替你填平的 5 个「Release 里没有」
 
 | # | 缺什么 | 不处理的后果 | 脚本怎么做 |
 |---|---|---|---|
-| 1 | `init.sql` 不在 SQL 包里 | 建不出表结构 | 它只随 jar 分发（`BOOT-INF/classes/sql/init.sql`），从下载到的 jar 里用 `zipfile` 抽出，补成 `00-t01-base.sql` |
+| 1 | ~~`init.sql` 不在 SQL 包里~~ → **v1.0.3 已消除** | 建不出表结构 | SQL 包现已收录 `full/00-t01-base.sql`（与 jar 内置版本**逐字节一致**）。脚本仍保留「从 jar 用 `zipfile` 抽 init.sql」的能力，但改为**先比哈希再落盘**：包内全量脚本与 jar 内置不一致时直接 `[FAIL]` 中止，不再静默覆盖 |
 | 2 | compose 用 `build: ./src/backend` | 无源码环境 `build` 必然失败 | 生成 `docker-compose.release.yml` override 换成 `image:`，用 `--no-build` 起栈 |
-| 3 | `docker/mock-upstream.conf` 未收录 | Docker 会把缺失的 bind-mount 源**当成目录创建**，nginx 随即启动失败 | 脚本内置等价配置，缺失时自动落盘 |
+| 3 | ~~`docker/mock-upstream.conf` 未收录~~ → **v1.0.3 已消除** | Docker 会把缺失的 bind-mount 源**当成目录创建**，nginx 随即启动失败 | docker zip 已收录 `mock-upstream.conf`；脚本优先取 Release 版本，缺失时回落到内置等价配置 |
 | 4 | `.env.example` 未收录 | 不知道要配哪些变量；compose 对 4 个密钥用了 `:?`，缺失直接拒绝起栈 | 用 `openssl rand -hex` 现场生成 4 个强随机密钥，CORS 自动带上本机 IP；**`.env` 已存在则沿用**（避免与既有数据卷的加密数据失配） |
+| 5 | `docker/mysql-conf.d/99-client-charset.cnf` **未收录**（v1.0.3 引入） | 缺它 ⇒ 容器内 `mysql` 客户端回退 `latin1` ⇒ initdb 导入的中文**双重编码成乱码**（本次修复的根因，受害 `sys_menu.name` 17 行 + `sys_dict.remark` 1 行） | docker zip 已收录该文件；脚本优先取 Release 版本，**内容不含 `[client]` / `default-character-set` / `utf8mb4` 三者时视为不合规**，回落到脚本内置版本 |
 
 ### 3. 网络受限时的下载通道（重要）
 
@@ -812,14 +851,16 @@ bash deploy-from-release.sh all
 
 ### 4. 起栈后断言什么
 
-| 断言 | v1.0.2 期望 |
-|---|---|
-| `docker-entrypoint-initdb.d` 执行次数 | **16** |
-| 库内表数（`information_schema.tables`） | **42** |
-| `sys_menu` | **121** |
-| `sys_config` | **6** |
-| 垃圾菜单 `sys_menu.id = 221` | **0** |
-| 探活 | `frontend :8081 -> 200`；`backend` 容器内 `8080` 已监听；经前端反代 `/api/doc.html -> 200` |
+| 断言 | v1.0.2 期望 | v1.0.3 期望 | 说明 |
+|---|---|---|---|
+| `docker-entrypoint-initdb.d` 执行次数 | **16** | **16** | 链文件数未变（本次只改内容，未增删文件） |
+| 库内表数（`information_schema.tables`） | **42** | **42** | |
+| `sys_menu` | **121** | **121** | |
+| `sys_config` | **6** | **6** | |
+| 垃圾菜单 `sys_menu.id = 221` | **0** | **0** | |
+| 🔴 乱码权限名 `sys_menu.name` | 未断言 | **0** | 判据 `HEX(name) REGEXP '^(..)*C3'`（**勿用 `LIKE '%C3%'`**，会半字节误报） |
+| 🔴 乱码字典备注 `sys_dict.remark` | 未断言 | **0** | 同上判据 |
+| 探活 | `frontend :8081 -> 200`；`backend` 容器内 `8080` 已监听；经前端反代 `/api/doc.html -> 200` | 同左 | |
 
 > **关于 backend 端口**：官方 compose 里 `backend` **没有 `ports:` 映射**，它只在 compose 网络内
 > 以 `backend:8080` 暴露，对外统一经 frontend 的 nginx 反代 `/api/*` 访问。
@@ -843,17 +884,69 @@ E2E   → 登录（错误口令被拒 + 默认账号通过）· 鉴权（无 tok
 可复现 → down -v 重建卷后，initdb 第 2 次独立运行仍得 42 / 121 / 6
 ```
 
-### 6. 已知的发布物缺口（v1.0.2）
+### 6. 已知的发布物缺口（v1.0.3 现状）
 
 | 缺口 | 影响 | 现状 |
 |---|---|---|
-| `init.sql` 只在 jar 内 | 想单独用 SQL 建库的人找不到它 | 脚本自动抽取 |
-| `docker/mock-upstream.conf` 未收录 | 直接用官方 compose 起栈会失败 | 脚本内置 |
-| `.env.example` 未收录 | 不知道要配哪些环境变量 | 脚本现场生成 |
-| compose 用 `build:` 而非 `image:` | 无源码环境无法直接起栈 | 脚本用 override 兜底 |
+| ~~`init.sql` 只在 jar 内~~ | 想单独用 SQL 建库的人找不到它 | ✅ **已消除**：SQL 包收录 `full/00-t01-base.sql` |
+| ~~`docker/mock-upstream.conf` 未收录~~ | 直接用官方 compose 起栈会失败 | ✅ **已消除**：docker zip 已收录 |
+| `.env.example` 未收录 | 不知道要配哪些环境变量 | ⏳ 仍缺；脚本用 `openssl rand -hex` 现场生成等价 `.env` |
+| compose 用 `build:` 而非 `image:` | 无源码环境无法直接起栈 | ⏳ 仍缺；脚本用 override 兜底 |
+| `docker/mysql-conf.d/99-client-charset.cnf` | 缺它则 initdb 中文乱码 | ✅ **v1.0.3 已收录**；脚本另有内置兜底 |
 
-> 这 4 项都在候选修复清单里，计划随下一个版本一并消除；
-> 届时本脚本即可退化为「下载 → `docker compose up -d`」。
+> 剩余 2 项（`.env.example`、`build:` → `image:`）仍在候选清单里，消除后本脚本即可退化为
+> 「下载 → `docker compose up -d`」。
+
+### 7. SQL 发布包的结构（`gatekeeper-sql-<版本>.zip`）
+
+v1.0.3 起，SQL 包按用途分目录，**同时提供当前版本全量脚本与版本迭代增量脚本**：
+
+```text
+gatekeeper-sql-1.0.3.zip                       # 共 24 个条目
+├── MANIFEST.tsv          # 包内相对路径 ⇥ 仓库相对路径（含"该还原到哪里"的权威映射，21 行）
+├── README.md             # 本包内容与执行顺序说明
+├── SHA256SUMS.txt        # 逐文件校验和
+├── full/
+│   └── 00-t01-base.sql   # ① 当前版本【全量】建库脚本 = 仓库 init.sql（含 CREATE DATABASE + 建表 + 种子）
+├── incremental/          # ② 版本迭代【增量】脚本，共 15 个，文件名前缀即执行顺序
+│   ├── 01-schema-v2.sql              ← docs/sql/schema-v2.sql
+│   ├── 02-migrate-v2.sql             ← docs/sql/migrate-v2.sql
+│   ├── 03-t02-seed.sql               ← docs/sql/t02-seed-admin-role.sql
+│   ├── 04-t03a-seed.sql              ← docs/sql/t03a-seed-permissions.sql
+│   ├── 05-t03b-seed.sql              ← docs/sql/t03b-seed-permissions.sql
+│   ├── 06-t05-seed.sql               ← docs/sql/seed-perm-alignment.sql
+│   ├── 07-t05-datascope.sql          ← docs/sql/seed-datascope-perm.sql
+│   ├── 08-t07a-seed.sql              ← docs/sql/t07a-seed-rules.sql
+│   ├── 09-t08-seed.sql               ← docs/sql/t08-seed-perms.sql
+│   ├── 10-t09-hygiene.sql            ← docs/sql/t09-hygiene.sql
+│   ├── 11-t13-group-env.sql          ← docs/sql/t13-group-env-config.sql
+│   ├── 12-t15-1-group-enc.sql        ← docs/sql/t15-1-group-encryption.sql
+│   ├── 13-t15-4-whitelist.sql        ← docs/sql/t15-4-whitelist.sql
+│   ├── 14-t16-1-enc-master.sql       ← docs/sql/t16-1-encryption-master-switch.sql
+│   └── 15-t17-iface-crypto.sql       ← docs/sql/t17-interface-crypto.sql
+├── standalone/           # ③ 不参与 compose initdb 链、需按需手工执行的脚本
+│   ├── t09-notify-hygiene.sql
+│   ├── t15-remove-bizline.sql
+│   ├── t19-config-wiring.sql
+│   └── t20-remove-dead-perms.sql
+└── fix/
+    └── fix-mojibake.sql  # ④ 存量库乱码就地修复（本次缺陷的补救脚本）
+```
+
+> `full/00-t01-base.sql` + `incremental/` 的 15 个 = **16 个**，正是 compose 的
+> `docker-entrypoint-initdb.d` 链的全部文件（只是改了名加了序号前缀）。
+
+**两条使用路径**：
+
+- **全新库** → 只跑 `full/00-t01-base.sql`，然后按 `incremental/` 的文件名前缀顺序跑完 15 个增量脚本。
+  （这与 Docker 的 `docker-entrypoint-initdb.d` 链**等价**，最终都是 42 张表 / 121 菜单 / 6 项配置。）
+- **已有数据的旧库** → 不要重跑全量；按需执行 `incremental/` 里尚未执行过的脚本，
+  再执行 `fix/fix-mojibake.sql` 修乱码。
+
+> `incremental/` 的清单不是手写的，而是构建时**从 `docker-compose.yml` 现场解析** bind-mount 得到
+> （`./docs/sql/xxx.sql:/docker-entrypoint-initdb.d/NN-xxx.sql:ro`），因此**不会与 compose 漂移**。
+> 包内 `incremental/` 用的是 compose 侧的文件名（`NN-` 前缀），`MANIFEST.tsv` 记录它对应仓库里的哪个
+> `docs/sql/*.sql` —— 部署脚本正是靠这张表把文件还原到正确路径。
 
 ---
 
@@ -889,7 +982,7 @@ powershell -ExecutionPolicy Bypass -File docker\build-and-push.ps1 -Push
 版本号同时写进镜像的 OCI 标签 `org.opencontainers.image.version`，可独立于 tag 读取：
 
 ```bash
-docker inspect <namespace>/gatekeeper:backend-1.0.2 \
+docker inspect <namespace>/gatekeeper:backend-1.0.3 \
   --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
 ```
 
@@ -900,9 +993,9 @@ docker run -d --name gk-backend -p 8080:8080 \
   -e GATEKEEPER_DB_HOST=<数据库主机> -e GATEKEEPER_DB_PASSWORD=<数据库口令> \
   -e GATEKEEPER_REDIS_HOST=<Redis主机> -e GATEKEEPER_REDIS_PASSWORD=<Redis口令> \
   -e GATEKEEPER_JWT_SECRET=<32位以上随机串> -e GATEKEEPER_AES_KEY=<32位以上随机串> \
-  <namespace>/gatekeeper:backend-1.0.2
+  <namespace>/gatekeeper:backend-1.0.3
 
-docker run -d --name gk-frontend -p 8081:80 <namespace>/gatekeeper:frontend-1.0.2
+docker run -d --name gk-frontend -p 8081:80 <namespace>/gatekeeper:frontend-1.0.3
 ```
 
 更省事的方式是直接用编排（见上一节）：`docker compose up -d`。
@@ -956,9 +1049,9 @@ unzip -p target/gatekeeper.jar BOOT-INF/classes/application.yml | grep -E "url: 
 每个版本的 Release 都附带两个 `docker load` 可直接加载的镜像包（含基础镜像层，离线可用）：
 
 ```bash
-docker load -i gatekeeper-backend-image-1.0.2.tar
-docker load -i gatekeeper-frontend-image-1.0.2.tar
-# 加载后即为 <namespace>/gatekeeper:backend-1.0.2 / :frontend-1.0.2
+docker load -i gatekeeper-backend-image-1.0.3.tar
+docker load -i gatekeeper-frontend-image-1.0.3.tar
+# 加载后即为 <namespace>/gatekeeper:backend-1.0.3 / :frontend-1.0.3
 ```
 
 包内是标准 `docker save` 格式（`manifest.json` + 层目录 + config），平台为 `linux/amd64`。
@@ -977,18 +1070,19 @@ docker load -i gatekeeper-frontend-image-1.0.2.tar
 > v1.0.2 的资产已就地替换修正（源码提交未变），并新增了 3 条格式硬断言防回归。
 > 若你手上是更早的镜像包，请**重新下载**，或按 §1 从源码自行构建。
 
-Release 资产清单（与 `v1.0.2` 一一对应）：
+Release 资产清单（与 `v1.0.3` 一一对应，共 **9** 项）：
 
 | 资产 | 内容 |
 | --- | --- |
-| `gatekeeper-backend-1.0.2.jar` | 后端可执行 fat jar |
-| `gatekeeper-frontend-1.0.2.zip` | 前端生产构建产物（静态文件） |
-| `gatekeeper-sql-1.0.2.zip` | 数据库脚本（建表 / 迁移 / 权限播种） |
-| `gatekeeper-backend-image-1.0.2.tar` | 后端镜像（含基础层，离线可加载） |
-| `gatekeeper-frontend-image-1.0.2.tar` | 前端镜像（含基础层，离线可加载） |
-| `gatekeeper-docker-1.0.2.zip` | Dockerfile、`.dockerignore`、`nginx.conf`、构建脚本与镜像元数据 |
-| `gatekeeper-1.0.2-SHA256SUMS.txt` | 三类源码资产的校验和 |
-| `gatekeeper-docker-1.0.2-SHA256SUMS.txt` | 三项 Docker 资产的校验和 |
+| `gatekeeper-backend-1.0.3.jar` | 后端可执行 fat jar |
+| `gatekeeper-frontend-1.0.3.zip` | 前端生产构建产物（静态文件） |
+| `gatekeeper-sql-1.0.3.zip` | 数据库脚本包：`full/`（当前版本全量）+ `incremental/`（版本迭代增量）+ `standalone/` + `fix/`，含 `MANIFEST.tsv` |
+| `gatekeeper-backend-image-1.0.3.tar` | 后端镜像（含基础层，离线可加载） |
+| `gatekeeper-frontend-image-1.0.3.tar` | 前端镜像（含基础层，离线可加载） |
+| `gatekeeper-docker-1.0.3.zip` | Dockerfile、`.dockerignore`、`nginx.conf`、`mock-upstream.conf`、`mysql-conf.d/99-client-charset.cnf`、构建脚本、部署脚本与镜像元数据 |
+| `gatekeeper-1.0.3-SHA256SUMS.txt` | 三类源码资产的校验和 |
+| `gatekeeper-docker-1.0.3-SHA256SUMS.txt` | 三项 Docker 资产的校验和 |
+| `deploy-from-release.sh` | 纯 Release 离线部署脚本（见「离线部署」章节） |
 
 离线包与 Release 一一对应，**同版本号的资产内容与源码提交一一对应**：
 镜像内 `org.opencontainers.image.revision` 标签即该版本对应的 git 提交，
@@ -1352,9 +1446,94 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 
 | 版本 | 日期 | 主题 |
 | --- | --- | --- |
+| `v1.0.3` | 2026-09-29 | 修复 initdb 字符集导致的权限点名称乱码（`sys_menu.name` 17 行 + `sys_dict.remark` 1 行）；SQL 发布包重构为「全量 + 增量 + 独立 + 修复」四目录 |
 | `v1.0.2` | 2026-09-29 | 按修复后的源码重建全部发布资产：镜像包内 `init.sql` 与源码对齐，部署链缺陷随镜像一并交付 |
 | `v1.0.1` | 2026-09-29 | 补回数据大屏入口、空数据占位；版本号与镜像资产对齐；首次实机部署并修复 3 处部署链缺陷 |
 | `v1.0.0` | 2026-09-28 | 首个正式版本：容器化、登录页去预填、默认密钥公开声明 |
+
+### v1.0.3（2026-09-29）
+
+**缺陷**：登录后进入「系统管理 → 角色管理 →（任选角色）配置权限」，弹窗里的权限点名称有一部分显示为
+`æ–°å¢žåˆ†ç»„çŽ¯å¢ƒé…ç½®` 这类乱码（而权限码 `api_group_env_config:create` 本身是正常的）。
+
+**根因**：MySQL 官方镜像的 `/usr/local/bin/docker-entrypoint.sh` 在遍历 `/docker-entrypoint-initdb.d/*.sql`
+时调用 `mysql` 客户端**不传 `--default-character-set`**，而容器内 `LANG`/`LC_ALL` 为空 ⇒ 客户端回退到
+**`latin1`** ⇒ 脚本里以 UTF-8 存储的中文字节被当作 cp1252 **再编码一次**入库，形成双重编码乱码。
+
+**「为什么只有一部分行坏」**：`init.sql` 与少数几个脚本头部自带 `SET NAMES utf8mb4`，它们播的数据是好的；
+其余脚本没写这一行，播的数据就坏了。两者混在同一张表里，所以看起来「一半好一半乱」。
+
+**受害面（全库 216 个文本列精确扫描）**：仅 2 列 —— `sys_menu.name` **17 行**、`sys_dict.remark` **1 行**。
+17 行分别是菜单 id 71–74（`biz_line:*`）、91（`app_credential:list`）、101（`api_param:import`）、
+102（`api_version:gray`）、103（`api_env_config:test`）、351–355（`api_group_env_config:*` / `interface:test`）、
+356–358（`api_group_encryption:*`）、359（`app:ipwhitelist:update`）。
+
+**修复（三道，治本 + 兜底 + 补救）**
+
+1. **治本**：`docs/sql/` 下**全部 15 个**缺声明的脚本补上 `SET NAMES utf8mb4;`（附成因注释）。
+   现仓库内**所有** `.sql` 均自带该声明，手工执行同样受益。
+2. **兜底**：新增 `docker/mysql-conf.d/99-client-charset.cnf`（`[client] default-character-set = utf8mb4`），
+   由 `docker-compose.yml` 只读挂载进容器 `/etc/mysql/conf.d/`。即使将来有人新写了忘加 `SET NAMES` 的脚本，
+   客户端层也已强制 utf8mb4。
+3. **补救存量库**：新增 `docs/sql/fix-mojibake.sql`，用
+   `CONVERT(BINARY(CONVERT(col USING latin1)) USING utf8mb4)` 还原，并带两道护栏——
+   `HEX(col) REGEXP '^(..)*C3'`（只挑含 UTF-8 首字节 C3 的行）+ `LOCATE('?', CONVERT(col USING latin1)) = 0`
+   （转 latin1 无信息丢失，排除本就该保留的行）。
+
+> 🔍 **扫描判据踩坑**：最初用 `HEX(col) LIKE '%C3%'` 扫全库，误报 4 列 18 行（`alarm_rule.channel_ids`、
+> `sys_menu.perm_code`、`sys_user.password` 等）——原因是 `LIKE '%C3%'` 会命中**半字节边界**
+> （例如字节 `4C 33` 的 hex 串 `"4C33"` 里就含子串 `C3`）。必须用 `REGEXP '^(..)*C3'` 按字节对齐匹配。
+
+**发布物重构：SQL 包改为「全量 + 增量」**
+
+用户要求发布产物中同时包含**当前版本全量 SQL** 与**版本迭代增量 SQL**。`gatekeeper-sql-1.0.3.zip`
+由 19 个平铺文件重构为 24 个条目的四目录结构（`full/` `incremental/` `standalone/` `fix/`），
+并新增 `MANIFEST.tsv` 记录「包内路径 ⇥ 仓库路径」的权威映射。详见「离线部署」章节 §7。
+`incremental/` 的清单**不是手写的**，而是构建时从 `docker-compose.yml` 现场解析 bind-mount 得到，因此不会与 compose 漂移。
+
+**工程**
+
+- 版本号 `1.0.2` → `1.0.3`：`src/backend/pom.xml`、`src/frontend/package.json`。
+  **本次不含任何 Java / 前端源码变更**（提交 `350a4de`，21 个文件、0 个 `.java`）。
+- `docker/deploy-from-release.sh` 增强：默认版本升至 `v1.0.3`；解包改为**按 `MANIFEST.tsv` 还原**；
+  「从 jar 抽 init.sql」增加**先比哈希再落盘**（修正原先「先覆盖再比对」导致的恒真断言）；
+  `99-client-charset.cnf` 的取值增加**合规性校验**（缺 `[client]`/`default-character-set`/`utf8mb4` 即回落到内置版本）；
+  断言链新增 `moji_menu` / `moji_dict` 两项。
+- `gatekeeper-docker-<version>.zip` 由 10 个条目增至 13 个：补入 `mock-upstream.conf`、
+  `mysql-conf.d/99-client-charset.cnf`、`deploy-from-release.sh`。
+
+**校验矩阵（本版）**
+
+| 校验 | 结果 |
+|---|---|
+| 后端单测（`mvn -o test`） | **780 tests / 0 failures** |
+| jar 内 `sql/init.sql` vs 仓库 `init.sql` | **逐字节一致**（`7d14bb97…`，且与 v1.0.2 **也相同**） |
+| jar 条目逐个比对 v1.0.2（477 条目） | 仅 **3** 个版本元数据文件不同（`MANIFEST.MF` / `pom.properties` / `pom.xml`），其余 **474 个全同** |
+| 前端产物 vs v1.0.2（剥离版本目录名后） | **59 / 59 文件 size + CRC32 完全一致**（zip 整体哈希不同仅因顶层目录名带版本号） |
+| 镜像加载契约复算（manifest / 层数 / 逐层 diff_id / config.os / OCI 标签） | **67 / 67 通过** |
+| `docker-compose.yml` 挂载源齐备性（16 个 initdb 源） | 全部命中 |
+| 乱码修复式实机演练（`START TRANSACTION` + `ROLLBACK`） | 17 + 1 行**全部还原为正确中文**，回滚后恢复原状（非破坏性） |
+| 全库 216 个文本列乱码扫描 | 修复前 2 列 18 行；修复后 **0** |
+| Release 资产上传后服务端复核（重新拉取比对 size/state） | **9 / 9 uploaded，`problems=none`** |
+| Release 资产泄漏复检 | `ALL_CLEAN = True` |
+
+**资产清单（GitHub Release v1.0.3，共 9 项）**
+
+| 资产 | 大小 |
+|---|---|
+| `gatekeeper-backend-1.0.3.jar` | 59,304,518 B |
+| `gatekeeper-frontend-1.0.3.zip` | 753,190 B |
+| `gatekeeper-sql-1.0.3.zip` | 98,284 B |
+| `gatekeeper-backend-image-1.0.3.tar` | 158,177,280 B |
+| `gatekeeper-frontend-image-1.0.3.tar` | 21,186,560 B |
+| `gatekeeper-docker-1.0.3.zip` | 32,285 B |
+| `gatekeeper-1.0.3-SHA256SUMS.txt` | 282 B |
+| `gatekeeper-docker-1.0.3-SHA256SUMS.txt` | 297 B |
+| `deploy-from-release.sh` | 34,206 B |
+
+**已知限制**：`incremental/` 里的脚本是「历史回放」性质（含 `ALTER` / `UPDATE` / `DELETE`），
+**不是纯 no-op**；把它跑在已有数据的旧库上请先备份。v1.0.3 的实机复验（在干净主机上从 Release 走
+`clean → all` 全链路）需在本版发布后单独执行，结果见下方「离线部署 §5」。
 
 ### v1.0.2（2026-09-29）
 
