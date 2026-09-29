@@ -1242,25 +1242,35 @@ git grep -nE "192\.168\.[0-9]+\.[0-9]+" | grep -vE "192\.168\.1\.[0-9]+"
 **修复**
 
 - **镜像 / jar 内嵌的 `init.sql` 已与源码逐字节一致**，部署链缺陷 1（第 1393 行多余逗号）不再存在于任何发布物中。
-- 远端镜像包内的 `docker-compose.yml` 与 E2E 剧本同步为修复后版本（补挂 5 个结构脚本 + backend healthcheck）。
+- **Release 的 jar 资产改为「从源码干净构建」（`mvn clean package`）的产物**：此前的 jar 由**增量编译**产出，
+  携带一个**已删除功能的孤儿 class**（`DataScopeOptionsVo$BizLineSimple`，「业务线」模块 T15 已整体下线，
+  源码中早已不存在该内部类，但仓库 `target/classes` 残留了它）。本版 jar 不含该 class，
+  且与镜像内 `app/app.jar` **逐字节一致**。
+- 随附的 `gatekeeper-docker-<version>.zip` 内的 `docker-compose.yml` 同步为修复后版本
+  （补挂 5 个结构脚本 + backend `healthcheck`）。
 
 **工程**
 
 - 版本号 `1.0.1` → `1.0.2`：`src/backend/pom.xml`、`src/frontend/package.json`（含 `package-lock.json`）、
   两个 `Dockerfile` 的 `ARG VERSION` 默认值。
-- 后端 jar 仍按 §4.1 的闸门打包（模板顶替 + 立即还原），复检确认 jar 内配置仅含 `${...:localhost}` 占位。
+- 后端 jar 仍按 §4.1 的闸门打包（备份真实配置 → 模板顶替 → 打包 → 立即还原），
+  复检确认 jar 内配置仅含 `${…:localhost}` 占位、无内网地址。
 - 前端产物与 `v1.0.1` **59/59 文件逐字节相同** —— 本版未改前端源码，仅版本号变化（`package.json.version` 不进 bundle）。
-- 镜像 OCI 溯源标签 `org.opencontainers.image.revision` 指向本版 tag 的提交，`docker inspect` 可直接溯源。
+- 镜像 OCI 溯源标签 `org.opencontainers.image.revision` 指向本版 tag 的同一提交，`docker inspect` 可直接溯源。
 
 **校验矩阵（本版）**
 
 | 校验 | 结果 |
 |---|---|
+| 后端单测（`mvn -o test`） | **780 tests / 0 failures** |
 | jar 内 `application.yml` vs 模板 `application.example.yml` | **逐字节一致** |
 | jar 内 `sql/init.sql` vs 源码 `init.sql` | **逐字节一致**（`7d14bb97…`） |
+| 镜像内 `app/app.jar` 内 `init.sql` vs 源码（直接从镜像层解出） | **逐字节一致**，第 1393 行无多余逗号 |
+| Release 资产 jar vs 镜像内 `app/app.jar` | **逐字节一致** |
 | 前端 `dist` vs `v1.0.1` 产物 | **59 / 59 文件逐字节一致** |
-| Release 资产泄漏复检（内网主机 / 真实密钥） | `ALL_CLEAN = True` |
-| 后端单测 | **780 tests / 0 failures** |
+| 镜像加载契约复算（manifest / 层数 / 逐层 diff_id / config.os / OCI 标签） | **61 / 61 通过** |
+| 镜像层内容扫描（无内网地址、无真实密钥） | 0 命中 |
+| Release 资产泄漏复检 | `ALL_CLEAN = True` |
 
 ### v1.0.1（2026-09-29）
 
