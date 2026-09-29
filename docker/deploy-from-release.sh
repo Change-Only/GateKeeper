@@ -39,6 +39,11 @@ GK_VER="${GK_VER:-1.0.3}"
 GK_DIR="${GK_DIR:-/opt/gatekeeper-release}"
 GK_PARALLEL="${GK_PARALLEL:-4}"
 
+# curl 重试参数由 precheck() 按 curl 版本填充（7.29 不支持 --retry-connrefused）。
+# 此处先给默认值：dl_try()/pick_channel() 隐式依赖它，若只单独驱动这些函数
+# （排障 / 单测）而没有先跑 precheck，`set -u` 会直接报「CURL_RETRY: 未绑定变量」。
+CURL_RETRY="${CURL_RETRY:-}"
+
 GK_API="https://api.github.com/repos/${GK_REPO}/releases"
 BACKEND_IMAGE="changeonly/gatekeeper:backend-${GK_VER}"
 FRONTEND_IMAGE="changeonly/gatekeeper:frontend-${GK_VER}"
@@ -201,16 +206,16 @@ PY
 
   pick_channel
 
-  info "-- 下载（并发分段；大文件切 ${GK_PARALLEL} 段）--"
-  local t0 t1
+  info "-- 下载（逐资产故障转移：首选=$(dl_modes | awk '{print $1}')，失败即换通道；大文件切 ${GK_PARALLEL} 段）--"
+  local t0 t1 dl_fail=0
   t0=$(date +%s)
   while IFS=$'\t' read -r name id size; do
     [ -n "$name" ] || continue
-    dl_one "$name" "$id" "$size"
+    dl_one "$name" "$id" "$size" || dl_fail=$((dl_fail + 1))
   done < "${DL_DIR}/.assets.tsv"
   t1=$(date +%s)
   info ""
-  info "下载耗时 $((t1-t0)) 秒"
+  info "下载耗时 $((t1-t0)) 秒；下载失败 $dl_fail 项"
   info ""
   info "文件清单："
   ls -la "$DL_DIR" | grep -v '^total' | grep -v '^d' | awk '{printf "     %12d  %s\n", $5, $9}'
@@ -228,14 +233,31 @@ PY
 #   通道 api   ：https://api.github.com/repos/<repo>/releases/assets/<id>
 #                （Accept: application/octet-stream → 302 跳到
 #                  release-assets.githubusercontent.com，资产的真实存储域）
-CH_MODE="api"
+# 🔴 探测结果只是【首选通道】，不是全局开关。
+# 2026-09-29 实测（v1.0.3 复验）：探测时 github.com 直链可用 ⇒ CH_MODE=direct，下载途中
+# github.com:443 被阻断（curl: (7) 拒绝连接），后续 5 个资产的下载全部失败，整批 fetch
+# 在第 3 步 SHA256 校验处中止。**同一台机上** direct 尝试全部返回 0 字节，而 api 回落全部成功；
+# 随后 github.com 又短暂恢复（同一批里最后一项直链成功）⇒ 是**间歇性**劣化，不是域名级永久不可达。
+# 故不能「探一次、全局沿用」：dl_one() 必须做【逐资产故障转移】——
+# 某资产在某通道失败（curl 非 0 或尺寸不符），立刻用另一通道重试**同一资产**。
+CH_MODE="api"                                   # 首选通道，由 pick_channel 覆盖
+GK_DL_MODE="${GK_DL_MODE:-auto}"                # auto（默认，带回落）| direct | api（指定则不回落）
 
-ch_url() {  # ch_url <name> <id>
-  if [ "$CH_MODE" = "direct" ]; then
+ch_url() {  # ch_url <name> <id> <mode>
+  if [ "$3" = "direct" ]; then
     printf '%s' "https://github.com/${GK_REPO}/releases/download/${GK_TAG}/$1"
   else
     printf '%s' "${GK_API}/assets/$2"
   fi
+}
+
+# 尝试顺序：auto ⇒ 首选通道在前、另一通道兜底；显式指定 ⇒ 只试该通道（便于复现/排障）
+dl_modes() {
+  case "$GK_DL_MODE" in
+    direct) printf 'direct' ;;
+    api)    printf 'api' ;;
+    *)      if [ "$CH_MODE" = "direct" ]; then printf 'direct api'; else printf 'api direct'; fi ;;
+  esac
 }
 
 pick_channel() {
@@ -247,62 +269,74 @@ pick_channel() {
   got=$(curl -sL --max-time 60 $CURL_RETRY -H "Accept: application/octet-stream" \
           "https://github.com/${GK_REPO}/releases/download/${GK_TAG}/${nm}" 2>/dev/null | wc -c)
   if [ "$got" = "$sz" ]; then
-    CH_MODE="direct"; printf 'github.com 直链可用 ✅\n'
+    CH_MODE="direct"; printf 'github.com 直链可用 ✅（仅作首选，失败会自动回落 api）\n'
   else
-    CH_MODE="api"; printf '直链得 %s B（期望 %s），改用 assets API ✅\n' "$got" "$sz"
+    CH_MODE="api"; printf '直链得 %s B（期望 %s），改用 assets API ✅（失败会自动回落 direct）\n' "$got" "$sz"
   fi
 }
 
-# 单文件下载：小于 8MB 直下；否则分段并发后拼接
+# 单通道下载：**尺寸精确匹配**才算成功（返回 0），否则返回 1 交由 dl_one 换通道
+dl_try() {  # dl_try <name> <id> <size> <mode>
+  local name="$1" id="$2" size="$3" mode="$4"
+  local out="${DL_DIR}/${name}"
+  local url; url=$(ch_url "$name" "$id" "$mode")
+  local minsz=$((8 * 1024 * 1024))
+
+  rm -f "$out" "${out}".part*
+
+  if [ "$size" -le "$minsz" ] || [ "${GK_PARALLEL}" -le 1 ]; then
+    printf '     [%-6s] 下载 %-40s %10d B ... ' "$mode" "$name" "$size"
+    if ! curl -sL --max-time 900 $CURL_RETRY \
+         -H "Accept: application/octet-stream" -o "$out" "$url"; then
+      printf 'curl 失败\n'; return 1
+    fi
+  else
+    local n="$GK_PARALLEL"
+    local seg=$(( (size + n - 1) / n ))
+    printf '     [%-6s] 分段 %-40s %10d B (%d 段) ... ' "$mode" "$name" "$size" "$n"
+    local i=0
+    while [ $i -lt $n ]; do
+      local s=$(( i * seg ))
+      local e=$(( s + seg - 1 ))
+      [ "$e" -ge "$size" ] && e=$(( size - 1 ))
+      [ "$s" -gt "$e" ] && break
+      (
+        curl -sL --max-time 1800 $CURL_RETRY \
+          -H "Accept: application/octet-stream" \
+          -r "${s}-${e}" -o "$(printf '%s.part%03d' "$out" "$i")" "$url"
+      ) &
+      i=$(( i + 1 ))
+    done
+    wait
+    # 按序号拼接
+    cat "${out}".part* > "$out" 2>/dev/null
+    rm -f "${out}".part*
+  fi
+
+  local got; got=$(stat -c%s "$out" 2>/dev/null || echo 0)
+  if [ "$got" = "$size" ]; then printf 'OK\n'; return 0; fi
+  printf '尺寸不符 (%s/%s)\n' "$got" "$size"
+  return 1
+}
+
+# 逐资产故障转移：某通道失败就地换另一通道重试**同一资产**
 dl_one() {
   local name="$1" id="$2" size="$3"
   local out="${DL_DIR}/${name}"
-  local url; url=$(ch_url "$name" "$id")
-  local minsz=$((8 * 1024 * 1024))
 
   if [ -f "$out" ]; then
-    local cur
-    cur=$(stat -c%s "$out" 2>/dev/null || echo 0)
+    local cur; cur=$(stat -c%s "$out" 2>/dev/null || echo 0)
     if [ "$cur" = "$size" ]; then info "跳过（已完整）: $name"; return 0; fi
   fi
 
-  if [ "$size" -le "$minsz" ] || [ "${GK_PARALLEL}" -le 1 ]; then
-    printf '     下载 %-42s %10d B ... ' "$name" "$size"
-    rm -f "$out"
-    if curl -sL --max-time 900 $CURL_RETRY \
-         -H "Accept: application/octet-stream" -o "$out" "$url"; then
-      local got; got=$(stat -c%s "$out" 2>/dev/null || echo 0)
-      if [ "$got" = "$size" ]; then printf 'OK\n'; else printf '尺寸不符 (%s)\n' "$got"; fi
-    else
-      printf 'curl 失败\n'
-    fi
-    return 0
-  fi
-
-  # 分段并发
-  local n="$GK_PARALLEL"
-  local seg=$(( (size + n - 1) / n ))
-  printf '     分段下载 %-40s %10d B (%d 段) ... ' "$name" "$size" "$n"
-  rm -f "${out}".part* "${out}"
-  local i=0
-  while [ $i -lt $n ]; do
-    local s=$(( i * seg ))
-    local e=$(( s + seg - 1 ))
-    [ "$e" -ge "$size" ] && e=$(( size - 1 ))
-    [ "$s" -gt "$e" ] && break
-    (
-      curl -sL --max-time 1800 $CURL_RETRY \
-        -H "Accept: application/octet-stream" \
-        -r "${s}-${e}" -o "$(printf '%s.part%03d' "$out" "$i")" "$url"
-    ) &
-    i=$(( i + 1 ))
+  local m
+  for m in $(dl_modes); do
+    if dl_try "$name" "$id" "$size" "$m"; then return 0; fi
+    info "            ↑ 通道 $m 失败，改用下一通道重试同一资产"
   done
-  wait
-  # 按序号拼接
-  cat "${out}".part* > "$out" 2>/dev/null
-  rm -f "${out}".part*
-  local got; got=$(stat -c%s "$out" 2>/dev/null || echo 0)
-  if [ "$got" = "$size" ]; then printf 'OK\n'; else printf '尺寸不符 (%s/%s)\n' "$got" "$size"; fi
+
+  bad "下载失败（已试遍通道：$(dl_modes)）: $name"
+  return 1
 }
 
 # ---------------- 3) 校验 ----------------

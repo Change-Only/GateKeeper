@@ -723,6 +723,14 @@ chmod +x /opt/gk-tools/docker
 PATH=/opt/gk-tools:$PATH bash docs/sql/t09-docker-e2e.sh
 ```
 
+> 反向情形同样存在，且**离线部署脚本目前只能走这条路**：`docker/deploy-from-release.sh` 里写死的是
+> **独立版 `docker-compose`**（前置检查也会校验它存在），**没有做 V2 探测**。所以在「只有 V2 插件、
+> 没有独立二进制」的机器上，本文档「离线部署」一节会失败 —— 需自行装独立版
+> `docker-compose`，或把脚本中的 `docker-compose` 换成 `docker compose`。这是**已知的可移植性缺口**。
+>
+> 实测环境（2026-09-29）属前者：`docker compose version` → `docker: 'compose' is not a docker command.`，
+> 而 `docker-compose version` → `Docker Compose version v5.5.1`，故脚本恰好开箱可用。
+
 **FAQ-3 · 起栈后访问 8081 得到 502**
 
 backend 尚未就绪（Spring Boot 启动约 8~15 秒）。编排已给 backend 配 healthcheck 且 frontend
@@ -841,10 +849,26 @@ bash deploy-from-release.sh all
 | `release-assets.githubusercontent.com:443` | ✅ | ✅ |
 
 > **所以不要把「某个域名不可达」当成前提。** 脚本的做法是：下载前先用**最小的资产**探一次，
-> 直链能取到完整尺寸就走直链，否则自动改走 **assets API**
+> 直链能取到完整尺寸就走直链，否则改走 **assets API**
 > （`GET /repos/<owner>/<repo>/releases/assets/<id>` + `Accept: application/octet-stream`，
 > 由 302 跳到 `release-assets.githubusercontent.com` —— 资产的真实存储域）。
 > 两条通道的下载内容已实测**逐字节一致**。
+
+🔴 **探测结果只是「首选通道」，不是全局开关 —— 通道会在下载途中劣化。**
+
+v1.0.3 复验时实测到过一次：探测阶段 `github.com` 直链正常（选中 direct），跑到一半
+`github.com:443` 被阻断（`curl: (7) 拒绝连接`），**后续 5 个资产的下载全部失败**，
+整批 `fetch` 在第 3 步 SHA256 校验处以「发布物可能损坏」中止 —— 而发布物其实完好。
+同一时刻改用 assets API 逐项重试，**5 项全部成功**；之后 `github.com` 又短暂恢复
+（同一批里最后一项直链成功）⇒ 是**间歇性劣化**，不是域名级永久不可达。
+
+因此 `dl_one()` 改为**逐资产故障转移**：某资产在某通道失败（curl 非 0 或尺寸不符），
+立刻用另一通道重试**同一资产**；两者都失败才报 `[FAIL] 下载失败（已试遍通道：…）`。
+另提供 `GK_DL_MODE=auto|direct|api` 显式覆盖（`auto` 为默认，带回落；显式指定则不回落，便于排障）。
+
+> **踩坑提醒（v1.0.3 原始脚本，若你手上是旧版）**：旧版只在起下载前探一次通道并全局沿用，
+> 遇到上述中途劣化会让整批 `fetch` 失败。由于已完成的文件会「跳过（已完整）」，
+> **重跑一次通常即可续上**；若重跑仍在同一资产上失败，用 `GK_DL_MODE=api` 强制走 API 通道。
 
 大文件按 `Range` 分 `${GK_PARALLEL:-4}` 段并发后按序拼接。
 实测：单流约 341 KB/s，4 段并发约 **180 MB/min**（228 MB 全量约 **11 分钟**）。
@@ -884,6 +908,32 @@ E2E   → 登录（错误口令被拒 + 默认账号通过）· 鉴权（无 tok
 可复现 → down -v 重建卷后，initdb 第 2 次独立运行仍得 42 / 121 / 6
 ```
 
+### 5.1 实测记录（2026-09-29 复验，v1.0.3·纯 Release 部署）
+
+```text
+clean → 容器 / 卷 / 镜像 / 源码全清（镜像数归 0）
+fetch → 9 项资产 228.5 MB；SHA256 6/6 全过
+        ⚠ github.com:443 在下载途中被阻断 ⇒ 5 项失败（发布物本身完好）
+          经 assets API 逐项补齐后全部通过 ⇒ 催生了上面第 3 节的故障转移修复
+load  → changeonly/gatekeeper:backend-1.0.3 / :frontend-1.0.3
+up    → 5 容器全起，mysql / redis / backend 均 healthy
+断言  → initdb 执行 16 次；tables=42 / sys_menu=121 / sys_config=6 / junk221=0
+        🔴 moji_menu=0 / moji_dict=0   ← 本次缺陷的量化验收线
+探活  → frontend :8081 → 200；backend 容器内 8080 已监听；经前端反代 /api/doc.html → 200
+
+独立复核（不依赖部署脚本自身的断言）：
+  全库 216 个文本列按 HEX(col) REGEXP '^(..)*C3' 字节对齐扫描 → 命中 0 列 0 行
+  原 17 行靶点逐行打印 → 全部正确中文（查看业务线 / 新增分组环境配置 / 编辑IP白名单 …）
+  HTTP 端到端：登录 → GET /api/sys/menu/list（=「配置权限」弹窗数据源）
+    121 个节点做「双重编码逆运算」检测 → 命中 0；截图涉及的 8 个权限点全为正确中文
+```
+
+> 扫描口径本身也有坑：`GROUP_CONCAT` 默认上限 1024 会把动态生成的 UNION SQL **截断**，
+> 表现为 `ERROR 1054 Unknown column '<半截标识符>'` ⇒ **查询报错返回空，看起来像 0 命中，实为假阴性**。
+> 必须先 `SET SESSION group_concat_max_len = 1000000`，并**自检「应有列数 == 实际列数」**（本例 216 == 216）。
+> 同理 `CREATE TEMPORARY TABLE` 不能用库名限定，需先 `USE gatekeeper`（mysql 批处理遇错即停，
+> 否则后续裁决语句会被静默跳过）。
+
 ### 6. 已知的发布物缺口（v1.0.3 现状）
 
 | 缺口 | 影响 | 现状 |
@@ -893,9 +943,12 @@ E2E   → 登录（错误口令被拒 + 默认账号通过）· 鉴权（无 tok
 | `.env.example` 未收录 | 不知道要配哪些环境变量 | ⏳ 仍缺；脚本用 `openssl rand -hex` 现场生成等价 `.env` |
 | compose 用 `build:` 而非 `image:` | 无源码环境无法直接起栈 | ⏳ 仍缺；脚本用 override 兜底 |
 | `docker/mysql-conf.d/99-client-charset.cnf` | 缺它则 initdb 中文乱码 | ✅ **v1.0.3 已收录**；脚本另有内置兜底 |
+| 下载通道「探一次、全局沿用」 | 通道中途劣化会让整批 `fetch` 失败 | ✅ **已修**：改为逐资产故障转移（见上面第 3 节） |
+| `nginx.conf` 未声明 `charset utf-8` | 响应头 `Content-Type: text/html` 不带 charset | ⏳ 仍缺；HTML 内 `<meta charset="utf-8">` 已覆盖实际解码，JSON 走 UTF-8 默认，无实际故障 |
+| `deploy-from-release.sh` 写死 `docker-compose` | 只有 V2 插件的主机跑不通离线部署 | ⏳ 仍缺（见 FAQ-2）；目标机是独立二进制，故实测可用 |
 
-> 剩余 2 项（`.env.example`、`build:` → `image:`）仍在候选清单里，消除后本脚本即可退化为
-> 「下载 → `docker compose up -d`」。
+> 剩余 4 项仍在候选清单里。其中 `.env.example` 与 `build:` → `image:` 消除后，
+> 本脚本即可退化为「下载 → `docker compose up -d`」。
 
 ### 7. SQL 发布包的结构（`gatekeeper-sql-<版本>.zip`）
 
