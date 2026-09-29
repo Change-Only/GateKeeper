@@ -74,7 +74,7 @@ graph LR
     S -.告警与处置.-> B
 ```
 
-**读图要点**：三张主数据"人录入、可治理"；网关"读它们做决策"；安全与观测"跑起来后反向产生价值"。改功能前先问：**治的是哪张主数据，还是在动执行面？**
+**读图要点**：三张主数据"人录入、可治理"；网关"读它们做决策"；安全与观测"跑起来后反向产生价值"。改功能前先问：**治的是哪张主数据？**
 
 ### 1.4 六条演进铁律（不可违反）
 
@@ -194,14 +194,14 @@ graph LR
 
 ### 3.3 业务线（biz_line）已于 T15 下线 —— 不要写进现行模块
 
-`biz_line` 表与 `app.line_id` / `api_interface.line_id` 列在**存量库**物理保留（"只加列不删列"）；**2026-09-27 起 `init.sql` 不再建 `biz_line` 表**（全仓 0 引用，死表）。
+`biz_line` 表与 `app.line_id` / `api_interface.line_id` 列在**存量库**物理保留（"只加列不删列"）；**2026-09-27 起 `init.sql` 不再建 `biz_line` 表**（全仓 0 引用）。
 
 - 权限点、侧边菜单、`sys_role_menu` 授权已在 `docs/sql/t15-remove-bizline.sql` 中删除
 - Java 实体层已移除 `lineId` 字段映射
 - **`BIZ_ADMIN` 角色名里的"业务线"是历史遗留命名**，实际能力已收窄为"按环境管数据"
 
 > 引用菜单/模块清单时，**不要把业务线列为现行功能**。
-> ⚠️ 历史脚本 `docs/sql/schema-v2.sql` 仍含 `CREATE TABLE IF NOT EXISTS biz_line`；按「不追改历史脚本」惯例未动，故完整 Docker 初始化链仍会建出该空表（见 README 表数口径）。
+> ⚠️ 历史脚本 `docs/sql/schema-v2.sql` 仍含 `CREATE TABLE IF NOT EXISTS biz_line`；按「不追改历史脚本」惯例未动，完整 Docker 初始化链仍会建出该空表（见 README）。
 
 ---
 
@@ -225,11 +225,11 @@ graph LR
 | **8** | `ForwardHandler` | 转发上游（超时 / 重试 / Mock 短路） | 上游错误原样透传 | `api_env_config` |
 | **9** | `LogHandler` | 异步落库调用日志 | 不影响主链路 | `api_call_log` |
 
-> ⚠️ **Order 6 有两个 Handler**（`EncryptionHandler` 与 `VersionRouteHandler` 同为 `@Order(6)`）：次序取决于 Spring 注入顺序，**不作契约**；二者互不依赖。
+> ⚠️ **Order 6 有两个 Handler**（`EncryptionHandler` 与 `VersionRouteHandler` 同为 `@Order(6)`）：次序取决于 Spring 注入顺序，**不作契约**。
 >
-> ⚠️ **`LogHandler` 不在循环里执行**：`executeWithStatus()` 显式跳过它，日志挪到 `finally` 里 `@Async` 执行 —— 既不占主链路耗时，**拦截场景也要留痕**。
+> ⚠️ **`LogHandler` 不在循环里执行**：`executeWithStatus()` 显式跳过它，日志挪到 `finally` 里 `@Async` 执行 —— 不占主链路耗时，**拦截场景也要留痕**。
 >
-> 📌 `GatewayCore.init()` 的 Javadoc 顺序（白名单→封禁→认证…）与 `@Order` 实际顺序（白名单→**认证**→IP白名单→**封禁**…）不一致，**以 `@Order` 为准**。
+> 📌 `GatewayCore.init()` 的 Javadoc 顺序与 `@Order` 实际顺序（白名单→**认证**→IP白名单→**封禁**…）不一致，**以 `@Order` 为准**。
 
 ### 4.2 链路全景（含拦截与兜底）
 
@@ -291,13 +291,13 @@ X-Signature = SM3( AppKey + AppSecret明文 + X-Timestamp + X-Nonce )
 | 签名算法 | `sign.algorithm` | `SM3` | 固定 SM3 | ⚠️ 读取但**只接受 SM3**；配成其它值会打 WARN 并回退 SM3 |
 | 是否验签 | `gateway.auth.enabled` | `true` | `true` | ✅ 已接线，置 `false` 跳过防伪造/防重放 |
 
-> ✅ **T19 已接线**：上表 4 项由 `config/SysConfigAccessor.java` 运行时读取（`sys_config` 唯一入口，缓存 60s，异常 fail-open 回退默认值）；改配置最多 60s 生效，经「参数配置」页保存立即 `evictAll()`。
+> ✅ **T19 已接线**：4 项均由 `config/SysConfigAccessor.java` 运行时读取（唯一入口，缓存 60s，异常 fail-open 回退默认值），改配置最多 60s 生效（见 §13.2）。
 >
-> 🔴 **`gateway.auth.enabled=false` 的准确语义**：只跳过**防伪造/防重放**四步，**AppKey 存在性、应用启停、到期时间仍强制校验** —— 关的是"签名校验"而非"身份认证"；该值为 `false` 时启动打 **ERROR**（不阻断）。
+> 🔴 **`gateway.auth.enabled=false` 的准确语义**：只跳过**防伪造/防重放**四步，**AppKey 存在性、应用启停、到期时间仍强制校验** —— 关的是"签名校验"而非"身份认证"；为 `false` 时启动打 **ERROR**、不阻断。
 >
-> 🔴 **`sign.algorithm` 刻意不做真可切换**：签名算法是**跨端契约**（SDK / 文档 / 自测全按 SM3），可切换等于留"改一行即全量验签失败"的开关；读取它仅用于**配错告警并回退 SM3**。
+> 🔴 **`sign.algorithm` 刻意不做真可切换**：签名算法是**跨端契约**，可切换等于留"改一行即全量验签失败"的开关；读取它仅用于**配错告警并回退 SM3**。
 
-> 🔴 **环境头口径（T19 已修复）**：解析统一走 `EnvResolver.resolve(ctx)`，优先级 **`X-Gk-Env` > `X-Env` > `gatekeeper.env` > `prod`**；修复前两处竞争写 `ctx.envCode` 致 `X-Gk-Env` 永不生效，现为**单一读取点**。
+> 🔴 **环境头口径（T19 已修复）**：解析统一走 `EnvResolver.resolve(ctx)`，优先级 **`X-Gk-Env` > `X-Env` > `gatekeeper.env` > `prod`**；修复前两处竞争写 `ctx.envCode` 致 `X-Gk-Env` 永不生效。
 
 ### 4.4 拦截语义与状态码
 
@@ -328,7 +328,7 @@ X-Signature = SM3( AppKey + AppSecret明文 + X-Timestamp + X-Nonce )
 
 **仍然基于 DB 生效（不降级）**：应用身份校验、IP 白名单、接口授权校验、签名校验。
 
-`RedisHealthMonitor` 每 **30 秒**探活，状态翻转时推告警；立场：**宁可短时限额失效，也不因 Redis 挂了掐死全部业务链路。**
+`RedisHealthMonitor` 每 **30 秒**探活，状态翻转时推告警：**宁可短时限额失效，也不因 Redis 挂了掐死全部业务链路。**
 
 ---
 
@@ -384,7 +384,7 @@ graph TD
 
 **配置继承链**：`api_env_config`（接口级）← `api_group_env_config`（分组级）
 
-解析由 `EnvConfigResolver` 统一负责，产出 `EffectiveEnvConfig` 写入 `ctx` 供 `ForwardHandler` 消费（**同一请求只解析一次**，避免"页面显示 A、网关走 B"）。
+解析由 `EnvConfigResolver` 统一负责，产出 `EffectiveEnvConfig` 写入 `ctx` 供 `ForwardHandler` 消费（**同一请求只解析一次**）。
 
 | 配置项 | 说明 |
 |---|---|
@@ -396,7 +396,7 @@ graph TD
 
 **兜底规则（零回归）**：环境配置未命中时，回退使用 `api_interface.backend_url`（改造前行为）。
 
-> ⚠️ **Mock 状态码契约**：状态码由用户在环境配置中填写，必须**原样透传**。历史缺陷：`GatewayController` 一律返 200（实测配 `mockStatus=503` 却收到 200），已由 `executeWithStatus()` 返回 `GatewayResult` 修复。
+> ⚠️ **Mock 状态码契约**：状态码由用户在环境配置填写，必须**原样透传**。历史缺陷：`GatewayController` 一律返 200（配 `mockStatus=503` 却收 200），已由 `executeWithStatus()` 返回 `GatewayResult` 修复。
 
 ### 5.4 灰度版本路由（T04-B）
 
@@ -408,7 +408,7 @@ graph TD
 | 强制指定 | 请求头 `X-Gk-Version` 可强制指定版本（绕过灰度比例） |
 | 失败处理 | **FAIL-OPEN** —— 无版本、服务异常、Redis 故障一律只记日志并保留默认，绝不抛异常 |
 
-> 🔴 **为何用 `appId` 而非随机数**：随机分流会让**同一应用在版本间跳变**，造成"刚成功、下次失败"的不可复现问题；appId 哈希后稳定落同一版本。
+> 🔴 **为何用 `appId` 而非随机数**：随机分流会让**同一应用在版本间跳变**，造成"刚成功、下次失败"的不可复现问题。
 >
 > 🔴 与 §4.3 呼应：`X-Gk-Env` 曾失效，`X-Gk-Version` 才是**真实生效**的版本强制头，勿混淆。
 
@@ -480,7 +480,7 @@ sequenceDiagram
 - 找不到凭证 → **只记安全事件（WARN），绝不阻断**
 - 凭证服务缺失/异常 → **fail-open 跳过**
 
-原因：**权威校验仍是 `app` 表**；`app_credential` 目前**零业务数据**，拿它做硬门禁会掐死存量调用 —— "新增能力 fail-open"的典型应用。
+原因：**权威校验仍是 `app` 表**；`app_credential` 目前**零业务数据**，拿它做硬门禁会掐死存量调用。
 
 ---
 
@@ -521,7 +521,7 @@ flowchart TD
 1. **环境硬匹配**：查询含 `.eq("env_code", envCode)`（取自 `ctx.envCode`，默认 `prod`）。**授权在 `dev`、请求走 `prod` ⇒ 403**，不降级到任意环境。
 2. **状态必须为 1**：待审批（0）、已驳回（4）、已过期（2）、已撤销（3）在 SQL 层即被排除，**根本不进入时间判断**。
 3. **有效期双保险**：`GrantExpireJob` 每天 02:00 把到期授权置 `2`，网关**读时再比一次日期**；任一侧失效都不会误放行。
-4. **存量兼容回退（重要）**：未命中时回退 `app_api_permission`（`status = 1`）；**该表无环境、无有效期、无审批状态**，是"零迁移"兼容口子，理解线上行为不能只看 `grant` 表。
+4. **存量兼容回退（重要）**：未命中时回退 `app_api_permission`（`status = 1`）；**该表无环境、无有效期、无审批状态**，是"零迁移"兼容口子。
 
 ### 7.3 授权带来的额度控制
 
@@ -585,7 +585,7 @@ graph LR
 | `alarm_level` | 1/2/3 级别 |
 
 > 🔴 **"打开编辑弹窗什么都不改、点确定，规则被写坏"** 是本项目发生过的整族缺陷，根因三段叠加：
-> ① `Number(表达式)` → `NaN` → ② `JSON.parse(JSON.stringify())` 把 `NaN` 静默变 `null` → ③ `el-input-number` 的 watcher 把 `null` 当 `0` 并钳成 `meta.min`（`>10000`→`0`）。
+> ① `Number(表达式)` → `NaN` → ② `JSON.parse(JSON.stringify())` 把 `NaN` 静默变 `null` → ③ `el-input-number` 的 watcher 把 `null` 当 `0` 并钳成 `meta.min`。
 > **规避铁律：任何含 `NaN` 风险的表单，禁止使用 `JSON.parse(JSON.stringify())` 做深拷贝。**
 
 ### 8.4 五条动态封禁规则（`block_rule`）
@@ -616,7 +616,7 @@ graph LR
 1. **停用渠道（`status=0`）返回 `false`** —— 未发送 ≠ 成功。
 2. **企微/钉钉即使 HTTP 200，只要 `errcode ≠ 0` 也判失败** —— 否则会出现"配置了却不发"的假成功。
 
-**安全约定**：`channel_config.password` 写路径以 `enc:` 密文落库（FAIL-CLOSED）、读路径自动解密、响应脱敏；**KEK 与 `app_secret` 共用同一密钥**（`gatekeeper.crypto.aes-key`），**轮换必须同批重加密**。
+**安全约定**：`channel_config.password` 写路径以 `enc:` 密文落库（FAIL-CLOSED）、读路径自动解密、响应脱敏；**KEK 与 `app_secret` 共用同一密钥**（`gatekeeper.crypto.aes-key`），**轮换须同批重加密**。
 
 > 🔴 脱敏口径：`enc:` 密文行 → `首4 + **** + 末4`；**历史明文行 → 固定 `****`**（不派生自明文，否则等于泄漏首末各 4 位）。
 
@@ -702,7 +702,7 @@ interface_path_hash = HMAC-SHA256( interface_path )   # 小写十六进制，带
 | 配置级 | `api_env_config.env_code` / `api_group_env_config.env_code` |
 | 日志级 | `api_call_log.env_code`（25 列之一） |
 
-**线上实测**：`env` 表仅 1 条 `dev` ⇒ **生产调用会因 `env_code` 不匹配而全部 403**；环境未铺齐前网关不具备生产可用性（数据缺口，非代码缺陷）。
+**线上实测**：`env` 表仅 1 条 `dev` ⇒ **生产调用会因 `env_code` 不匹配而全部 403**；环境未铺齐前网关不具备生产可用性（数据缺口）。
 
 ---
 
@@ -766,9 +766,9 @@ graph LR
 > `api_version:gray`、`api_env_config:create|delete|test`、`api_change_log:append`）
 > 及其 **39 条** `sys_role_menu` 授权。
 >
-> **2026-09-27（D 层）**：`app_quota` / `biz_line` 两张死表的**建表语句**已从 `init.sql` 移除（存量库按"不动"保留）；另有 **13 项**无读取点 `sys_config` 连行移除，19 行收敛为 6 行。
+> **2026-09-27（D 层）**：`app_quota` / `biz_line` 两张死表的**建表语句**已从 `init.sql` 移除（存量库按"不动"保留）；另有 **13 项**无读取点 `sys_config` 连行移除（19 行 → 6 行）。
 >
-> ⚠️ **判定「权限点是否有用」须覆盖三面**：源码 `@RequirePerm`、前端 `perm:`、播种码本身。只查源码会把 `dashboard:view`、`app:list`、`api:list` 等 **18 个纯菜单码**误判为死码（由 `src/frontend/src/router/menu.js` 的 `perm:` 引用）。
+> ⚠️ **判定「权限点是否有用」须覆盖三面**：源码 `@RequirePerm`、前端 `perm:`、播种码。只查源码会把 `dashboard:view`、`app:list`、`api:list` 等 **18 个纯菜单码**误判为死码（由 `src/frontend/src/router/menu.js` 的 `perm:` 引用）。
 
 > 全仓 `@RequirePerm` 统一用 `value = "..."` 写法（另有 `risk = true/false` 标识高危，供 `OperationLogAspect` 强制写审计）。
 > 核对脚本口径：遍历 `src/backend/src/main/java/**/*.java`，正则提取 `@RequirePerm((…))` 内字符串字面量，与 `sys_menu.perm_code` 做差集。
@@ -779,7 +779,7 @@ graph LR
 
 > 线上实测 `SHOW TABLES` = **42 张**（2026-09-18）；**新装口径为 40 张**（`init.sql` 34 张 +
 > `t13`/`t15-1`/`t15-4`/`t16-1`/`t17` 五个脚本的 6 张）。差额即 `app_quota` / `biz_line` 两张死表：
-> 建表语句已于 2026-09-27 从 `init.sql` 移除，但线上存量库与 `schema-v2.sql` 仍保留/建出（见 §11.2、§11.8、§3.3）；口径见 `README.md`。
+> 建表语句已于 2026-09-27 从 `init.sql` 移除，但线上存量库与 `schema-v2.sql` 仍保留/建出（见 §11.2、§11.8、§3.3）。
 >
 > 下表「行数」取自 **2026-09-18 线上实测**（存量库按"不动"口径，`sys_config` 仍记 19 行；新装库 6 行，清理见 `docs/sql/t19-config-wiring.sql` §3）。
 
@@ -890,9 +890,9 @@ graph LR
 | `LogRetentionJob` | `cron = 0 30 2 * * ?`（每天 02:30） | 日志保留：90 天调用日志 / 7 天导出文件 |
 | `RedisHealthMonitor` | `fixedDelay = 30000`（30 秒） | Redis 探活 + 状态翻转告警 |
 
-> **2026-09-27 删除 `QuotaResetJob`**：它只重置无读取点的 `app_quota` 日配额计数 ⇒ 永远空转；日配额真实实现是 `RateLimitHandler:131-135` 的 Redis 键 `rate_limit:daily:{appId}:{yyyyMMdd}`（内嵌日期 + 1 天 TTL 自然过期）。
+> **2026-09-27 删除 `QuotaResetJob`**：它只重置无读取点的 `app_quota` 日配额计数 ⇒ 空转；日配额真实实现是 `RateLimitHandler:131-135` 的 Redis 键 `rate_limit:daily:{appId}:{yyyyMMdd}`（内嵌日期 + 1 天 TTL 自然过期）。
 
-> 🔴 **已知边界：全部定时任务无分布式互斥**：多实例部署会导致告警重复评估/推送、授权重复置态、日志重复清理、健康状态错乱；生产多副本前必须引入 **ShedLock** 或外部单点调度。
+> 🔴 **已知边界：所有定时任务无分布式互斥**：多实例会致告警重复推送、授权重复置态、日志重复清理、健康状态错乱；生产多副本前须引入 **ShedLock** 或外部单点调度。
 
 **异步导出能力（稳定性资产，不可重做）**：
 
@@ -950,7 +950,7 @@ graph LR
 >
 > **这 13 项为何不是"接线"而是"移除"**：T19 当时选择保守做法——只在 `remark` 前缀打
 > 当时只在 `remark` 前缀打「⚠️ 未接线（预留）：」。但复核确认它们**自始至终没有任何读取点**：
-> 但复核确认它们**自始至终无读取点**，标注不能消除误导 —— 参数配置页仍是 13 个可编辑、可保存却无影响的开关。故 2026-09-27 连行移除，收敛为 6 行。
+> 但复核确认它们**自始至终无读取点**，标注不能消除误导 —— 参数配置页仍是 13 个可编辑、可保存却无影响的开关。故 2026-09-27 连行移除（19 行 → 6 行）。
 > 将来若确需实现（如 `key.rotate.period` 的轮换告警），正确顺序是**先写读取点、再加配置行**。
 >
 > **特别说明**：`login.fail.threshold` 从未被 `sys_config` 消费，其真实控制点是 `application.yml`
@@ -978,11 +978,11 @@ graph LR
 
 ### 13.7 自动封禁能力未开启
 
-`block_rule` 表 0 行、`ip_ban` 表 0 行 ⇒ 自动封禁链路**当前不触发**（仅人工封禁规则在种子中启用）；安全检测仍正常写 `security_event`（80 行）。
+`block_rule` 表 0 行、`ip_ban` 表 0 行 ⇒ 自动封禁链路**当前不触发**（仅人工封禁在种子中启用）；安全检测仍正常写 `security_event`。
 
 ### 13.8 接口路径无唯一约束
 
-`api_interface.interface_path` 无唯一约束，故 `PermissionHandler` 用 `selectList` 取 id 最小者并打 WARN，而非 `selectOne`（多行抛 `TooManyResultsException`）；同路径多版本依赖"取最小 id"。
+`api_interface.interface_path` 无唯一约束，故 `PermissionHandler` 用 `selectList` 取 id 最小者并打 WARN，而非 `selectOne`（多行抛 `TooManyResultsException`）。
 
 ### 13.9 草稿态接口可被网关转发
 
