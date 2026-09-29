@@ -43,7 +43,12 @@ export const MENU_TREE = [
     children: [
       { title: '调用日志', path: '/mon/mon-calllog', perm: 'log:call:list' },
       { title: '告警记录', path: '/mon/mon-alarm', perm: 'alarm:list' },
-      { title: '封禁管理', path: '/mon/mon-block', perm: 'block:list' }
+      { title: '封禁管理', path: '/mon/mon-block', perm: 'block:list' },
+      // 「数据大屏」落点是**全屏独立路由** `/screen`（不在 Layout 内，故不受 /mon 前缀约束）。
+      // 同「接入文档」：只读投屏页，perm:'' 会被 hasPerm 判为「无需权限」恒真，登录即可见；
+      // 刻意不新增 sys_menu 权限点（新增码要付「播种 + 补授权 + 清权限缓存」三件套，收益为零）。
+      // T05 §7 原设计是「保留独立入口、不进侧边菜单」，但用户反馈"找不到大屏" ⇒ 补上入口。
+      { title: '数据大屏', path: '/screen', perm: '' }
     ]
   },
   // ===== 开发者中心（T14）=====

@@ -1,10 +1,15 @@
 <template>
   <!-- 数据大屏容器 -->
   <div class="screen-container">
-    <!-- 大屏顶部页头：标题 + 实时时钟 -->
+    <!-- 大屏顶部页头：标题 + 实时时钟 + 返回入口 -->
+    <!-- 注意：本页是**顶层独立路由**（/screen，不在 Layout 内）⇒ 页面没有侧边栏，
+         必须自带返回按钮，否则用户进来后只能改地址栏才能出去。 -->
     <div class="screen-header">
       <span class="title">GateKeeper API 监控大屏</span>
-      <span class="clock">{{ currentTime }}</span>
+      <div class="header-right">
+        <span class="clock">{{ currentTime }}</span>
+        <button class="back-btn" type="button" @click="goBack">返回控制台</button>
+      </div>
     </div>
     <div class="screen-body">
       <!-- 第一行：核心指标卡片（今日总调用 / 成功率 / 限流次数 / 安全事件） -->
@@ -81,6 +86,8 @@ export default {
   },
   beforeDestroy() { clearInterval(this.timer); clearInterval(this.refreshTimer) },
   methods: {
+    // 返回控制台（本页是全屏独立路由，没有侧边栏可点）
+    goBack() { this.$router.push('/dashboard') },
     // 更新大屏顶部时钟
     updateClock() { const d = new Date(); this.currentTime = d.toLocaleString('zh-CN', { hour12: false }) },
     // 并行加载所有大屏数据
@@ -116,7 +123,20 @@ export default {
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+.screen-header .header-right { display: flex; align-items: center; gap: 16px; }
 .screen-header .clock { font-size: 16px; color: #7fa8e8; font-family: monospace; }
+/* 返回按钮：投屏时鼠标通常不动 ⇒ 平时低调，悬停才明显 */
+.screen-header .back-btn {
+  background: rgba(86, 150, 255, .12);
+  color: #9db8e8;
+  border: 1px solid rgba(86, 150, 255, .3);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .2s, color .2s;
+}
+.screen-header .back-btn:hover { background: rgba(86, 150, 255, .26); color: #eaf2ff; }
 .metric-card {
   background: linear-gradient(180deg, rgba(15, 27, 54, .85), rgba(10, 19, 38, .85));
   border: 1px solid rgba(86, 150, 255, .22);
