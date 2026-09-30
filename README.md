@@ -193,7 +193,8 @@ GateKeeper/
 | Redis 连通（步骤 2） | ✅ **已实测** | 原生 TCP 发送 `PING`，收到 `+PONG` |
 | `mvn` 标准命令与 classworlds 兜底（步骤 4） | ✅ **已实测** | 本机 `mvn -v` 复现 `找不到或无法加载主类 ...Launcher`；兜底写法返回 `Apache Maven 3.8.8` / `Java 1.8.0_391`，并成功执行 `compile`（退出码 0） |
 | `mysql` 导入命令（步骤 1） | ⚠️ **未实测** | 本机未安装 `mysql` 客户端，无法执行。命令形式按 MySQL 官方语法与 `init.sql` 头部建库/建表语句核对得出。**注**：同一套 SQL 链已由容器 initdb 路径实测覆盖（2026-09-29，表数与 `sys_menu` 行数均达预期），但“裸机手工导入”这一步仍未逐条执行 |
-| Docker Compose 一键部署 | ✅ **已实测** | 2026-09-29 在 CentOS 7.9 + Docker 24.0.7 实机从零跑通；并额外验证了**无源码、仅用 Release 发布物**的部署路径。详见「一键部署」章 §6 实测记录 |
+| Docker Compose 一键部署 | ✅ **已实测** | 2026-09-29 在 CentOS 7.4.1708 + Docker 24.0.7 实机从零跑通；并额外验证了**无源码、仅用 Release 发布物**的部署路径。详见「一键部署」章 §6.1 实测记录 |
+| 多副本集群部署（`backend` 3 副本） | ✅ **已实测** | 2026-09-30 在同一台实机先跑单副本（断言 24/24）再跑 3 副本（断言 19/19），两轮全绿；跨副本互斥、租约防误杀、配置广播、nginx 多上游均有运行时证据。详见「一键部署」章 §6.2（能力在 `main`，**未进入 tag**） |
 | 其余各平台 Redis/MySQL 启动命令 | ⚠️ **未实测** | 属于各平台通用标准命令，非在单一机器上逐条执行 |
 
 > 上表「已实测」的前提是后端 / 前端已按步骤 3~5 配置并启动过。**步骤 1 的裸机手工 `mysql` 导入仍未逐条实测**（本机无 `mysql` 客户端），首次部署请优先验证它：导入后用 `SHOW TABLES` 核对表数，三个口径见 [1. 初始化数据库](#1-初始化数据库)。
@@ -515,48 +516,39 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8081
 
 ## 一键部署（Docker Compose）
 
-> ✅ **已实测**（2026-09-29）：本节步骤已在 **CentOS 7.9 + Docker 24.0.7 + Compose v5.5.1** 的实机上从零
+> ✅ **已实测**（2026-09-29）：本节步骤已在 **CentOS 7.4.1708 + Docker 24.0.7 + Compose v5.5.1** 的实机上从零
 > 跑通，并通过仓库自带的 E2E 剧本 `docs/sql/t09-docker-e2e.sh`（U0–U7 全绿）；实测环境、耗时与**首跑暴露
-> 并已修复的 3 个缺陷**见本章末尾 §6。仍请以你本机的 Docker 版本为准。
+> 并已修复的 3 个缺陷**见本章末尾 **§6.1**；**多副本集群**的实测记录见 **§6.2**。仍请以你本机的 Docker 版本为准。
 >
 > ⚠️ **最容易卡住的一步是镜像拉取**（国内直连 Docker Hub 通常不通）——先看 §0 前置条件的第 3 条。
 
-**多实例 / 集群部署限制（未验证）**
+**多实例 / 集群部署（已实测）**
 
-> 本项目**仅在单实例下验证**；仓库自带的 Docker E2E 剧本 `docs/sql/t09-docker-e2e.sh`（U0–U2b–U7）
-> 同样是**单实例**编排（U0 起栈为「4 业务容器 + 1 mock-upstream」，不含副本或横向扩容），已于 2026-09-29
-> 在实机跑通（U0–U7 全绿），但 U0 的 `down -v` 会清掉数据卷。**本文档未做过多实例 / 集群部署测试，也不
-> 构成对集群部署的支持声明。**
+> ✅ **已实测**（2026-09-30）：同一份 `docker-compose.yml` 在实机上先跑**单副本**（断言 **24/24**）、
+> 再跑 **3 副本**（断言 **19/19**），两轮全绿，且验证后能干净回落到单节点默认态。
+> 完整机制表、复现命令与残余风险见本章 [§6.2 多副本集群（2026-09-30 实测）](#62-多副本集群2026-09-30-实测)。
+>
+> ⚠️ **该能力在 `main` 分支（`328c4b3` 引入，`98465ea` 修复时区缺陷），尚未进入任何 tag**。
+> 本节示例按 `v1.0.3` 克隆，若你要跑多副本，请改用 `git clone --branch main ...`。
 
-后端存在 **6 个 `@Scheduled` 定时任务，且没有任何分布式互斥机制**：
+**为什么一度不支持**：后端有 **5 个 `@Scheduled` 入口（4 个任务类）且原无任何分布式互斥**，多副本部署时它们会在
+**每个副本各跑一遍**；其中 `GrantExpireJob`（授权过期处理）、`LogRetentionJob`（调用日志 `DELETE` 清理）
+并发重复执行会导致**状态错乱或重复动作** —— 它们**不是**"多跑几次也无妨"的幂等任务。
 
-| 任务 | 触发方式 |
-|------|---------|
-| `job/AlarmEvaluateJob`（实时评估） | `fixedDelay = 10000` |
-| `job/AlarmEvaluateJob`（离线评估） | `cron = "0 */5 * * * ?"` |
-| `job/GrantExpireJob` | `cron = "0 0 2 * * ?"` |
-| `job/LogRetentionJob` | `cron = "0 30 2 * * ?"` |
-| `job/QuotaResetJob` | `cron = "0 0 0 * * ?"` |
-| `job/RedisHealthMonitor` | `fixedDelay = 30000` |
+现已由 **`DistributedJobLock`** 承接：每个任务先在 Redis 上抢 `gk:job:lock:<name>`，抢不到就跳过本次。
+各任务的锁参数（`failOpen` = Redis 挂掉时是否仍执行）：
 
-「无分布式互斥」的判定依据（以下两条检索均为**空命中**）：
+| 任务 | 触发方式 | 锁名 | TTL | Redis 故障时 |
+|------|---------|------|-----|-------------|
+| `AlarmEvaluateJob`（实时评估） | `fixedDelay = 10000` | `gk:job:lock:alarm-realtime` | 60 s | 跳过（得锁是安全前提，fail-safe） |
+| `AlarmEvaluateJob`（离线评估） | `cron = "0 */5 * * * ?"` | `gk:job:lock:alarm-offline` | 15 min | 同上 |
+| `GrantExpireJob` | `cron = "0 0 2 * * ?"` | `gk:job:lock:grant-expire:<日期>` | 25 h | **照常执行**（过期处理漏跑比重复跑更糟，fail-open） |
+| `LogRetentionJob` | `cron = "0 30 2 * * ?"` | `gk:job:lock:log-retention:<日期>` | 25 h | 同上 |
+| `RedisHealthMonitor` | `fixedDelay = 30000` | 不用锁；发布前查 `alert` 表去重（窗口 10 min） | — | — |
 
-```bash
-grep -iE "shedlock|quartz|redisson|curator|zookeeper" src/backend/pom.xml            # → 0 命中
-grep -rnE "lock|Lock|mutex" src/backend/src/main/java/com/gatekeeper/job/             # → 0 命中
-```
-
-代码中 `setIfAbsent` 的用途**均与任务调度无关**，只服务于防重放与告警去重：`AppAuthHandler.java:181`
-（Nonce 防重放）、`HighFrequencyDetector.java:63` 与 `OffHoursDetector.java:56`（同一时间窗内告警只发一次）。
-
-**后果**：多副本部署（集群，或 `docker compose up -d --scale backend=N`）时这 6 个任务会在**每个副本各执行
-一遍**；其中 `GrantExpireJob`（授权过期处理）、`LogRetentionJob`（调用日志 `DELETE` 清理）、`QuotaResetJob`
-（配额重置）并发重复执行会导致**状态错乱或重复动作** —— 它们**不是**"多跑几次也无妨"的幂等任务。
-
-**如需多实例部署，必须由部署方自行补齐以下之一（本项目未内置）**：① 引入 **ShedLock** 一类分布式调度锁
-（`@SchedulerLock`），保证同一时刻只有一个副本真正执行；② 将定时调度**移出应用**，交由外部单点承担
-（独立调度服务、K8s CronJob 等）；③ 为不需要后台任务的副本关闭调度 —— 但当前 `@EnableScheduling` 与各
-任务类都是无条件启用的，**关闭需改动代码或自行增加配置开关**。
+> 后两条用 `DistributedJobLock.daily(name)` 拼上当天日期作任务名 ⇒ 语义是「**当日恰好一次**」，而不是
+> 「每次触发互斥」。`QuotaResetJob` 已于 **2026-09-27 删除**（它只重置无读取点的 `app_quota`，属空转；
+> 日配额的真实实现是 `RateLimitHandler` 里的 `rate_limit:daily:{appId}:{yyyyMMdd}`，靠键内嵌日期 + TTL 自然过期）。
 
 不想装 JDK/MySQL/Redis 时，可用仓库自带的编排一键拉起全栈（MySQL + Redis + 后端 + 前端 Nginx + mock 上游）。
 
@@ -717,6 +709,130 @@ backend 尚未就绪（Spring Boot 启动约 8~15 秒）。编排已给 backend 
 `docker-entrypoint-initdb.d` **仅在数据卷为空时**执行。必须 `docker compose down -v` 再 `up`，
 否则会跳过初始化、继续用旧数据。
 
+### 6. 实测记录
+
+#### 6.1 单机部署（2026-09-29）
+
+**环境**：CentOS Linux 7.4.1708 (Core)，内核 3.10.0-693.el7.x86_64，4 核 / 7.8 GB / 50 GB 可用；Docker 24.0.7；
+Compose **v5.5.1**（独立二进制，**无 `docker compose` V2 插件**）；SELinux `Enforcing`；firewalld `inactive`；
+系统自带 Python 2.7.5（另装 3.6.8）。部署方式：`git clone --depth 1 --branch v1.0.2` → `.env` → `docker-compose up -d --build`。
+
+**耗时**：`build` 首次 **33 分 32 秒**（其中 `mvn dependency:go-offline` 约 31 分钟，瓶颈在网络而非 CPU）；
+仅改后端源码后重建 **1 分 33 秒**；`up -d` 到全栈 healthy 约 **40 秒**；E2E 剧本 U0–U7 约 **3 秒**。
+
+**结果**：`gatekeeper-backend` 322 MB、`gatekeeper-frontend` 50.6 MB；E2E **U0–U7 全绿**；部署态自检
+**23/23 通过**；表集合与开发库 **42/42 逐表一致**。
+
+**首跑暴露并已修复的 3 个缺陷**
+
+| # | 缺陷 | 症状 | 修复 |
+|---|---|---|---|
+| 1 | `init.sql` 第 1393 行 `sys_config` 种子的最后一个 VALUES 元组**多一个逗号** | initdb 报 `ERROR 1064` 后中止 ⇒ 后续 10 个脚本全未执行，落库只剩 **34 表 / 99 菜单** | 删除该逗号（`a5979e3`） |
+| 2 | `docker-compose.yml` 挂载清单**漏挂 5 个结构脚本**（`t13`/`t15-1`/`t15-4`/`t16-1`/`t17`） | 只有 **36 张表**，缺 6 张结构表 ⇒ 白名单 / 分组加解密 / 接口级加解密**直接抛 SQL 异常**；源码里 9 个权限点连超管都拿不到 | 补挂 5 个脚本（链 11 → 16 文件） |
+| 3 | 起栈后立刻探活得到 **502** | compose 只保证 mysql/redis healthy 后【启动】backend，Spring Boot 自身还要 8~15 秒 | backend 加 healthcheck + frontend `depends_on: service_healthy`；E2E 的 U2 增加就绪等待循环 |
+
+> 缺陷 1、2 的共同根因：这条初始化链**此前从未在真实 Docker 环境执行过**。它们不会在单元测试里暴露 ——
+> 只有真正 `up` 起来才看得见。缺陷 2 尤其隐蔽：应用能正常启动、登录也正常，**只有点进相关功能页才会报错**。
+
+**部署后建议的自检**
+
+```bash
+DQ() { docker exec -e SQL="$1" gatekeeper-mysql \
+  sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B -D "$MYSQL_DATABASE" -e "$SQL"' 2>/dev/null; }
+DQ "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE()"   # 期望 42
+DQ "SELECT COUNT(*) FROM sys_menu"                                                  # 期望 121
+DQ "SELECT COUNT(*) FROM sys_menu WHERE id=221"                                     # 期望 0
+```
+
+#### 6.2 多副本集群（2026-09-30 实测）
+
+**环境**：同 §6.1 那台实机（CentOS 7.4.1708 / 内核 3.10 / 4 核 7.8 GB / Docker 24.0.7 / 独立 `docker-compose`
+v5.5.1，**无 Docker Hub 直连**，走 `daemon.json` 镜像加速器）。源码 = `main` 的 `98465ea`；镜像由
+`docker-compose build --build-arg VERSION=…` **就地构建**，标签 `1.0.3-cluster.98465ea`。
+
+**验证前先清环境**（`docker-compose down -v` 之外，还要回收网络与目录，见 §6.2 末的清理清单）：
+
+| 阶段 | 动作 | 清理前 → 清理后 |
+|---|---|---|
+| 0 | 清 144 目标机 | 容器 5→**0**、业务镜像 2→**0**、卷 3→**0**、compose 网络 1→**0**、`/opt/gatekeeper-release` 已删、`8081` 端口空闲 |
+| 1 | `git clone` + `.env`（hex 随机密钥、CORS 带本机 IP） | 预热 4 个构建基础镜像全部成功 |
+| 2 | `docker-compose build --build-arg VERSION=1.0.3-cluster.98465ea` | 构建 rc=0（镜像层缓存命中，约 15 分钟） |
+
+**两轮结果**
+
+| 轮次 | 形态 | 容器数 | 断言 | 结论 |
+|---|---|---|---|---|
+| 单节点 | `replicas=1` | 5（mysql / redis / backend / frontend / mock-upstream） | **24 / 24** | `SINGLE_OK` |
+| 集群 | backend **3 副本** | 7 | **19 / 19** | `CLUSTER_OK` |
+
+**怎么起多副本**
+
+```bash
+# 方式一（可原地扩容 / 缩容）：需要 Compose V2 插件
+docker compose up -d --scale backend=3
+
+# 方式二：独立版 docker-compose（本机实测形态）
+GATEKEEPER_BACKEND_REPLICAS=3 docker-compose up -d
+# 该变量写进 .env 亦可；不设即默认 1（单节点），行为与改造前一致。
+```
+
+> ⚠️ `--scale` 与 `container_name` **互斥** —— 这正是本版本特意删掉 `backend.container_name` 的原因
+> （其余 4 个服务保留 `container_name`：它们不扩副本，且部署脚本依赖这些固定名）。用 `--scale` 扩容会
+> **覆盖** `deploy.replicas`；用环境变量扩容则需先 `down` 再 `up`（`replicas` 是**创建期**参数，不能原地改）。
+
+**集群下每个关注点靠什么生效**（单节点下全部退化为「与改造前一致」）
+
+| 关注点 | 机制 | 键 / 落点 | 单节点行为 |
+|---|---|---|---|
+| 定时任务重复执行 | `DistributedJobLock`：`setIfAbsent` 抢锁 + Lua 比对 `instanceId` 释放 | `gk:job:lock:<name>` | 锁空即得，等价无锁 |
+| 每日任务「当日恰好一次」 | `DistributedJobLock.daily()` 拼日期后缀，TTL 25 h | `gk:job:lock:grant-expire:2026-09-30` | 同上 |
+| 导出任务被别的副本**误杀** | 执行方持**租约**（TTL 90 s，按批续租），回收方**只在无租约时**才判死 | `gk:export:lease:<taskId>` | 单副本同样按租约判定 |
+| Redis 故障告警刷屏 | 发布前查 `alert` 表去重（窗口 10 min 内已有未处理同标题告警即不重复发） | `alert` 表 | 直接发布 |
+| 配置变更跨节点生效 | `SysConfigAccessor.evictAll()` 落库后 Pub/Sub 广播，各节点收到后清**本进程**缓存 | `gk:config:evict` | 无订阅者，等同本地失效 |
+| 前端多上游 | `resolver 127.0.0.11` + 变量式 `proxy_pass $gk_backend$request_uri`（镜像内 nginx 1.25 < 1.27.3，用不了 `upstream … resolve`） | `src/frontend/nginx.conf` | 单上游照常解析 |
+| JVM 时区 | `backend` 显式 `TZ: Asia/Shanghai`，须与 `mysql` 一致 | `docker-compose.yml` | 同样必须设（见下） |
+
+**🔴 唯一一条硬性前置：`backend` 与 `mysql` 的时区必须一致**
+
+`export_task.created_at` 等列由 DDL 的 `DEFAULT CURRENT_TIMESTAMP` 按**库时钟**写入，而 `finished_at` 由
+**应用时钟**写入。两者不一致时同一行会出现「完成时间早于创建时间」，更要命的是任何「应用侧时间 vs 库侧时间」
+的比较都会失真 —— 实测中它让启动回收逻辑**整体失效**（宽限期不等式恒为真 ⇒ 孤儿任务永远卡在 `RUNNING`）。
+因此：编排里 `mysql` 与 `backend` **都**显式设 `TZ: Asia/Shanghai`（本仓库已内置）；同时代码侧也不再依赖这个
+前提 —— `failStaleTasksOnBoot()` 的宽限期比较已**下推到 SQL**（`created_at < DATE_SUB(NOW(), INTERVAL {0} MINUTE)`，
+两端都取 DB 时钟），即使有人改了时区配置，回收仍然正确。
+
+**部署后建议断言（集群态）**
+
+```bash
+docker compose ps                        # ① 期望 gatekeeper-backend-1/-2/-3，且无裸名 gatekeeper-backend
+docker exec gatekeeper-backend-1 date '+%F %H:%M'   # ② 与宿主/库时钟一致（分钟级）
+docker exec gatekeeper-frontend sh -c "cat /proc/net/tcp" | grep -ci ':1F90'   # ③ 1F90=8080；期望命中的对端 IP 数 ≥ 2
+docker compose logs backend | grep -c '任务锁被其他节点持有'                    # ④ 外部持锁期间应 > 0
+```
+
+> ③ 的原理：容器内没有 `ss`/`netstat`，读 `/proc/net/tcp` 的 `rem_address` 列（hex 端口 `1F90` = 8080）
+> 数**不同对端 IP** 即可证明 nginx 真在轮询多个副本。实测 3 副本各被命中 16 / 23 / 24 次连接。
+
+**清理清单（验证完想回到干净机器）**
+
+```bash
+docker-compose down -v                 # 容器 + 卷（⚠️ 数据一并删除）
+docker-compose down --rmi local        # 再删本地构建的镜像（可选）
+docker network rm <项目名>_default      # ⚠️ `docker rm -f` 不会回收 compose 网络，须显式删
+rm -rf /opt/gatekeeper-release         # 部署目录
+```
+
+**残余风险（明确边界）**
+
+- **进程内缓存仍有窗口**：`SysConfigAccessor` 是本地缓存 + 广播失效；广播**丢失**（订阅者短暂离线）时，
+  该节点会继续用旧值，直到下次失效。
+- **每日锁未做在线验证**：`GrantExpireJob`（02:00）/ `LogRetentionJob`（02:30）的 `daily` 锁要跨到触发时刻
+  才能观察到真实竞争，本轮验证窗口（当日 10:3x–11:2x）已过触发点，**只核对了键形态与 TTL**。
+- **`RedisHealthMonitor` 去重依赖 DB**：`alert` 表不可用时去重失败 ⇒ 退化为「每个副本各发一条」，
+  即重复告警（**宁可多发也不漏报**，属有意选择）。
+- **DB 仍是单点**：MySQL 未做集群 / 主从。本节说的「集群」指**应用层多副本**。
+- **未覆盖**：跨主机部署、TLS / 域名接入、备份恢复流程。
+
 ## 离线部署（只用 Release 发布物，目标机不留源码）
 
 **适用场景**：目标机**拿不到源码**，或你不希望在上面留源码。
@@ -820,8 +936,9 @@ bash deploy-from-release.sh all
 | 下载通道「探一次、全局沿用」 | 通道中途劣化会让整批 `fetch` 失败 | ✅ **已修**：改为逐资产故障转移（见上面第 3 节） |
 | `nginx.conf` 未声明 `charset utf-8` | 响应头 `Content-Type: text/html` 不带 charset | ⏳ 仍缺；HTML 内 `<meta charset="utf-8">` 已覆盖实际解码，JSON 走 UTF-8 默认，无实际故障 |
 | `deploy-from-release.sh` 写死 `docker-compose` | 只有 V2 插件的主机跑不通离线部署 | ⏳ 仍缺（见 FAQ-2）；目标机是独立二进制，故实测可用 |
+| `deploy-from-release.sh` 的**集群适配**（动态容器名 `^gatekeeper-backend(-[0-9]+)?$`，去掉对 `container_name` 的依赖）只在仓库 `main`（`328c4b3`） | 用 **v1.0.3 资产**做离线部署的机器，拿到的仍是写死容器名的旧脚本 ⇒ 只能单节点 | ⏳ 待下个版本随资产发布；**离线部署目前不支持集群**，要集群请走源码路径（§6.2） |
 
-> 剩余 4 项仍在候选清单里。其中 `.env.example` 与 `build:` → `image:` 消除后，
+> 剩余 5 项仍在候选清单里。其中 `.env.example` 与 `build:` → `image:` 消除后，
 > 本脚本即可退化为「下载 → `docker compose up -d`」。
 
 ### 7. SQL 发布包的结构（`gatekeeper-sql-<版本>.zip`）
