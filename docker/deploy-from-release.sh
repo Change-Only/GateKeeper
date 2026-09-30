@@ -21,7 +21,7 @@
 #    而 github.com / codeload.github.com / api.github.com 通常可达。
 # 可行做法（按推荐顺序）：
 #   ① 本脚本已作为 Release 资产发布，走资产通道取（不写死 asset id，避免换版本后过期）：
-#        TAG=v1.0.3
+#        TAG=v1.0.4
 #        ID=$(curl -s "https://api.github.com/repos/Change-Only/GateKeeper/releases/tags/$TAG" \
 #             | python3 -c 'import sys,json;print([a["id"] for a in json.load(sys.stdin)["assets"] \
 #                 if a["name"]=="deploy-from-release.sh"][0])')
@@ -29,13 +29,13 @@
 #             "https://api.github.com/repos/Change-Only/GateKeeper/releases/assets/$ID"
 #      （该 URL 会 302 跳到 release-assets.githubusercontent.com —— 资产的真实存储域）
 #   ② 直链（github.com 可达时更省事）：
-#        curl -fsSL -O https://github.com/Change-Only/GateKeeper/releases/download/v1.0.3/deploy-from-release.sh
+#        curl -fsSL -O https://github.com/Change-Only/GateKeeper/releases/download/v1.0.4/deploy-from-release.sh
 # ============================================================
 set -uo pipefail
 
 GK_REPO="${GK_REPO:-Change-Only/GateKeeper}"
-GK_TAG="${GK_TAG:-v1.0.3}"
-GK_VER="${GK_VER:-1.0.3}"
+GK_TAG="${GK_TAG:-v1.0.4}"
+GK_VER="${GK_VER:-1.0.4}"
 GK_DIR="${GK_DIR:-/opt/gatekeeper-release}"
 GK_PARALLEL="${GK_PARALLEL:-4}"
 
@@ -60,9 +60,9 @@ SUMS_DOCKER="gatekeeper-docker-${GK_VER}-SHA256SUMS.txt"
 # 换版本时在此登记；未登记的版本会自动跳过这些断言（其余流程照常），
 # 因此本脚本可跨版本复用，而不会因为指纹过期产生假 FAIL。
 case "$GK_VER" in
-  1.0.2|1.0.3)
-    # 1.0.3 的 init.sql 与 1.0.2 逐字节相同（本次只改增量脚本的字符集声明
-    # 与部署配置，全量基线未动）—— 故两者共用同一指纹。
+  1.0.2|1.0.3|1.0.4)
+    # 1.0.4 的 init.sql 与 1.0.3 逐字节相同（本次只改集群改造与文档，
+    # 全量基线未动）—— 故三者共用同一指纹。
     EXPECT_INIT_SQL_SHA="7d14bb97c25cf577c94a9f8db8254e69e85d6dc5ead4f6ad47e8f8f22362dcb6"
     EXPECT_TABLES=42
     EXPECT_MENU=121
