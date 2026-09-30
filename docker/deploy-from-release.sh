@@ -93,6 +93,22 @@ ok()     { c_ok   "  [OK]   $*"; }
 bad()    { c_bad  "  [FAIL] $*"; FAILED=$((FAILED+1)); }
 info()   { printf '  %s\n' "$*"; }
 
+# ---------------- 容器名解析（单节点 / 集群通用） ----------------
+# 背景：compose 文件刻意【不再】给 backend 设 container_name
+#   —— 写死容器名会让 `docker compose up --scale backend=N` 因「容器名冲突」直接失败，
+#   集群部署无从谈起。去掉后 compose 会自动命名为 gatekeeper-backend-1 / -2 / ...。
+# 因此这里统一做动态解析，兼容两种形态：
+#   · 单节点：gatekeeper-backend-1（副本数默认 1）
+#   · 集群  ：gatekeeper-backend-1 / -2 / -3
+#   · 历史/兜底：gatekeeper-backend（旧版本写死容器名时留下的）
+# 返回全部匹配容器名，每行一个；无匹配时输出为空且返回 0（避免 set -e 影响调用方）。
+gk_backend_containers() {
+  docker ps -a --format '{{.Names}}' 2>/dev/null \
+    | grep -E '^gatekeeper-backend(-[0-9]+)?$' || true
+}
+# 取第一个后端容器名（用于「对单个实例操作」的场景，如 docker exec 探活）
+gk_backend_container() { gk_backend_containers | head -n1; }
+
 # ---------------- 前置检查 ----------------
 precheck() {
   step "0) 前置检查"
@@ -133,9 +149,16 @@ do_clean() {
     fi
   done
   # 兜底：按名字硬删（compose 文件已不在时）
-  for n in gatekeeper-frontend gatekeeper-backend gatekeeper-mysql gatekeeper-redis gatekeeper-mock-upstream; do
+  for n in gatekeeper-frontend gatekeeper-mysql gatekeeper-redis gatekeeper-mock-upstream; do
     docker rm -f "$n" >/dev/null 2>&1 && info "removed container $n" || true
   done
+  # backend 容器名随副本数变化（gatekeeper-backend-1/-2/...），走动态解析逐个删
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    docker rm -f "$n" >/dev/null 2>&1 && info "removed container $n" || true
+  done <<EOF
+$(gk_backend_containers)
+EOF
 
   info "-- 删除全部镜像（含悬空 none） --"
   # 单轮 rmi 会因镜像间引用关系残留（删父镜像后子镜像仍在）⇒ 迭代至空
@@ -719,13 +742,39 @@ SELECT CONCAT('moji_dict=',(SELECT COUNT(*) FROM gatekeeper.sys_dict WHERE remar
   local st
   st=$(docker ps --format '{{.Names}}|{{.Status}}')
   printf '%s\n' "$st" | sed 's/^/     /'
-  for n in gatekeeper-mysql gatekeeper-redis gatekeeper-backend gatekeeper-frontend gatekeeper-mock-upstream; do
+  for n in gatekeeper-mysql gatekeeper-redis gatekeeper-frontend gatekeeper-mock-upstream; do
     if printf '%s\n' "$st" | grep -q "^${n}|"; then ok "$n 运行中"; else bad "$n 未运行"; fi
   done
-  for n in gatekeeper-mysql gatekeeper-redis gatekeeper-backend; do
+
+  # backend 容器名随副本数变化，先解析出实际副本列表（单节点=1 个，集群=N 个）。
+  # 用 here-doc 逐行读取而非管道，避免 while 落进子 shell 导致 bad() 的 FAILED 计数丢失。
+  local be_names
+  be_names="$(gk_backend_containers)"
+  if [ -z "$be_names" ]; then
+    bad "gatekeeper-backend 未运行（未找到任何后端容器，副本数可能为 0）"
+  else
+    local be_cnt
+    be_cnt=$(printf '%s\n' "$be_names" | grep -c . || true)
+    info "backend 副本数：${be_cnt}"
+    while IFS= read -r n; do
+      [ -n "$n" ] || continue
+      if printf '%s\n' "$st" | grep -q "^${n}|"; then ok "$n 运行中"; else bad "$n 未运行"; fi
+    done <<EOF
+$be_names
+EOF
+  fi
+
+  for n in gatekeeper-mysql gatekeeper-redis; do
     if printf '%s\n' "$st" | grep "^${n}|" | grep -q 'healthy'; then ok "$n healthy"
     else bad "$n 非 healthy"; fi
   done
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    if printf '%s\n' "$st" | grep "^${n}|" | grep -q 'healthy'; then ok "$n healthy"
+    else bad "$n 非 healthy"; fi
+  done <<EOF
+$be_names
+EOF
 }
 
 # ---------------- 9) 探活 ----------------
@@ -750,9 +799,11 @@ smoke() {
 
   # 9.2 backend 容器内监听 8080 —— eclipse-temurin:8-jre 镜像内无 curl/wget，
   #     故与 healthcheck 同口径，用 bash 的 /dev/tcp 探测
-  local btcp=""
+  local btcp="" be=""
   for i in $(seq 1 15); do
-    if docker exec gatekeeper-backend bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' >/dev/null 2>&1; then
+    # 每轮重新解析：容器可能刚开始才创建出来（首次循环时可能还查不到名字）
+    be="$(gk_backend_container)"
+    if [ -n "$be" ] && docker exec "$be" bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080' >/dev/null 2>&1; then
       btcp="OK"; break
     fi
     sleep 2

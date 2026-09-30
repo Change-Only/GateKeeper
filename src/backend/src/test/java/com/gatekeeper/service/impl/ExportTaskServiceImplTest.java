@@ -6,6 +6,7 @@ import com.gatekeeper.entity.ExportTask;
 import com.gatekeeper.mapper.ExportTaskMapper;
 import com.gatekeeper.service.ExportTaskService;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -18,12 +19,16 @@ import org.mockito.quality.Strictness;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,6 +38,9 @@ import static org.mockito.Mockito.when;
  *
  * <p>覆盖：任务创建（PENDING）、状态流转（RUNNING/SUCCESS/FAILED）、
  * 失败原因截断、分页查询、下载校验（状态+文件存在性）与路径穿越防护。</p>
+ *
+ * <p>另有专组用例覆盖<b>集群下启动回收的语义</b>：只回收「执行者已死」的孤儿任务，
+ * 绝不误杀其他节点正在执行的任务（这是改造前的严重缺陷）。</p>
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -40,6 +48,8 @@ class ExportTaskServiceImplTest {
 
     @Mock
     private ExportTaskMapper exportTaskMapper;
+    @Mock
+    private ExportTaskLease exportTaskLease;
 
     @TempDir
     Path tempDir;
@@ -48,7 +58,7 @@ class ExportTaskServiceImplTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        service = new ExportTaskServiceImpl();
+        service = new ExportTaskServiceImpl(exportTaskLease);
         injectMapper(service, exportTaskMapper);
         injectField(service, "exportDir", tempDir.toAbsolutePath().toString());
     }
@@ -65,6 +75,15 @@ class ExportTaskServiceImplTest {
         Field field = target.getClass().getDeclaredField(name);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    /** 造一个「创建于很久以前」的 RUNNING 任务（避开启动回收的宽限期） */
+    private ExportTask staleRunning(Long id) {
+        ExportTask t = new ExportTask();
+        t.setId(id);
+        t.setStatus(ExportTaskService.STATUS_RUNNING);
+        t.setCreatedAt(LocalDateTime.now().minusHours(1));
+        return t;
     }
 
     @Test
@@ -214,17 +233,6 @@ class ExportTaskServiceImplTest {
     }
 
     @Test
-    void failStaleTasksOnBoot_shouldFailRunningTasks() {
-        service.failStaleTasksOnBoot();
-
-        ArgumentCaptor<ExportTask> captor = ArgumentCaptor.forClass(ExportTask.class);
-        verify(exportTaskMapper).update(captor.capture(), any(QueryWrapper.class));
-        ExportTask patch = captor.getValue();
-        assertEquals(ExportTaskService.STATUS_FAILED, patch.getStatus(), "启动时遗留 RUNNING 任务应置为 FAILED");
-        assertNotNull(patch.getFinishedAt());
-    }
-
-    @Test
     void resolveDownloadPath_shouldBlockPathTraversal() {
         ExportTask task = new ExportTask();
         task.setId(9L);
@@ -250,5 +258,99 @@ class ExportTaskServiceImplTest {
         assertEquals(1, removed);
         org.junit.jupiter.api.Assertions.assertFalse(Files.exists(file), "过期导出文件应被删除");
         verify(exportTaskMapper).delete(any(QueryWrapper.class));
+    }
+
+    // ============================================================
+    // 集群：启动回收语义
+    // ============================================================
+
+    @Test
+    @DisplayName("启动回收：租约不存在（执行者已死）→ 置 FAILED")
+    void failStaleTasks_reclaimsOrphanWhenLeaseAbsent() {
+        when(exportTaskMapper.selectList(any(QueryWrapper.class)))
+                .thenReturn(Collections.singletonList(staleRunning(11L)));
+        when(exportTaskLease.isHeld(11L)).thenReturn(Boolean.FALSE);
+
+        service.failStaleTasksOnBoot();
+
+        ArgumentCaptor<ExportTask> captor = ArgumentCaptor.forClass(ExportTask.class);
+        verify(exportTaskMapper).updateById(captor.capture());
+        assertEquals(ExportTaskService.STATUS_FAILED, captor.getValue().getStatus());
+        assertEquals(11L, captor.getValue().getId());
+        assertNotNull(captor.getValue().getFinishedAt());
+    }
+
+    @Test
+    @DisplayName("启动回收：租约仍在（其他节点正在跑）→ 绝不置 FAILED")
+    void failStaleTasks_doesNotKillTaskRunningOnAnotherNode() {
+        when(exportTaskMapper.selectList(any(QueryWrapper.class)))
+                .thenReturn(Collections.singletonList(staleRunning(12L)));
+        when(exportTaskLease.isHeld(12L)).thenReturn(Boolean.TRUE);
+
+        service.failStaleTasksOnBoot();
+
+        verify(exportTaskMapper, never()).updateById(any(ExportTask.class));
+    }
+
+    @Test
+    @DisplayName("启动回收：租约查不到（Redis 不可用）→ fail-safe，一台都不回收")
+    void failStaleTasks_abortsEntirelyWhenLeaseUnknown() {
+        when(exportTaskMapper.selectList(any(QueryWrapper.class)))
+                .thenReturn(Arrays.asList(staleRunning(13L), staleRunning(14L)));
+        when(exportTaskLease.isHeld(anyLong())).thenReturn(null);
+
+        service.failStaleTasksOnBoot();
+
+        verify(exportTaskMapper, never()).updateById(any(ExportTask.class));
+    }
+
+    @Test
+    @DisplayName("启动回收：宽限期内的新任务不回收（租约可能尚未写入）")
+    void failStaleTasks_skipsTasksWithinGracePeriod() {
+        ExportTask fresh = new ExportTask();
+        fresh.setId(15L);
+        fresh.setStatus(ExportTaskService.STATUS_RUNNING);
+        fresh.setCreatedAt(LocalDateTime.now());   // 刚创建
+        when(exportTaskMapper.selectList(any(QueryWrapper.class)))
+                .thenReturn(Collections.singletonList(fresh));
+
+        service.failStaleTasksOnBoot();
+
+        verify(exportTaskMapper, never()).updateById(any(ExportTask.class));
+        verify(exportTaskLease, never()).isHeld(anyLong());
+    }
+
+    @Test
+    @DisplayName("启动回收：无 RUNNING 任务 → 不产生任何查询/更新")
+    void failStaleTasks_noopWhenNothingRunning() {
+        when(exportTaskMapper.selectList(any(QueryWrapper.class))).thenReturn(Collections.emptyList());
+
+        service.failStaleTasksOnBoot();
+
+        verify(exportTaskMapper, never()).updateById(any(ExportTask.class));
+    }
+
+    @Test
+    @DisplayName("启动回收：查询本身抛异常也不阻断应用启动")
+    void failStaleTasks_swallowsQueryError() {
+        when(exportTaskMapper.selectList(any(QueryWrapper.class)))
+                .thenThrow(new RuntimeException("db down"));
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.failStaleTasksOnBoot());
+    }
+
+    @Test
+    @DisplayName("启动回收：多个孤儿中只有租约缺失的被回收")
+    void failStaleTasks_mixedLeaseStates() {
+        when(exportTaskMapper.selectList(any(QueryWrapper.class)))
+                .thenReturn(Arrays.asList(staleRunning(21L), staleRunning(22L)));
+        when(exportTaskLease.isHeld(21L)).thenReturn(Boolean.FALSE);
+        when(exportTaskLease.isHeld(22L)).thenReturn(Boolean.TRUE);
+
+        service.failStaleTasksOnBoot();
+
+        ArgumentCaptor<ExportTask> captor = ArgumentCaptor.forClass(ExportTask.class);
+        verify(exportTaskMapper, times(1)).updateById(captor.capture());
+        assertEquals(21L, captor.getValue().getId(), "只应回收租约缺失的那个");
     }
 }

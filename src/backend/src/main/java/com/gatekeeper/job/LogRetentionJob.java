@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
@@ -22,6 +23,15 @@ import java.time.LocalDateTime;
  *   <li><b>导出文件清理</b>：删除已完成（SUCCESS/FAILED）超过 7 天的导出文件与任务记录，
  *       防止异步下载中心的磁盘文件无限堆积。</li>
  * </ol>
+ *
+ * <h3>集群行为</h3>
+ * <p>用<b>按天唯一</b>的锁键 + 25 小时 TTL 保证「当天恰好有一个节点执行」，执行后不释放锁。
+ * 这一条对本任务尤其重要：导出清理要删除磁盘上的导出文件，若 N 个节点并发执行，
+ * 会出现「同一条记录被多次读取、多个节点同时删同一个文件」的竞争
+ * （虽然 {@code Files.deleteIfExists} 本身幂等，但并发删除会放大 I/O 与锁等待）。</p>
+ *
+ * <p>策略选 <b>fail-open</b>：两项清理都是幂等删除（按时间条件删、按 status 删），
+ * 重复执行无副作用。Redis 故障时宁可重复清理，也不要让日志表停止归档。</p>
  */
 @Slf4j
 @Component
@@ -31,8 +41,16 @@ public class LogRetentionJob {
     /** 导出任务/文件保留天数 */
     static final int EXPORT_RETENTION_DAYS = 7;
 
+    /** 任务基础名（分布式锁键前缀） */
+    static final String JOB_NAME = "log-retention";
+
+    /** 日戳锁的存活时长：> 24 小时 */
+    private static final Duration LOCK_TTL = Duration.ofHours(25);
+
     private final ApiCallLogMapper apiCallLogMapper;
     private final ExportTaskService exportTaskService;
+    /** 集群任务互斥锁 */
+    private final DistributedJobLock jobLock;
 
     /** 调用日志保留天数（配置文件 gatekeeper.log.retention-days） */
     @Value("${gatekeeper.log.retention-days:90}")
@@ -43,6 +61,11 @@ public class LogRetentionJob {
      */
     @Scheduled(cron = "0 30 2 * * ?")
     public void cleanup() {
+        // 按天唯一的键 ⇒ 当天只有一个节点执行；执行后不释放，交给 TTL 过期
+        if (!jobLock.tryLock(DistributedJobLock.daily(JOB_NAME), LOCK_TTL, true)) {
+            log.debug("LogRetentionJob 今日已由其他节点执行，跳过");
+            return;
+        }
         cleanupCallLogs();
         cleanupExports();
     }

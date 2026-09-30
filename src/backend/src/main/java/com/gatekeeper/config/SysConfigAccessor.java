@@ -5,6 +5,8 @@ import com.gatekeeper.entity.SysConfig;
 import com.gatekeeper.mapper.SysConfigMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -65,6 +67,35 @@ public class SysConfigAccessor {
 
     /** key -> 缓存项（value 允许为 null，表示「查了但没这个键 / 查询失败」） */
     private final Map<String, Entry> cache = new ConcurrentHashMap<>();
+
+    /**
+     * Redis 广播通道名：配置变更时向全集群广播「清空本地缓存」。
+     *
+     * <p>订阅方见 {@code ConfigCacheInvalidationConfig}。</p>
+     */
+    public static final String EVICT_CHANNEL = "gk:config:evict";
+
+    /** 广播内容（无意义，仅用于可读性——订阅方收到任何消息都执行全清） */
+    static final String EVICT_MESSAGE = "ALL";
+
+    /**
+     * 可选的跨节点失效广播器。
+     *
+     * <p>刻意用<b>可选注入</b>而非构造注入：单节点部署、或纯单测环境（无 Redis）下
+     * 它为 null，此时 {@code evict*} 退化为「只清本节点本地缓存」——与改造前行为一致，
+     * 且不影响任何既有调用方与单测的构造方式。</p>
+     */
+    private StringRedisTemplate redisTemplate;
+
+    /**
+     * 注入 Redis 模板（存在才注入；缺失时按单节点模式运行）。
+     *
+     * @param redisTemplate Redis 字符串模板
+     */
+    @Autowired(required = false)
+    public void setRedisTemplate(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
 
     /**
      * 读取字符串配置。
@@ -145,7 +176,7 @@ public class SysConfigAccessor {
     }
 
     /**
-     * 失效单个配置键的本地缓存（用于精确写后失效）。
+     * 失效单个配置键的缓存，并广播给集群内其他节点（用于精确写后失效）。
      *
      * @param key 配置键
      */
@@ -153,17 +184,56 @@ public class SysConfigAccessor {
         if (key != null) {
             cache.remove(key);
         }
+        broadcastEvict();
     }
 
     /**
-     * 失效全部本地缓存 —— {@code ConfigServiceImpl} 的新建 / 更新 / 删除统一调用它。
+     * 失效全部本地缓存 —— {@code ConfigServiceImpl} 的新建 / 更新 / 删除统一调用它，
+     * 并广播给集群内其他节点。
      *
      * <p>刻意用「全清」而不是「按键清」：更新场景可能同时改到 {@code config_key}（键名变更），
      * 按键清需要同时清新旧两个键才算正确；而这张表只有十几行、重建成本可忽略，
      * 全清天然不会有漏清导致的「改了但没生效」。</p>
+     *
+     * <h3>为什么必须广播（集群）</h3>
+     * <p>本缓存是<b>进程内</b>的。改造前 {@code evictAll} 只清调用方自己那台机器的缓存，
+     * 集群里其余节点仍持有旧值、最长可达 {@value #CACHE_TTL_MS} ms —— 这与本类
+     * 「改完立刻生效由写后失效保证」的设计承诺相矛盾。而这张表里装的恰恰是
+     * {@code gateway.auth.enabled} / {@code gateway.ratelimit.enabled} 这类<b>应急开关</b>：
+     * 运维在节点 A 上关掉限流，节点 B/C 却仍在限流，正是最需要避免的场景。</p>
+     *
+     * <p>广播失败不影响本地失效，其他节点由 TTL 兜底（fail-open）。</p>
      */
     public void evictAll() {
         cache.clear();
+        broadcastEvict();
+    }
+
+    /**
+     * 仅清空本节点本地缓存，<b>不再广播</b>。
+     *
+     * <p>供 Redis 订阅方在收到广播时调用。刻意与 {@link #evictAll()} 分开：
+     * 若订阅方直接调 {@code evictAll()}，会在集群内形成「广播→全清→再广播」的消息回环。</p>
+     */
+    public void clearLocalCache() {
+        cache.clear();
+    }
+
+    /**
+     * 向全集群广播「配置已变更，请清空本地缓存」。
+     *
+     * <p>无 Redis（单节点部署）时直接跳过；异常只记 WARN，绝不向上抛——
+     * 配置失效失败不应把「保存配置」这个业务动作带崩。</p>
+     */
+    private void broadcastEvict() {
+        if (redisTemplate == null) {
+            return;
+        }
+        try {
+            redisTemplate.convertAndSend(EVICT_CHANNEL, EVICT_MESSAGE);
+        } catch (Exception e) {
+            log.warn("广播配置失效失败（其他节点将由 TTL={}ms 兜底）: {}", CACHE_TTL_MS, e.getMessage());
+        }
     }
 
     /**

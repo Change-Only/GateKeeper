@@ -502,13 +502,27 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
         if (!breach.breached(metric)) {
             return;
         }
+        // 静默占位：用 setIfAbsent 原子「先占坑、再告警」。
+        //
+        // 改造前是 hasKey 检查 → 发送 → set 的三步走（check-then-act），
+        // 在集群下存在竞态：两个节点同时通过 hasKey 检查 ⇒ 双方都会发送 ⇒ 重复告警。
+        // 收敛为一次原子 SETNX 后，全集群只有一个调用方能把 key 抢下来，
+        // 其余一律视为「静默期内」直接返回，从根上消除竞态。
+        //
+        // 静默粒度 = 规则 × 对象（键含 scopeKey），每个对象独立静默。
         String silenceKey = ALARM_SILENCE_PREFIX + rule.getId() + ":" + scopeKey;
+        int silenceMin = (rule.getSilencePeriod() == null || rule.getSilencePeriod() <= 0)
+                ? DEFAULT_SILENCE_MIN : rule.getSilencePeriod();
         try {
-            if (Boolean.TRUE.equals(redisTemplate.hasKey(silenceKey))) {
-                return; // 静默期内，不重复告警（静默粒度 = 规则 × 对象）
+            Boolean claimed = redisTemplate.opsForValue()
+                    .setIfAbsent(silenceKey, "1", Duration.ofMinutes(silenceMin));
+            if (!Boolean.TRUE.equals(claimed)) {
+                return; // 静默期内，或（集群下）另一节点已在同一时刻抢占
             }
         } catch (Exception e) {
-            log.warn("check silence failed ruleId={}: {}", rule.getId(), e.getMessage());
+            // Redis 异常时保持既有降级语义：不静默、照常告警（fail-open），
+            // 宁可重复也不漏报；下一轮评估会重新尝试占位。
+            log.warn("claim silence failed ruleId={}: {}", rule.getId(), e.getMessage());
         }
 
         String name = rule.getRuleName() == null ? ("rule#" + rule.getId()) : rule.getRuleName();
@@ -545,14 +559,8 @@ public class AlarmRuleServiceImpl extends ServiceImpl<AlarmRuleMapper, AlarmRule
             }
         }
 
-        // 3) 写入静默键（键含 scopeKey ⇒ 每个对象独立静默，不再"一个对象告警后整条规则静默"）
-        int silenceMin = (rule.getSilencePeriod() == null || rule.getSilencePeriod() <= 0)
-                ? DEFAULT_SILENCE_MIN : rule.getSilencePeriod();
-        try {
-            redisTemplate.opsForValue().set(silenceKey, "1", Duration.ofMinutes(silenceMin));
-        } catch (Exception e) {
-            log.warn("set silence failed ruleId={}: {}", rule.getId(), e.getMessage());
-        }
+        // 静默键已在方法开头用 setIfAbsent 原子写入，此处无需再写；
+        // 故意不在此处补写，避免「发送失败但静默键已占位」之外再引入第二种写入时序。
     }
 
     /**

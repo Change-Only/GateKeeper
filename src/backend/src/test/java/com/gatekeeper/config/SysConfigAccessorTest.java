@@ -6,12 +6,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -191,5 +193,75 @@ class SysConfigAccessorTest {
         accessor.evictAll();
         stubRows(row("sign.timestamp.tolerance", "300000"));
         assertEquals(300000L, accessor.getLong("sign.timestamp.tolerance", 30L));
+    }
+
+    // ============================================================
+    // 集群：跨节点失效广播
+    // ============================================================
+
+    /** 挂上一个 mock 的 Redis 模板，模拟「集群模式（Redis 可用）」 */
+    private StringRedisTemplate withRedis() {
+        StringRedisTemplate redis = Mockito.mock(StringRedisTemplate.class);
+        accessor.setRedisTemplate(redis);
+        return redis;
+    }
+
+    @Test
+    @DisplayName("集群：evictAll 会广播失效，其他节点不必等 60s TTL 才生效")
+    void evictAll_broadcastsToCluster() {
+        StringRedisTemplate redis = withRedis();
+
+        accessor.evictAll();
+
+        Mockito.verify(redis).convertAndSend(
+                SysConfigAccessor.EVICT_CHANNEL, SysConfigAccessor.EVICT_MESSAGE);
+    }
+
+    @Test
+    @DisplayName("集群：evict(key) 也广播（精确失效同样要让其他节点知道）")
+    void evictKey_broadcastsToCluster() {
+        StringRedisTemplate redis = withRedis();
+
+        accessor.evict("gateway.auth.enabled");
+
+        Mockito.verify(redis).convertAndSend(
+                SysConfigAccessor.EVICT_CHANNEL, SysConfigAccessor.EVICT_MESSAGE);
+    }
+
+    @Test
+    @DisplayName("订阅方走 clearLocalCache：只清本地、不再广播（否则形成消息回环）")
+    void clearLocalCache_doesNotBroadcast() {
+        StringRedisTemplate redis = withRedis();
+        stubRows(row("sign.nonce.ttl", "600"));
+        assertEquals(600, accessor.getInt("sign.nonce.ttl", 300));
+
+        stubRows(row("sign.nonce.ttl", "120"));
+        accessor.clearLocalCache();
+
+        assertEquals(120, accessor.getInt("sign.nonce.ttl", 300), "本地缓存应已被清空");
+        Mockito.verify(redis, Mockito.never())
+                .convertAndSend(Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    @DisplayName("广播失败只记 WARN，不向外抛：不能把「保存配置」这个业务动作带崩")
+    void broadcastFailure_isSwallowed() {
+        StringRedisTemplate redis = withRedis();
+        Mockito.doThrow(new RuntimeException("redis down"))
+                .when(redis).convertAndSend(Mockito.anyString(), Mockito.anyString());
+
+        assertDoesNotThrow(() -> accessor.evictAll());
+    }
+
+    @Test
+    @DisplayName("单节点（无 Redis）：不广播、不抛异常，本地失效照常生效")
+    void withoutRedis_localEvictionStillWorks() {
+        // 未调用 setRedisTemplate ⇒ redisTemplate 为 null，等价于单节点部署
+        stubRows(row("sign.nonce.ttl", "600"));
+        assertEquals(600, accessor.getInt("sign.nonce.ttl", 300));
+
+        stubRows(row("sign.nonce.ttl", "120"));
+        assertDoesNotThrow(() -> accessor.evictAll());
+        assertEquals(120, accessor.getInt("sign.nonce.ttl", 300));
     }
 }

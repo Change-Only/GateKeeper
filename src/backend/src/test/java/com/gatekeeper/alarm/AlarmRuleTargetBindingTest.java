@@ -105,6 +105,10 @@ class AlarmRuleTargetBindingTest {
         baseMapperField.setAccessible(true);
         baseMapperField.set(service, alarmRuleMapper);
         when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        // 静默占位默认「抢到」：真实语义见 AlarmRuleServiceImpl 的 setIfAbsent 原子占位
+        org.mockito.Mockito.lenient()
+                .when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .thenReturn(true);
     }
 
     // ===================== 1) 写入契约 =====================
@@ -265,8 +269,53 @@ class AlarmRuleTargetBindingTest {
         service.evaluateRealtime();
 
         verify(alertService, times(2)).publish(eq("CRITICAL"), anyString(), anyString(), anyString(), isNull(), isNull(), isNull());
-        verify(valueOps).set(eq("gk:alarm:silence:1:API:11"), eq("1"), eq(Duration.ofMinutes(30)));
-        verify(valueOps).set(eq("gk:alarm:silence:1:API:12"), eq("1"), eq(Duration.ofMinutes(30)));
+        verify(valueOps).setIfAbsent(eq("gk:alarm:silence:1:API:11"), eq("1"), eq(Duration.ofMinutes(30)));
+        verify(valueOps).setIfAbsent(eq("gk:alarm:silence:1:API:12"), eq("1"), eq(Duration.ofMinutes(30)));
+    }
+
+    @Test
+    @DisplayName("集群：静默占位抢不到（静默期内 / 另一节点已抢占）⇒ 不发告警")
+    void evaluateRealtime_whenSilenceClaimFails_noAlert() {
+        when(alarmRuleMapper.selectList(any())).thenReturn(Collections.singletonList(
+                enabledRule(20L, 1, "API", null, ">1", 30)));
+        when(apiInterfaceMapper.selectList(any())).thenReturn(
+                Collections.singletonList(api(11L, "接口A", "GET", "/a", null)));
+        // setIfAbsent=false：键已存在（静默期内，或集群中另一节点刚抢占）
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(false);
+
+        service.evaluateRealtime();
+
+        verify(alertService, never()).publish(anyString(), anyString(), anyString(), anyString(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("集群：占位是原子 SETNX（不是先查后写，避免两节点同时越过检查）")
+    void evaluateRealtime_silenceClaimIsAtomic() {
+        when(alarmRuleMapper.selectList(any())).thenReturn(Collections.singletonList(
+                enabledRule(21L, 1, "API", null, ">1", 30)));
+        when(apiInterfaceMapper.selectList(any())).thenReturn(
+                Collections.singletonList(api(11L, "接口A", "GET", "/a", null)));
+
+        service.evaluateRealtime();
+
+        verify(valueOps).setIfAbsent(eq("gk:alarm:silence:21:API:11"), eq("1"), eq(Duration.ofMinutes(30)));
+        // 不得再走「先 hasKey 判断」那条老路
+        verify(redisTemplate, never()).hasKey(anyString());
+    }
+
+    @Test
+    @DisplayName("集群：Redis 异常 ⇒ 降级为不静默、照常告警（fail-open，宁可重复不可漏报）")
+    void evaluateRealtime_whenClaimThrows_degradesToAlwaysAlert() {
+        when(alarmRuleMapper.selectList(any())).thenReturn(Collections.singletonList(
+                enabledRule(22L, 1, "API", null, ">1", 30)));
+        when(apiInterfaceMapper.selectList(any())).thenReturn(
+                Collections.singletonList(api(11L, "接口A", "GET", "/a", null)));
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .thenThrow(new RuntimeException("redis down"));
+
+        service.evaluateRealtime();
+
+        verify(alertService, times(1)).publish(anyString(), anyString(), anyString(), anyString(), isNull(), isNull(), isNull());
     }
 
     @Test
@@ -280,7 +329,7 @@ class AlarmRuleTargetBindingTest {
 
         verify(alertService, times(1)).publish(eq("CRITICAL"), anyString(), anyString(),
                 anyString(), eq(5L), eq("订单中心"), isNull());
-        verify(valueOps).set(eq("gk:alarm:silence:2:APP:5"), eq("1"), eq(Duration.ofMinutes(10)));
+        verify(valueOps).setIfAbsent(eq("gk:alarm:silence:2:APP:5"), eq("1"), eq(Duration.ofMinutes(10)));
     }
 
     @Test
@@ -295,8 +344,8 @@ class AlarmRuleTargetBindingTest {
         service.evaluateRealtime();
 
         verify(alertService, times(1)).publish(anyString(), anyString(), anyString(), anyString(), isNull(), isNull(), isNull());
-        verify(valueOps).set(eq("gk:alarm:silence:3:API:12"), eq("1"), any(Duration.class));
-        verify(valueOps, never()).set(eq("gk:alarm:silence:3:API:11"), anyString(), any(Duration.class));
+        verify(valueOps).setIfAbsent(eq("gk:alarm:silence:3:API:12"), eq("1"), any(Duration.class));
+        verify(valueOps, never()).setIfAbsent(eq("gk:alarm:silence:3:API:11"), anyString(), any(Duration.class));
     }
 
     @Test
@@ -332,7 +381,7 @@ class AlarmRuleTargetBindingTest {
         service.evaluateRealtime();
 
         verify(alertService, times(1)).publish(anyString(), anyString(), anyString(), anyString(), isNull(), isNull(), isNull());
-        verify(valueOps).set(eq("gk:alarm:silence:6:global"), eq("1"), any(Duration.class));
+        verify(valueOps).setIfAbsent(eq("gk:alarm:silence:6:global"), eq("1"), any(Duration.class));
         // 历史规则不应触发任何对象枚举查询
         verify(apiInterfaceMapper, never()).selectList(any());
         verify(appMapper, never()).selectList(any());

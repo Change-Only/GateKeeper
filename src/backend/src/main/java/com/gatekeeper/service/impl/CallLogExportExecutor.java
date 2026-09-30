@@ -50,6 +50,8 @@ public class CallLogExportExecutor {
 
     private final CallLogService callLogService;
     private final ExportTaskService exportTaskService;
+    /** 执行租约：让「本任务是否还有节点在跑」在集群内可判定（详见 {@link ExportTaskLease}） */
+    private final ExportTaskLease exportTaskLease;
 
     /** 导出文件根目录（与 ExportTaskServiceImpl 同源配置） */
     @Value("${gatekeeper.export.dir:./data/exports}")
@@ -63,8 +65,14 @@ public class CallLogExportExecutor {
      */
     @Async
     public void run(Long taskId, LogExportQuery query) {
+        // 先写租约、再置 RUNNING：保证「状态 = RUNNING」的任务一定有租约可查，
+        // 否则启动回收方可能看到一个「RUNNING 但无租约」的任务而误判为孤儿。
+        exportTaskLease.hold(taskId);
+
         ExportTask task = exportTaskService.startTask(taskId);
         if (task == null) {
+            // 未能启动（任务不存在 / 已被启动）：撤掉刚占下的租约，避免留下假心跳
+            exportTaskLease.release(taskId);
             log.warn("Export task {} cannot start (not found or already started)", taskId);
             return;
         }
@@ -95,6 +103,8 @@ public class CallLogExportExecutor {
                         writer.write(CsvUtil.line(row));
                         rows++;
                     }
+                    // 每批续租：维持「本任务有人在跑」的心跳，避免长时间导出被启动回收误判为孤儿
+                    exportTaskLease.renew(taskId);
                     if (records.size() < BATCH_SIZE) {
                         break; // 最后一批
                     }
@@ -112,6 +122,10 @@ public class CallLogExportExecutor {
             log.error("Export task {} failed", taskId, e);
             cleanup(tmpFile);
             exportTaskService.finishFailed(taskId, e.getMessage());
+        } finally {
+            // 无论成功失败都交还租约：任务已被终结（SUCCESS/FAILED），不应再有「执行中」的心跳。
+            // 若此处因进程崩溃未执行到，租约也会在 TTL 到期后自动失效，由下次启动回收。
+            exportTaskLease.release(taskId);
         }
     }
 

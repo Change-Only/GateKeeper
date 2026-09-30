@@ -91,11 +91,18 @@ services:
       timeout: 5s
       retries: 10
 
-  # ---------- 后端网关服务 ----------
+  # ---------- 后端网关服务（可横向扩缩） ----------
+  # 🔴 刻意【不设 container_name】：一旦写死容器名，`docker compose up --scale backend=N`
+  #    会因「容器名冲突」直接报错，集群部署无从谈起。去掉后 compose 自动命名为
+  #    gatekeeper-backend-1 / -2 / ...，多副本才能起来。
+  #    单节点部署行为不变（副本数默认 1，仍是单个后端容器），
+  #    运维脚本里对后端容器的引用改由动态解析（见 docker/deploy-from-release.sh:gk_backend_container）。
   backend:
     build: ./src/backend
-    container_name: gatekeeper-backend
     restart: unless-stopped
+    # 副本数：默认 1（单节点）；集群模式设 GATEKEEPER_BACKEND_REPLICAS=3 或命令行 --scale backend=3
+    deploy:
+      replicas: ${GATEKEEPER_BACKEND_REPLICAS:-1}
     environment:
       # 数据源：指向 compose 内的 mysql 容器
       GATEKEEPER_DB_HOST: mysql
@@ -114,6 +121,11 @@ services:
       # 导出文件目录：挂载持久卷，容器重建后历史导出文件不丢
       GATEKEEPER_EXPORT_DIR: /app/data/exports
     volumes:
+      # 导出文件必须为全部后端副本共享：任务可能在副本 A 上执行生成文件、
+      # 而用户的下载请求经 nginx 轮询落到副本 B —— 若各自用本地目录，B 上找不到文件 ⇒ 404。
+      #   · 单机多副本（本文件，docker compose --scale）：命名卷可被多个容器同时挂载 ⇒ 天然共享；
+      #   · 多主机集群：命名卷是宿主机本地的、不跨机共享，必须换成 NFS/CephFS 或对象存储，
+      #     否则导出下载会在「文件不在本机」时 404。
       - export-data:/app/data/exports
     depends_on:
       mysql:

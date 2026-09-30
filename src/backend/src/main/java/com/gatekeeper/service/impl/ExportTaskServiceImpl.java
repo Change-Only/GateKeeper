@@ -36,20 +36,97 @@ public class ExportTaskServiceImpl extends ServiceImpl<ExportTaskMapper, ExportT
     private static final int MAX_ERROR_MSG_LEN = 512;
 
     /**
-     * 启动自愈：将遗留的 RUNNING 任务标记为失败
+     * 启动回收的宽限期（分钟）：创建时间在此窗口内的 RUNNING 任务不参与回收。
      *
-     * <p>导出任务在应用进程内执行，服务重启后 RUNNING 任务永远无人继续执行，
-     * 会永久卡在"生成中"。启动时将这类任务重置为 FAILED，前端轮询后可感知并重建。</p>
+     * <p>覆盖「已置 RUNNING、执行租约尚未写入」的短窗口，避免误杀刚起步的任务。</p>
+     */
+    static final long BOOT_GRACE_MINUTES = 2L;
+
+    /** 执行租约：用于判定 RUNNING 任务是否真的还有节点在执行（集群语义的核心） */
+    private final ExportTaskLease exportTaskLease;
+
+    /**
+     * 构造注入执行租约。
+     *
+     * <p>{@link ServiceImpl} 本身有无参构造，此处显式声明带参构造以便单测直接注入 mock。</p>
+     *
+     * @param exportTaskLease 导出任务执行租约
+     */
+    public ExportTaskServiceImpl(ExportTaskLease exportTaskLease) {
+        this.exportTaskLease = exportTaskLease;
+    }
+
+    /**
+     * 启动自愈：回收「执行者已死」的遗留 RUNNING 任务。
+     *
+     * <p>导出任务在应用进程内执行，进程退出后 RUNNING 任务永远无人继续执行，
+     * 会永久卡在「生成中」。启动时把这类任务置为 FAILED，前端轮询后可感知并重建。</p>
+     *
+     * <h3>集群语义（改造要点）</h3>
+     * <p>改造前是「启动时把所有 RUNNING 一律置 FAILED」。<b>这在集群下是错的</b>：
+     * 节点 B 重启时会把节点 A 正在正常执行的任务判死，用户既拿不到结果、
+     * 也下不到 A 其实已经生成好的文件。</p>
+     *
+     * <p>现在改为按 {@link ExportTaskLease 执行租约} 逐个判定，三条规则：</p>
+     * <ol>
+     *   <li>租约<b>存在</b> ⇒ 有节点在执行（可能不是本机）⇒ <b>跳过</b>；</li>
+     *   <li>租约<b>不存在</b> ⇒ 执行者已死 ⇒ 置 FAILED 回收；</li>
+     *   <li>租约<b>查不到</b>（Redis 不可用）⇒ <b>立即中止整个回收</b>，一台都不动
+     *       —— 无法区分「没人在跑」和「问不到」，宁可留僵尸也不误杀。</li>
+     * </ol>
+     *
+     * <p>另设宽限期 {@value #BOOT_GRACE_MINUTES} 分钟：刚创建的任务可能还处在
+     * 「已置 RUNNING、租约尚未写入」的窗口内，不参与本次回收。</p>
      */
     @PostConstruct
     public void failStaleTasksOnBoot() {
-        QueryWrapper<ExportTask> wrapper = new QueryWrapper<>();
-        wrapper.eq("status", STATUS_RUNNING);
-        ExportTask patch = new ExportTask();
-        patch.setStatus(STATUS_FAILED);
-        patch.setErrorMsg("服务重启，任务中断，请重新创建");
-        patch.setFinishedAt(LocalDateTime.now());
-        update(patch, wrapper);
+        try {
+            QueryWrapper<ExportTask> wrapper = new QueryWrapper<>();
+            wrapper.eq("status", STATUS_RUNNING);
+            List<ExportTask> running = list(wrapper);
+            if (running == null || running.isEmpty()) {
+                return;
+            }
+
+            LocalDateTime graceLine = LocalDateTime.now().minusMinutes(BOOT_GRACE_MINUTES);
+            int reclaimed = 0;
+            int skipped = 0;
+            for (ExportTask task : running) {
+                if (task == null || task.getId() == null) {
+                    continue;
+                }
+                // 宽限期内的任务不回收（租约可能尚未写入）
+                if (task.getCreatedAt() != null && task.getCreatedAt().isAfter(graceLine)) {
+                    skipped++;
+                    continue;
+                }
+                Boolean held = exportTaskLease.isHeld(task.getId());
+                if (held == null) {
+                    // Redis 不可用 ⇒ 无法判定 ⇒ fail-safe：本次不回收任何任务
+                    log.error("启动回收导出任务中止：无法查询执行租约（Redis 不可用），"
+                            + "为避免误杀正在执行的任务，本次不回收任何 RUNNING 任务");
+                    return;
+                }
+                if (Boolean.TRUE.equals(held)) {
+                    skipped++;   // 有节点正在执行 ⇒ 不动它
+                    continue;
+                }
+                ExportTask patch = new ExportTask();
+                patch.setId(task.getId());
+                patch.setStatus(STATUS_FAILED);
+                patch.setErrorMsg("执行节点已退出，任务中断，请重新创建");
+                patch.setFinishedAt(LocalDateTime.now());
+                updateById(patch);
+                reclaimed++;
+            }
+            if (reclaimed > 0 || skipped > 0) {
+                log.info("启动回收导出任务：回收孤儿 {} 个，跳过 {} 个（宽限期内 / 有节点在执行）",
+                        reclaimed, skipped);
+            }
+        } catch (Exception e) {
+            // 回收失败不得阻断应用启动
+            log.error("启动回收导出任务失败（不影响应用启动）", e);
+        }
     }
 
     @Override
