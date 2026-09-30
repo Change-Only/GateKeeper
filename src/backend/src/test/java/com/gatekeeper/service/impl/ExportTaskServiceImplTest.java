@@ -26,6 +26,7 @@ import java.util.Collections;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
@@ -77,7 +78,12 @@ class ExportTaskServiceImplTest {
         field.set(target, value);
     }
 
-    /** 造一个「创建于很久以前」的 RUNNING 任务（避开启动回收的宽限期） */
+    /**
+     * 造一个「创建于很久以前」的 RUNNING 任务。
+     *
+     * <p>宽限期过滤已下推到 SQL（由 DB 时钟判定），此处的 {@code createdAt} 仅用于
+     * 让 mock 返回的实体在语义上自洽——代码本身不再读取它与应用时钟比较。</p>
+     */
     private ExportTask staleRunning(Long id) {
         ExportTask t = new ExportTask();
         t.setId(id);
@@ -305,19 +311,21 @@ class ExportTaskServiceImplTest {
     }
 
     @Test
-    @DisplayName("启动回收：宽限期内的新任务不回收（租约可能尚未写入）")
-    void failStaleTasks_skipsTasksWithinGracePeriod() {
-        ExportTask fresh = new ExportTask();
-        fresh.setId(15L);
-        fresh.setStatus(ExportTaskService.STATUS_RUNNING);
-        fresh.setCreatedAt(LocalDateTime.now());   // 刚创建
-        when(exportTaskMapper.selectList(any(QueryWrapper.class)))
-                .thenReturn(Collections.singletonList(fresh));
+    @DisplayName("启动回收：宽限期过滤必须下推到 SQL，且两端都用 DB 时钟")
+    void failStaleTasks_appliesGraceFilterInSqlWithDbClock() {
+        ArgumentCaptor<QueryWrapper<ExportTask>> captor = ArgumentCaptor.forClass(QueryWrapper.class);
+        when(exportTaskMapper.selectList(any(QueryWrapper.class))).thenReturn(Collections.emptyList());
 
         service.failStaleTasksOnBoot();
 
-        verify(exportTaskMapper, never()).updateById(any(ExportTask.class));
-        verify(exportTaskLease, never()).isHeld(anyLong());
+        verify(exportTaskMapper).selectList(captor.capture());
+        String sql = captor.getValue().getCustomSqlSegment();
+        // 可证伪点：改造前此处只有 status 条件，宽限期靠应用侧
+        // `createdAt.isAfter(LocalDateTime.now().minusMinutes(2))` 判断 —— 当 JVM 与
+        // 库的时区不一致时该不等式恒真，回收整体失效（实测 8 小时偏差）。
+        assertTrue(sql.contains("created_at"), "SQL 应含宽限期比较列 created_at: " + sql);
+        assertTrue(sql.contains("DATE_SUB"), "宽限期应在 SQL 内做时间减法: " + sql);
+        assertTrue(sql.contains("NOW()"), "比较基准必须是 DB 的 NOW()（库时钟），不得是应用时钟: " + sql);
     }
 
     @Test

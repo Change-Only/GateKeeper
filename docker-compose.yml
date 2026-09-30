@@ -104,6 +104,12 @@ services:
     deploy:
       replicas: ${GATEKEEPER_BACKEND_REPLICAS:-1}
     environment:
+      # 🔴 时区必须与 mysql 服务保持一致（mysql 已设 TZ=Asia/Shanghai）。
+      #   不设时，容器默认 UTC，而 `export_task.created_at` 等列由 DDL 的
+      #   DEFAULT CURRENT_TIMESTAMP 按【库时钟(CST)】写入、应用侧的 finished_at
+      #   等则由【JVM 时钟(UTC)】写入 ⇒ 同一行里出现「完成时间比创建时间早 8 小时」，
+      #   且任何「应用侧时间 vs 库侧时间」的比较都会失真（实测导致启动回收逻辑失效）。
+      TZ: Asia/Shanghai
       # 数据源：指向 compose 内的 mysql 容器
       GATEKEEPER_DB_HOST: mysql
       GATEKEEPER_DB_PORT: 3306

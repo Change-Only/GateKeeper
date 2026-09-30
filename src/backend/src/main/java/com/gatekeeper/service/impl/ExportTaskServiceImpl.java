@@ -76,28 +76,30 @@ public class ExportTaskServiceImpl extends ServiceImpl<ExportTaskMapper, ExportT
      * </ol>
      *
      * <p>另设宽限期 {@value #BOOT_GRACE_MINUTES} 分钟：刚创建的任务可能还处在
-     * 「已置 RUNNING、租约尚未写入」的窗口内，不参与本次回收。</p>
+     * 「已置 RUNNING、租约尚未写入」的窗口内，不参与本次回收。该过滤在 SQL 里
+     * 用 DB 时钟比较，避免依赖「应用时钟与库时钟一致」这一隐含前提。</p>
      */
     @PostConstruct
     public void failStaleTasksOnBoot() {
         try {
             QueryWrapper<ExportTask> wrapper = new QueryWrapper<>();
-            wrapper.eq("status", STATUS_RUNNING);
+            // 🔴 宽限期的比较【必须由 DB 完成】：created_at 由 DDL 的 DEFAULT CURRENT_TIMESTAMP
+            //   生成（即「库时钟」），若基准取应用进程的 LocalDateTime.now()（「JVM 时钟」），
+            //   两者容器时区不一致时该比较会恒为真 —— 实测部署环境中 MySQL 为
+            //   TZ=Asia/Shanghai、backend 未设 TZ 而取 UTC，相差 8 小时 ⇒ 回收逻辑整体失效、
+            //   孤儿任务永远卡在 RUNNING。下推到 SQL 后不等式两端都取自 DB 时钟，
+            //   与应用/DB 的时区配置是否一致无关（{0} 由 MyBatis 参数绑定，无注入风险）。
+            wrapper.eq("status", STATUS_RUNNING)
+                    .apply("created_at < DATE_SUB(NOW(), INTERVAL {0} MINUTE)", BOOT_GRACE_MINUTES);
             List<ExportTask> running = list(wrapper);
             if (running == null || running.isEmpty()) {
                 return;
             }
 
-            LocalDateTime graceLine = LocalDateTime.now().minusMinutes(BOOT_GRACE_MINUTES);
             int reclaimed = 0;
             int skipped = 0;
             for (ExportTask task : running) {
                 if (task == null || task.getId() == null) {
-                    continue;
-                }
-                // 宽限期内的任务不回收（租约可能尚未写入）
-                if (task.getCreatedAt() != null && task.getCreatedAt().isAfter(graceLine)) {
-                    skipped++;
                     continue;
                 }
                 Boolean held = exportTaskLease.isHeld(task.getId());
